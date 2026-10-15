@@ -723,6 +723,8 @@ bool AutoRemesher::remeshIslands()
     struct IslandContext {
         std::vector<Vector3> vertices;
         std::vector<std::vector<size_t>> triangles;
+        // Taken before resampling replaces vertices and triangles.
+        QuadExtractor::Boundary inputBoundary;
         double voxelSize;
         double area;
         double targetQuadCount;
@@ -753,6 +755,7 @@ bool AutoRemesher::remeshIslands()
             context.triangles.push_back(std::move(triangle));
         }
         context.area = calculateMeshArea(context.vertices, context.triangles);
+        context.inputBoundary = QuadExtractor::findBoundary(context.vertices, context.triangles);
 
         context.scaling = m_scaling;
         context.voxelSize = m_voxelSize;
@@ -923,6 +926,7 @@ bool AutoRemesher::remeshIslands()
             QuadExtractor extractor(&vertices, &triangles, uvs.get());
             extractor.setOriginalTriangleUvs(&run.capturedOriginalUvs);
             extractor.setSingularVertices(&run.capturedSingularVertexIndices);
+            extractor.setInputBoundary(&ctx.inputBoundary);
             extractor.setProgressHandler(
                 makeStageProgress(islandIndex, islandParameterizeEnd, 1.0f, 1.0f));
             if (extractor.extract()) {

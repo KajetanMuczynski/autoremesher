@@ -17,9 +17,10 @@
  *  SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-// An open input stays open: the output has as many boundary loops as the
-// input and the same Euler characteristic. Hole filling used to cap every
-// output loop of up to 65 edges, real boundaries included (REFERENCE M15).
+// The output has as many boundary loops as the input and the same Euler
+// characteristic. Hole filling used to cap every output loop of up to 65
+// edges, real boundaries included (REFERENCE M15), and then to keep holes
+// open that decimation and resampling had made in a closed input.
 
 #include <AutoRemesher/Remesh>
 #include <algorithm>
@@ -132,16 +133,27 @@ int main()
     struct Case {
         std::string name;
         AutoRemesher::RemeshRequest request;
+        uint32_t target;
         Topology expected;
+        bool checkEuler;
     };
     // Each target keeps the output boundary loops below 65 edges, the largest
     // hole the extraction fills.
     std::vector<Case> cases = {
-        { "closed", sphereBand(0.0, M_PI, 96, 48), { 2, 0 } },
-        { "dome", sphereBand(0.0, 0.45 * M_PI, 96, 24), { 1, 1 } },
-        { "band", sphereBand(0.25 * M_PI, 0.75 * M_PI, 96, 24), { 0, 2 } },
+        { "closed", sphereBand(0.0, M_PI, 96, 48), 1000, { 2, 0 }, true },
+        { "dome", sphereBand(0.0, 0.45 * M_PI, 96, 24), 400, { 1, 1 }, true },
+        { "band", sphereBand(0.25 * M_PI, 0.75 * M_PI, 96, 24), 600, { 0, 2 }, true },
+        // A closed ellipsoid thin enough that decimation leaves a non-manifold
+        // edge and resampling turns it into a small hole in the mesh the quads
+        // are extracted from. That hole must not be taken for the input's
+        // boundary. The output has non-manifold edges here, which changes its
+        // Euler characteristic, so only the boundary is checked.
+        { "thin", sphereBand(0.0, M_PI, 96, 48), 150, { 2, 0 }, false },
     };
-    const uint32_t targets[] = { 1000, 400, 600 };
+    for (size_t i = 0; i < cases.back().request.positions.size(); i += 3) {
+        cases.back().request.positions[i + 1] *= 0.15;
+        cases.back().request.positions[i + 2] *= 0.003;
+    }
 
     struct Row {
         std::string name;
@@ -151,7 +163,7 @@ int main()
     std::vector<Row> rows;
     for (size_t c = 0; c < cases.size(); ++c) {
         auto& request = cases[c].request;
-        request.parameters.targetQuadCount = targets[c];
+        request.parameters.targetQuadCount = cases[c].target;
         Row row { cases[c].name, {}, {}, false };
         row.input = topology(request.positions.size() / 3,
             std::vector<uint32_t>(request.triangles.size() / 3, 3), request.triangles);
@@ -160,7 +172,7 @@ int main()
             row.output = topology(result.mesh.positions.size() / 3, result.mesh.faceSizes, result.mesh.faceIndices);
             row.ok = row.input.euler == cases[c].expected.euler
                 && row.input.boundaryLoops == cases[c].expected.boundaryLoops
-                && row.output.euler == row.input.euler
+                && (!cases[c].checkEuler || row.output.euler == row.input.euler)
                 && row.output.boundaryLoops == row.input.boundaryLoops;
         }
         rows.push_back(row);
