@@ -151,18 +151,20 @@ def find_executable(configured=""):
 def worker_environment(environ):
     """The worker's environment: Blender's, minus what would confuse the CLI.
 
-    The CLI is the Qt app, so it always gets the offscreen platform. Inside a
-    Snap (Blender's is one), library paths into the snap are dropped, so the
-    CLI loads the system Qt and TBB it was built against.
+    The configured executable may be the Qt app, so Qt always gets the
+    offscreen platform. Inside a Snap (Blender's is one), library paths into
+    the snap are dropped, so the worker loads the system TBB (and Qt) it was
+    built against. LD_LIBRARY_PATH is colon-separated on every platform that
+    reads it, so it is split on ":" and not os.pathsep (";" on Windows).
     """
     env = dict(environ)
     env["QT_QPA_PLATFORM"] = "offscreen"
     snap = env.get("SNAP")
     if snap and "LD_LIBRARY_PATH" in env:
-        kept = [p for p in env["LD_LIBRARY_PATH"].split(os.pathsep)
+        kept = [p for p in env["LD_LIBRARY_PATH"].split(":")
                 if p and not p.startswith(snap.rstrip("/") + "/") and p != snap]
         if kept:
-            env["LD_LIBRARY_PATH"] = os.pathsep.join(kept)
+            env["LD_LIBRARY_PATH"] = ":".join(kept)
         else:
             del env["LD_LIBRARY_PATH"]
     return env

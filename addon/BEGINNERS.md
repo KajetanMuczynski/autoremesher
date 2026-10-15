@@ -15,7 +15,8 @@ sudo snap install blender --channel=4.5lts/stable --classic
 `snap info blender` (2026-10-15) lists `4.5lts/stable` as 4.5.14, classic
 confinement. Classic means Blender can start the remesher from your home
 folder; the add-on also drops the snap's library paths before it starts the
-remesher, so the remesher uses the system Qt it was built with.
+remesher, so the remesher uses the system TBB library it was built with,
+not the snap's copy.
 
 Blender 5.x is not for this laptop: it needs Intel Kaby Lake or newer graphics,
 the HD 5500 is older (https://www.blender.org/download/requirements/).
@@ -23,10 +24,11 @@ the HD 5500 is older (https://www.blender.org/download/requirements/).
 ## 2. Build the add-on zip and the remesher
 
 ```
-sh ~/Documents/Autoremesher/autoremesher-addon/addon/package.sh
+sh ~/Documents/Autoremesher/autoremesher/addon/package.sh
 ```
 
-It prints two paths. Keep the terminal open; you need both in step 4.
+It builds the remesher and prints the path of the add-on zip, which has the
+remesher inside. Keep the terminal open; you need the path in step 4.
 
 ## 3. Start Blender from a terminal
 
@@ -46,13 +48,13 @@ right, a column of small icon tabs on its left edge).
 2. Click **Get Extensions** in its left column.
 3. At the top right of that page, click the small **down arrow** and choose
    **Install from Disk...** Pick the zip from step 2
-   (`build/addon/quadami-0.1.0.zip`). *(not tried here)*
+   (`build/addon/quadami-0.1.0-linux-x64.zip`). *(not tried here)*
 4. Click **Add-ons** in the left column, find **Quadami** in the list and
    click the arrow left of its name to expand it.
-5. In **Remesher executable**, click the folder icon and pick the remesher
-   from step 2 (`build/app/autoremesher`), or paste the path. The line under
-   it must say **Using: ...** with a check mark; "not found" means the path is
-   wrong.
+5. Leave **Remesher executable** empty: the add-on uses the remesher inside
+   the zip. The line under it must say **Using: .../bin/autoremesher-cli**
+   with a check mark; "not found" means the zip was made without the
+   remesher, so run step 2 again and reinstall.
 6. Close the Preferences window. Preferences save automatically.
 
 ## 5. Moving around without a mouse
