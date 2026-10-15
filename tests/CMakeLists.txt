@@ -12,3 +12,7 @@ add_test(NAME quad_count COMMAND quad_count_test)
 add_executable(diagnostics_test diagnostics_test.cpp)
 target_link_libraries(diagnostics_test PRIVATE autoremesher_core)
 add_test(NAME diagnostics COMMAND diagnostics_test)
+
+add_executable(open_boundary_test open_boundary_test.cpp)
+target_link_libraries(open_boundary_test PRIVATE autoremesher_core)
+add_test(NAME open_boundary COMMAND open_boundary_test)
