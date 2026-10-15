@@ -38,6 +38,9 @@ Headless CLI (what the Blender bridge calls); `offscreen` avoids needing a displ
 Qt-free core and benchmarks: `tools/bench/` (`ar_bench` driver, corpus, metrics; see its README).
 `tools/bench/build.sh <work-dir>` builds the app and the bench drivers out of tree.
 
+CI (`.github/workflows/build.yml`, Ubuntu 24.04): builds the app and `ar_bench`, then runs
+`ci/smoke_test.sh <binary>` on both (UV sphere from `ci/make_sphere.py`, accepts 1,200-2,400 quads).
+
 Running the binary with no args opens the GUI. The core needs `setTargetTriangleCount(n > 0)` or
 `remesh()` fails.
 
