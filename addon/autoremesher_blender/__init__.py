@@ -75,13 +75,12 @@ class RemeshSettings(bpy.types.PropertyGroup):
     # (research/baseline-and-profiling.md section 4.5, code-to-math-spec.md).
     target_quads: IntProperty(
         name="Target Quads", default=5000, min=1, soft_min=100, soft_max=1000000,
-        description="Number of quads to aim for. With Adaptivity above 0 the result "
-                    "currently has far fewer, often a third to a half of this")
+        description="Number of quads to aim for")
     adaptivity: FloatProperty(
         name="Adaptivity", default=1.0, min=0.0, max=1.0,
         description="Smaller quads where the surface curves strongly, larger where it is "
-                    "flat. 0: even quad size, closest to Target Quads and the fewest "
-                    "flipped quads. 1: strongest variation")
+                    "flat. 0: even quad size and the fewest flipped quads. "
+                    "1: strongest variation")
     sharp_edge_degrees: FloatProperty(
         name="Sharp Edge", default=90.0, min=30.0, max=180.0,
         description="Edges where the surface bends by more than this angle (degrees) "
