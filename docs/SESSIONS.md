@@ -106,3 +106,10 @@ Template:
 - Archive: the exact pre-baseline REFERENCE.md was saved by a parallel thread as `archive/REFERENCE-2026-10-14-pre-baseline.md`. **No pre-baseline copy of TODO.md was made**; the changes are the ones listed in "Did". That parallel thread ("Fold baseline results into plan files") stood down without editing; its checklist added: A/B at adaptivity 0 and 1 in 3.7, 4.1 raised, the tbbmalloc static-TBB caveat, the 2.9 libc++ note, and measured lines in SQ-P1/P3/Z1/E2/E3.
 - Measured: nothing new (folding only).
 - Next: code: 8.0, 2.11, 2.12 (quick wins), then the critical path 1.6 → 2.1–2.2 → 3.1–3.3. Kajetan: 1.12 on his machine; 0.8 when he wants.
+
+## 2026-10-15 · Claude (cloud thread "Fix quad count undershoot") · TODO 2.11 fixed
+- Repos/commits: fork master `ea03fc1` → PR #2 (merged as `246a315`).
+- Did: traced the low count with a local probe (per-island sizing count, continuous and integer uv area), fixed it, added `tests/quad_count_test.cpp` and the CI job `core-tests`, ran the 18-mesh corpus at 2k/10k/50k (adaptivity 1 and 0, master and fix) and an equal-output-count comparison against master; tested a 2.25× finer T.
+- Found: two causes multiply. m_f is normalised by a per-vertex κ̄ on the adaptive T (asks for 0.27–0.85 of the count), and the continuous cover solve loses 3–60 % of the area with the curvature scale field (a direct M3 measurement). Fixing the count drops T to ≈2.5 triangles per quad, which costs per-quad quality (M4).
+- Measured: count 0.98–1.00 × target median, 107/108 runs within ±10 % (master 0.37–0.51 default, 0.82 at adaptivity 0). At equal output count 1.4–1.6× faster than master but worse angles and Hausdorff; T 2.25× finer recovers flips and Hausdorff at 1.5–1.65× the time (REFERENCE M4).
+- Next: 2.15 (T resolution setting and its default) needs Kajetan's call on quality vs time; 4.5 should shrink the continuous rescale factor.

@@ -80,6 +80,7 @@ All `OK-MIT` and good upstream patches. A/B each on the corpus. Diagnostics firs
 - [ ] **2.12** **Stop capping real boundaries (M15):** `fixHoles` (`quadextractor.cpp:1295`) fills only output loops that don't match an input boundary loop. Test on hand, demosthenes, human_neutral at 2k/10k. S · `OK-MIT`.
 - [ ] **2.13** **Non-manifold edges and holes in the output (M16):** 20/54 runs non-manifold, 4 closed inputs with holes. Find the producing step with the 2.3 counters and fix it there; 6.2 makes it structural. needs 2.3. S–M · `OK-MIT`.
 - [ ] **2.14** **Small islands vanish (M14):** human_neutral's eyes are decimated from 1088 to 84 triangles and lost. Trace which step drops them; likely fixes are a minimum triangle count per island before decimation and keeping (or reporting) every component. S · `OK-MIT`.
+- [ ] **2.15** **T resolution as a setting (M4):** since 2.11, T has ≈2.5 triangles per output quad and per-quad quality at equal output count is below master's; T 2.25× finer recovers most of it at 1.5–1.65× the time (REFERENCE M4). Make T's resolution a parameter independent of the count (triangles per quad, not a voxel factor), sweep it on the corpus at 2k/10k (e.g. 1, 1.5, 2.25, 3×) and pick the default from the knee. Interim until 7.4 (field on a finer mesh) and 2.8 (project onto the input). S · `OK-MIT`.
 
 ## Wave 3: solver interface and rounding Stage A (critical path)
 
