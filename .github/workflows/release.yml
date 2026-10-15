@@ -1,28 +1,24 @@
 name: release
 
+# Packaging: AppImage, Windows zip and macOS DMG, each tested on the armadillo at 50k quads.
+# ci.yml calls this workflow on every PR and every push to master (job "package"), so a
+# packaging failure turns "CI passed" red before merge. Tags run it directly.
 on:
+  workflow_call:
   push:
     branches:
-      - master
       - ci
     tags:
       - '*'
-  # A PR that changes the packaging runs it before merge.
-  pull_request:
-    paths:
-      - .github/workflows/release.yml
 
 # Names the files: the branch or tag, or pr<number> on a PR (its ref name, "14/merge",
-# is not a file name).
+# is not a file name). Called from ci.yml, the github context is the caller's.
 env:
   BUILD_NAME: ${{ github.event_name == 'pull_request' && format('pr{0}', github.event.number) || github.ref_name }}
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   appimage-upload:
+    name: AppImage (linux)
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -246,6 +242,7 @@ jobs:
           path: autoremesher-${{ env.BUILD_NAME }}.AppImage
 
   win32-msvc-upload:
+    name: zip (windows)
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
@@ -417,6 +414,7 @@ jobs:
           path: autoremesher-${{ env.BUILD_NAME }}-win32-x86_64.zip
 
   macos-upload:
+    name: DMG (macos)
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
