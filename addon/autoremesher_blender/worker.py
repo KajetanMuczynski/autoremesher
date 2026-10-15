@@ -56,6 +56,7 @@ PARAMETER_FLAGS = {
     "edge_scaling": "--edge-scaling",
     "sharp_edge_degrees": "--sharp-edge",
     "smooth_normal_degrees": "--smooth-normal",
+    "resolution": "--resolution",
 }
 
 _PROGRESS_LINE = re.compile(r"^(\d+)% done\.(?: (.*))?$")

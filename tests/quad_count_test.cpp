@@ -18,13 +18,16 @@
  */
 
 // The output should have about as many quads as requested, with and without
-// curvature adaptivity: adaptivity moves quads between flat and curved
-// regions but must not change how many there are. Shapes are procedural so
-// the test needs no data files.
+// curvature adaptivity and at both resolutions: adaptivity moves quads
+// between flat and curved regions and the resolution changes the mesh they
+// are solved on, but neither may change how many there are. Shapes are
+// procedural so the test needs no data files.
 
-#include <AutoRemesher/AutoRemesher>
+#include <AutoRemesher/Remesh>
+#include <AutoRemesher/Vector3>
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <functional>
 #include <map>
@@ -122,17 +125,19 @@ Mesh merged(const Mesh& a, const Mesh& b)
     return mesh;
 }
 
-size_t remeshQuads(const Mesh& mesh, size_t targetQuads, double adaptivity)
+size_t remeshQuads(const Mesh& mesh, size_t targetQuads, double adaptivity,
+    AutoRemesher::MeshResolution resolution)
 {
-    AutoRemesher::AutoRemesher remesher(mesh.vertices, mesh.triangles);
-    remesher.setTargetTriangleCount(targetQuads * 2);
-    remesher.setGradientAdaptivity(adaptivity);
-    if (!remesher.remesh())
-        return 0;
-    size_t quads = 0;
-    for (const auto& face : remesher.remeshedQuads())
-        quads += (4 == face.size()) ? 1 : 0;
-    return quads;
+    AutoRemesher::RemeshRequest request;
+    for (const auto& v : mesh.vertices)
+        request.positions.insert(request.positions.end(), { v.x(), v.y(), v.z() });
+    for (const auto& f : mesh.triangles)
+        request.triangles.insert(request.triangles.end(), { (uint32_t)f[0], (uint32_t)f[1], (uint32_t)f[2] });
+    request.parameters.targetQuadCount = (uint32_t)targetQuads;
+    request.parameters.adaptivity = adaptivity;
+    request.parameters.resolution = resolution;
+    const AutoRemesher::RemeshResult result = AutoRemesher::remesh(request);
+    return AutoRemesher::RemeshStatus::Ok == result.status ? result.report.quadCount : 0;
 }
 
 }
@@ -167,23 +172,31 @@ int main()
         std::string shape;
         size_t target;
         double adaptivity;
+        AutoRemesher::MeshResolution resolution;
         size_t quads;
     };
+    // Every combination at the default resolution; fast only with adaptivity,
+    // where the sizing is furthest from uniform, to keep the test short.
     std::vector<Case> cases;
     for (const auto& shape : shapes)
         for (const size_t target : { 1000, 4000 })
             for (const double adaptivity : { 0.0, 1.0 })
-                cases.push_back({ shape.first, target, adaptivity, remeshQuads(shape.second, target, adaptivity) });
+                for (const auto resolution : { AutoRemesher::MeshResolution::Quality, AutoRemesher::MeshResolution::Fast }) {
+                    if (AutoRemesher::MeshResolution::Fast == resolution && 0.0 == adaptivity)
+                        continue;
+                    cases.push_back({ shape.first, target, adaptivity, resolution,
+                        remeshQuads(shape.second, target, adaptivity, resolution) });
+                }
 
     // The core logs to the console while it runs, so the table comes last.
     int failures = 0;
-    printf("\n%-12s %7s %10s %7s %6s\n", "shape", "target", "adaptivity", "quads", "ratio");
+    printf("\n%-12s %7s %10s %10s %7s %6s\n", "shape", "target", "adaptivity", "resolution", "quads", "ratio");
     for (const auto& c : cases) {
         const double ratio = (double)c.quads / c.target;
         const bool ok = std::fabs(ratio - 1.0) <= tolerance;
         failures += ok ? 0 : 1;
-        printf("%-12s %7zu %10.1f %7zu %6.3f%s\n", c.shape.c_str(), c.target, c.adaptivity, c.quads, ratio,
-            ok ? "" : "  FAIL");
+        printf("%-12s %7zu %10.1f %10s %7zu %6.3f%s\n", c.shape.c_str(), c.target, c.adaptivity,
+            AutoRemesher::toString(c.resolution), c.quads, ratio, ok ? "" : "  FAIL");
     }
     if (failures)
         printf("%d case(s) outside %.0f%% of the target\n", failures, 100 * tolerance);

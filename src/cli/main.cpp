@@ -55,6 +55,9 @@ const char* const usage = "Usage: autoremesher-cli -i input.obj -o output.obj [o
                           "  --edge-scaling <factor>     quad edge length factor (default 1)\n"
                           "  --sharp-edge <degrees>      dihedral angle of sharp edges (default 90)\n"
                           "  --smooth-normal <degrees>   > 0 projects onto a smoothed input (default 0)\n"
+                          "  --resolution fast|quality   triangle mesh the quads are solved on: quality\n"
+                          "                              gives cleaner quads, fast takes about 2/3 of\n"
+                          "                              the time; same quad count (default quality)\n"
                           "  --stdin-control             cancel when stdin receives the line \"cancel\"\n"
                           "                              or is closed; the report then says \"cancelled\"\n"
                           "  -h, --help                  show this text\n"
@@ -152,7 +155,12 @@ int parseArguments(const std::vector<std::string>& arguments, Options* options)
             valid = parseDouble(value, &parameters.sharpEdgeDegrees);
         else if ("--smooth-normal" == name)
             valid = parseDouble(value, &parameters.smoothNormalDegrees);
-        else {
+        else if ("--resolution" == name) {
+            if (!parseMeshResolution(value, &parameters.resolution)) {
+                std::fprintf(stderr, "Error: --resolution must be fast or quality, not %s\n", value.c_str());
+                return 1;
+            }
+        } else {
             std::fprintf(stderr, "Error: unknown option %s (see --help)\n", name.c_str());
             return 1;
         }

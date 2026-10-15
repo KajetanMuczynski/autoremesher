@@ -26,7 +26,7 @@ import json
 
 import bpy
 import numpy as np
-from bpy.props import FloatProperty, IntProperty, PointerProperty, StringProperty
+from bpy.props import EnumProperty, FloatProperty, IntProperty, PointerProperty, StringProperty
 
 from . import report as report_rows
 from . import worker
@@ -102,6 +102,15 @@ class RemeshSettings(bpy.types.PropertyGroup):
                     "a smooth curved surface through them instead (helps on low-poly "
                     "input); faces turned more than this angle (degrees) from a vertex's "
                     "average normal are left out of its smoothing, so creases stay")
+    resolution: EnumProperty(
+        name="Resolution",
+        items=(
+            ("quality", "Quality", "Solves on a finer triangle mesh: cleaner quads and fewer "
+                                   "flipped quads, about 1.5 times as long as Fast"),
+            ("fast", "Fast", "Solves on a coarser triangle mesh: quicker, rougher quads"),
+        ),
+        default="quality",
+        description="Triangle mesh the quads are solved on. The quad count is the same either way")
 
     def parameters(self):
         return {name: getattr(self, name) for name in worker.PARAMETER_FLAGS}
@@ -110,7 +119,7 @@ class RemeshSettings(bpy.types.PropertyGroup):
 # How the panel shows the parameters: the main ones, then a collapsed
 # "Advanced" section. Every parameter appears exactly once (blender_smoke.py).
 MAIN_PARAMETERS = ("target_quads", "adaptivity", "sharp_edge_degrees")
-ADVANCED_PARAMETERS = ("anisotropy", "edge_scaling", "smooth_normal_degrees")
+ADVANCED_PARAMETERS = ("resolution", "anisotropy", "edge_scaling", "smooth_normal_degrees")
 
 
 def _mesh_arrays(context, obj):

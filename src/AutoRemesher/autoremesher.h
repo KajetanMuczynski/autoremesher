@@ -46,6 +46,14 @@ enum class ModelType {
 
 typedef void (*AutoRemesherProgressHandler)(void* tag, float progress, const char* status);
 
+// Triangles per output quad in the mesh T that the cross field and the
+// parametrization are solved on, counted before stage 3 refines curved
+// regions.  The quad count does not depend on it; a finer T gives cleaner
+// quads and takes longer.  Fast is the resolution the core always used.
+// Quality is the knee of the corpus sweep in TODO 2.15.
+const double FastTrianglesPerQuad = 2.0;
+const double QualityTrianglesPerQuad = 4.5;
+
 class AutoRemesher {
 public:
     AutoRemesher(const std::vector<Vector3>& vertices,
@@ -70,6 +78,12 @@ public:
     void setScaling(double scaling)
     {
         m_scaling = scaling;
+    }
+
+    // See FastTrianglesPerQuad.
+    void setTrianglesPerQuad(double trianglesPerQuad)
+    {
+        m_trianglesPerQuad = trianglesPerQuad;
     }
 
     void setProgressHandler(AutoRemesherProgressHandler progressHandler)
@@ -282,6 +296,7 @@ private:
     std::vector<StageTime> m_stageTimes;
     double m_scaling = 0.0;
     size_t m_targetTriangleCount = 0;
+    double m_trianglesPerQuad = QualityTrianglesPerQuad;
     double m_voxelSize = 0.0;
     double m_adaptivity = 1.0;
     double m_anisotropy = 1.0;

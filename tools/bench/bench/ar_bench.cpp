@@ -10,6 +10,7 @@
 // Usage: ar_bench --input in.obj --output out.obj --json run.json
 //          [--target-quads 50000] [--edge-scaling 1] [--sharp-edge 90]
 //          [--smooth-normal 0] [--adaptivity 1] [--anisotropy 1]
+//          [--resolution fast|quality|<triangles per quad>]
 //          [--threads N] [--dump-param param.obj]
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "tiny_obj_loader.h"
@@ -315,6 +316,11 @@ int main(int argc, char** argv)
     const double smoothNormal = std::stod(arg("smooth-normal", "0.0"));
     const double adaptivity = std::stod(arg("adaptivity", "1.0"));
     const double anisotropy = std::stod(arg("anisotropy", "1.0"));
+    // The remesh() resolutions by name, or any triangles-per-quad value for sweeps.
+    const std::string resolution = arg("resolution", "quality");
+    const double trianglesPerQuad = "fast" == resolution ? AutoRemesher::FastTrianglesPerQuad
+        : "quality" == resolution                        ? AutoRemesher::QualityTrianglesPerQuad
+                                                         : std::stod(resolution);
     const int threads = std::stoi(arg("threads", "0"));
     const std::string paramPath = arg("dump-param", "");
 
@@ -365,6 +371,7 @@ int main(int argc, char** argv)
     remesher->setAnisotropy(anisotropy);
     remesher->setSharpEdgeDegrees(sharpEdge);
     remesher->setSmoothNormalDegrees(smoothNormal);
+    remesher->setTrianglesPerQuad(trianglesPerQuad);
     remesher->setTag(&sampler);
     remesher->setProgressHandler(onProgress);
     const bool ok = remesher->remesh();
@@ -402,6 +409,7 @@ int main(int argc, char** argv)
     json << "  \"params\": {\"target_quads\": " << targetQuads << ", \"edge_scaling\": " << number(edgeScaling)
          << ", \"sharp_edge\": " << number(sharpEdge) << ", \"smooth_normal\": " << number(smoothNormal)
          << ", \"adaptivity\": " << number(adaptivity) << ", \"anisotropy\": " << number(anisotropy)
+         << ", \"triangles_per_quad\": " << number(trianglesPerQuad)
          << ", \"threads\": " << effectiveThreads << "},\n";
     json << "  \"input_vertices\": " << vertices.size() << ",\n";
     json << "  \"input_triangles\": " << triangles.size() << ",\n";
