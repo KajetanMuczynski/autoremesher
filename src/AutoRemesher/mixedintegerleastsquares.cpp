@@ -486,6 +486,21 @@ bool MixedIntegerLeastSquares::solveIteration()
     return m_system->solve(&m_values);
 }
 
+bool MixedIntegerLeastSquares::scaleSolution(double factor)
+{
+    for (const bool fixed : m_fixed)
+        if (fixed)
+            return false;
+    for (Row& energy : m_reducedEnergy)
+        energy.rhs *= factor;
+    for (double& value : m_values)
+        value *= factor;
+    // Rebuilt from the scaled right-hand sides by the next solve, which
+    // refactors anyway once integers are fixed.
+    m_system.reset();
+    return true;
+}
+
 bool MixedIntegerLeastSquares::converged() const
 {
     if (m_values.empty())

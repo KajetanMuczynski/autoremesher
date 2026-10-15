@@ -444,6 +444,40 @@ namespace {
         }
     }
 
+    // Net uv area of the cover in grid cells (one cell is one quad); faces
+    // mapped with the opposite orientation count negative.
+    double coverCellArea(const SurfaceMesh& mesh, const MixedIntegerLeastSquares& s)
+    {
+        double area = 0.0;
+        for (size_t f = 0; f < mesh.faceCount(); ++f) {
+            const size_t a = 3 * f, b = 3 * f + 1, c = 3 * f + 2;
+            const double ax = s.value(2 * a), ay = s.value(2 * a + 1);
+            area += .5 * ((s.value(2 * b) - ax) * (s.value(2 * c + 1) - ay) - (s.value(2 * c) - ax) * (s.value(2 * b + 1) - ay));
+        }
+        return std::fabs(area);
+    }
+
+    // Rescales the continuous cover so it spans as many cells as the face
+    // sizes ask for. Least squares projects the sized frame onto integrable
+    // maps and loses the part of it that has curl, so the map came out with
+    // 40-97 % of the requested cells on the baseline corpus, the least on
+    // hard-surface parts. The continuous solution is linear in 1 / size, so
+    // the rescale is exact there; rounding afterwards moves the count by a
+    // few percent.
+    void matchCellCount(const SurfaceMesh& mesh, double expectedCells, MixedIntegerLeastSquares* s)
+    {
+        const double cells = coverCellArea(mesh, *s);
+        if (!(expectedCells > 0.0) || !(cells > 0.0))
+            return;
+        const double ratio = expectedCells / cells;
+        // Beyond this the map is broken rather than shrunk, and growing it
+        // would only multiply the extraction work on a bad map.
+        const double maximumRatio = 4.0;
+        if (ratio > maximumRatio || ratio < 1.0 / maximumRatio)
+            return;
+        s->scaleSolution(std::sqrt(ratio));
+    }
+
     bool solveQuadCover(const CoverContext& ctx, std::vector<double>* values,
         const ProgressHandler* progressHandler)
     {
@@ -468,6 +502,7 @@ namespace {
         MixedIntegerLeastSquares s(variables);
         for (size_t t = 0; t < 2 * corners; ++t)
             s.setVariablePeriod(uvVariables + t, 2);
+        double expectedCells = 0.0;
         for (size_t f = 0; f < mesh.faceCount(); ++f) {
             const Vector3 u = field[f], v = unit(Vector3::crossProduct(normals[f], u), mesh.edgeVector(3 * f));
             const double faceScale = faceScaling && faceScaling->size() == mesh.faceCount()
@@ -477,6 +512,8 @@ namespace {
             const double directionalV = std::max(1e-12, activeScalingV[f]);
             const double su = scale * faceScale * directionalU;
             const double sv = scale * faceScale * directionalV;
+            const double faceArea = .5 * Vector3::crossProduct(mesh.edgeVector(3 * f), -mesh.edgeVector(3 * f + 2)).length();
+            expectedCells += faceArea / (su * sv);
             for (size_t l = 0; l < 3; ++l) {
                 size_t c = 3 * f + l, n = mesh.nextCorner(c);
                 Vector3 e = mesh.edgeVector(c);
@@ -597,6 +634,8 @@ namespace {
                 "Rounding cover to integers");
             if (!s.solveIteration())
                 return false;
+            if (0 == iteration)
+                matchCellCount(mesh, expectedCells, &s);
             if (s.converged())
                 break;
         }
@@ -642,7 +681,7 @@ namespace {
 
 bool QuadParameterizer::parameterize(const std::vector<Vector3>& vertices,
     const std::vector<std::vector<size_t>>& triangles,
-    const std::vector<Vector3>* guidance, double scaling,
+    const std::vector<Vector3>* guidance, double quadEdgeLength,
     double hardEdgeDegrees, Result* result,
     const std::vector<double>* faceScaling,
     const std::vector<double>* faceScalingU,
@@ -654,7 +693,7 @@ bool QuadParameterizer::parameterize(const std::vector<Vector3>& vertices,
             (*progressHandler)(fraction, name);
     };
 
-    if (vertices.empty() || triangles.empty() || scaling <= 0.0)
+    if (vertices.empty() || triangles.empty() || !(quadEdgeLength > 0.0))
         return false;
     report(0.0f, "Initializing cover field");
     SurfaceMesh mesh(vertices, triangles);
@@ -662,7 +701,7 @@ bool QuadParameterizer::parameterize(const std::vector<Vector3>& vertices,
         return false;
     const size_t corners = mesh.cornerCount();
     const size_t uvVariables = 2 * corners;
-    const double scale = std::max(1e-12, scaling * mesh.averageEdgeLength());
+    const double scale = std::max(1e-12, quadEdgeLength);
 
     std::vector<Vector3> normals;
     initializeFieldAndNormals(mesh, guidance, &normals, &result->field);

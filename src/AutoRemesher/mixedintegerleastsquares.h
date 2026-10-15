@@ -57,6 +57,11 @@ public:
         size_t secondVariable, double secondCoefficient, double rhs, double weight = 1.0);
 
     bool solveIteration();
+    // Multiplies the right-hand sides and the current solution by factor.
+    // Valid only while no integer is fixed (after the first, continuous
+    // solveIteration): every constraint is homogeneous, so the continuous
+    // solution is linear in the right-hand sides. Returns false otherwise.
+    bool scaleSolution(double factor);
     bool converged() const;
     double value(size_t originalVariable) const;
     size_t kernelSize() const;
