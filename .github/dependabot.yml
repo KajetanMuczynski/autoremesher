@@ -1,12 +1,17 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Weekly PRs that bump the pinned GitHub Actions (commit SHA and the version comment).
 # One grouped PR per week, so the queue stays short; each runs the full CI like any PR.
+# Cooldown: a release is proposed only once it is 7 days old, so a hijacked release is
+# usually caught and pulled before it reaches us. It applies to version updates only;
+# Dependabot security updates (enable them in the repo settings) still open at once.
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       actions:
         patterns:
