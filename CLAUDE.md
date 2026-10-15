@@ -49,7 +49,8 @@ The core source list exists three times: `autoremesher.pro` (app), top-level `CM
 bench can build other checkouts for A/B). A new core `.cpp` goes into the first two.
 
 Core tests (`tests/`, Qt-free, link `autoremesher_core`): configure with `-DAUTOREMESHER_BUILD_TESTS=ON`,
-build target `quad_count_test`, run `ctest --test-dir <build> --output-on-failure`.
+build all targets (ctest reports a test whose executable wasn't built as failed), run
+`ctest --test-dir <build> --output-on-failure`.
 
 Blender add-on (`addon/`, working name Quadami): `python addon/package.py --cli-prefix <install-prefix>`
 builds the extension zip with the CLI bundled; see `addon/README.md`.

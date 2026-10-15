@@ -39,6 +39,6 @@ jobs:
       - name: Build the core tests
         run: |
           cmake -S . -B build-tests -DAUTOREMESHER_BUILD_TESTS=ON
-          cmake --build build-tests --target quad_count_test -j"$(nproc)"
+          cmake --build build-tests -j"$(nproc)"
       - name: Run the core tests
         run: ctest --test-dir build-tests --output-on-failure

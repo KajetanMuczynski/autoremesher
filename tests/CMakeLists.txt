@@ -3,7 +3,7 @@
 # target, so the core is compiled from one source list:
 #
 #   cmake -S . -B build-tests -DAUTOREMESHER_BUILD_TESTS=ON
-#   cmake --build build-tests --target quad_count_test --parallel 2
+#   cmake --build build-tests --parallel 2
 #   ctest --test-dir build-tests --output-on-failure
 add_executable(quad_count_test quad_count_test.cpp)
 target_link_libraries(quad_count_test PRIVATE autoremesher_core)
