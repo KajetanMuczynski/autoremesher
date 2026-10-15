@@ -37,69 +37,105 @@ License: GPL-3.0-or-later, like the rest of the fork.
 ## How the worker works (and why)
 
 There is no Python binding of the C++ interface yet (TODO G1), so the worker
-is the existing headless CLI, wrapped by `worker.py` (plain Python + numpy, no
-`bpy`, so it is testable without Blender):
+is a separate program, `autoremesher-cli`: the remeshing core behind a
+command line, without Qt (`src/cli/`, built with CMake from the top-level
+`CMakeLists.txt`). `worker.py` wraps it (plain Python + numpy, no `bpy`, so
+it is testable without Blender):
 
 ```
-autoremesher -i input.obj -o output.obj --report-json report.json --stdin-control \
+autoremesher-cli -i input.obj -o output.obj --report-json report.json --stdin-control \
     --target-quads N --adaptivity A ...
 ```
 
 | Need | How |
 |---|---|
-| separate process | `subprocess.Popen` of the CLI, `QT_QPA_PLATFORM=offscreen` |
+| separate process | `subprocess.Popen` of the CLI (no console window on Windows) |
 | progress | the CLI's `42% done. <step>` lines on stdout, read by a thread |
-| cancel | `cancel` line on stdin (new flag `--stdin-control`, see below); kill after 5 s |
+| cancel | `cancel` line on stdin (`--stdin-control`); kill after 5 s |
 | Blender dies | its end of the pipe closes, the worker reads EOF and cancels itself |
 | result | the OBJ the CLI writes, plus `--report-json` (schema `autoremesher.remesh-result`) |
 | version check | the report's `interface_version` must be 1.x |
 
-`--stdin-control` is the one change to the C++ side: an opt-in flag that hands
-a `CancelToken` to `remesh()` and cancels it when stdin gets `cancel` or is
-closed. Without the flag the CLI behaves as before.
+The Qt app's headless mode (`autoremesher -i ... -o ...`) takes the same
+arguments and shares the `--stdin-control` code, so it still works as a
+worker, but it needs Qt at run time.
+
+The add-on looks for the CLI in this order: *Remesher executable* in its
+preferences, `$AUTOREMESHER_EXECUTABLE`, the copy bundled in the add-on's
+`bin/` folder, `autoremesher-cli` on `PATH`.
 
 This differs from INTERFACE §4, which plans a Blender-Python worker hosting a
 nanobind module and exchanging `.npz` files. Swapping in that worker later
 only replaces `RemeshJob` in `worker.py`; the operator and panel only use its
-`start / poll / cancel / done / outcome` methods. Costs of the CLI route that
-the binding removes:
+`start / poll / cancel / done / outcome` methods. The cost of the CLI route
+that the binding removes: OBJ text both ways, slow on multi-million-triangle
+inputs (REFERENCE P4). The CLI writes coordinates with 17 significant digits,
+so nothing is lost on the way back.
 
-- OBJ text both ways (slow on multi-million-triangle inputs, REFERENCE P4).
-- The CLI writes coordinates with 6 significant digits.
-- The CLI is the Qt app: it needs Qt at run time and a QPA platform.
-- The add-on needs the path to a built `autoremesher` (preferences, or
-  `$AUTOREMESHER_EXECUTABLE`, or `autoremesher` on `PATH`). Nothing is bundled.
+## Windows (10 or 11, 64-bit, Blender 4.2 or newer)
+
+CI builds the Windows package; nothing has to be compiled or installed
+besides Blender.
+
+1. **Get the zip.** On GitHub: *Actions > addon*, the latest green run of
+   the branch, *Artifacts > addon-windows-x64*. GitHub wraps artifacts in
+   a zip of their own: unpack that once; inside is
+   `quadami-<version>-windows-x64.zip`. Do not unpack that inner zip.
+2. **Install it.** Blender: *Edit > Preferences > Get Extensions*, the small
+   down-arrow at the top right, *Install from Disk...*, pick
+   `quadami-<version>-windows-x64.zip`.
+3. **Check.** *Edit > Preferences > Add-ons*, expand *Quadami*: the line
+   under *Remesher executable* must say *Using: ...\bin\autoremesher-cli.exe*
+   with a check mark. Leave *Remesher executable* empty.
+4. Continue with *First test in Blender* below.
+
+`autoremesher-cli.exe` links the C++ runtime and oneTBB statically, so it
+needs no Visual C++ Redistributable and no other DLL beyond the ones every
+Windows has (CI checks the import table: `ci/check_dll_imports.py`). Its
+licenses and the source location are in the zip's `licenses/` folder.
+
+To build it yourself instead (Visual Studio 2022 or newer with the C++
+workload, CMake, Git, Python 3.11+):
+
+```
+cmake -S . -B build/cli
+cmake --build build/cli --config Release --parallel 2
+cmake --install build/cli --config Release --prefix build/cli-install
+python addon/package.py --cli-prefix build/cli-install
+```
+
+The first configure downloads oneTBB from GitHub (pinned commit).
 
 ## Install (Linux, Blender 4.2 or newer)
 
-The add-on is a Blender extension (4.2+ only; there is no legacy `bl_info`, so
-the name stays in one place). The remesher binary has to be built on the same
-machine and OS as the Blender that uses it.
+The remesher binary has to be built on the same machine and OS as the
+Blender that uses it.
 
 1. **Blender.** Any Blender 4.2 or newer from blender.org (the Linux `.tar.xz`,
    extracted anywhere) or the Snap. Not the Flatpak: its sandbox cannot start
    a program from your home folder.
-2. **Zip and remesher**, from the repository (this checkout):
+2. **Zip with the remesher**, from the repository (this checkout):
 
    ```
    sh addon/package.sh
    ```
 
-   It prints two paths: the add-on zip (`build/addon/quadami-0.1.0.zip`) and
-   the remesher binary (`build/app/autoremesher`). It builds the binary only
-   if it is missing or too old (no `--stdin-control`), with `nice -n 10 make
-   -j2` and no LTO, and refuses while another build runs. Build dependencies:
-   see CLAUDE.md "Build" (Qt 5 dev packages, `libtbb-dev`).
+   It builds `autoremesher-cli` with CMake in `build/cli` (Release,
+   `nice -n 10`, two jobs; refuses while another build runs), installs it to
+   `build/cli-install` and prints the zip's path,
+   `build/addon/quadami-<version>-linux-x64.zip`, with the CLI inside.
+   Build dependencies: CMake, a C++17 compiler, `libtbb-dev`. No Qt.
 3. **Install the zip.** Blender: *Edit > Preferences > Get Extensions*, the
    small down-arrow at the top right, *Install from Disk...*, pick the zip.
    (Dragging the zip onto the Blender window works too.)
-4. **Point it at the remesher.** *Edit > Preferences > Add-ons*, expand
-   *Quadami*, set *Remesher executable* to the binary path from step 2. The
-   line below it must say *Using: ...* with a check mark. Alternatively start
-   Blender with `AUTOREMESHER_EXECUTABLE=<path>` set, or put `autoremesher`
-   on `PATH`.
-5. **Open the panel.** In the 3D Viewport press `N`; the sidebar has a
-   *Quadami* tab.
+4. **Check.** *Edit > Preferences > Add-ons*, expand *Quadami*; the line
+   below *Remesher executable* must say *Using: .../bin/autoremesher-cli*
+   with a check mark. To use another build, set *Remesher executable* or
+   start Blender with `AUTOREMESHER_EXECUTABLE=<path>`.
+
+`python3 addon/package.py` without arguments makes a zip without the CLI
+(`quadami-<version>.zip`, any platform), which then needs the executable
+path in the preferences.
 
 To update after a code change: run step 2 again, then in *Get Extensions*
 remove Quadami and install the new zip (or restart Blender after reinstalling).
@@ -107,7 +143,7 @@ remove Quadami and install the new zip (or restart Blender after reinstalling).
 ## First test in Blender
 
 1. Start Blender from a terminal, so the worker's messages are visible there
-   if something fails.
+   if something fails. (Windows: *Window > Toggle System Console* instead.)
 2. *Add > Mesh > Monkey*, then add a *Subdivision Surface* modifier at level 2
    (the add-on remeshes the mesh with modifiers applied). Stay in Object Mode.
 3. In the *Quadami* tab set *Target Quads* to 2000 and press *Remesh*. The
@@ -125,10 +161,13 @@ remove Quadami and install the new zip (or restart Blender after reinstalling).
 7. Optional, headless (no window):
 
    ```
-   AUTOREMESHER_EXECUTABLE=build/app/autoremesher <blender> -b --factory-startup --python-exit-code 1 --python addon/tests/blender_smoke.py
+   AUTOREMESHER_EXECUTABLE=build/cli/autoremesher-cli <blender> -b --factory-startup --python-exit-code 1 --python addon/tests/blender_smoke.py
    ```
 
    It should end with `blender_smoke: OK`.
+
+CI runs the same check on the installed zip with its bundled CLI
+(`blender_smoke.py -- --installed`).
 
 If a step fails, copy the terminal output (lines after *Quadami worker
 output*) and the panel's status line.
@@ -138,26 +177,32 @@ output*) and the panel's status line.
 Worker side, against a built CLI (no Blender needed):
 
 ```
-AUTOREMESHER_EXECUTABLE=build/app/autoremesher python3 -m unittest discover -s addon/tests -v
+AUTOREMESHER_EXECUTABLE=build/cli/autoremesher-cli python3 -m unittest discover -s addon/tests -v
 ```
 
-Covers the manifest matching `names.py`, OBJ round trip, report rows, a remesh of a 16k-triangle sphere (counts
-match the report, progress non-decreasing), cancel by `cancel` line and by
-closed stdin (worker exits by itself and reports `cancelled`), kill after the
-grace time, a rejected input and a worker that crashes without a report.
+Covers the manifest matching `names.py`, OBJ round trip, report rows, finding
+the bundled CLI, a remesh of a 16k-triangle sphere (counts match the report,
+progress non-decreasing), a temporary folder with non-ASCII characters in its
+path, cancel by `cancel` line and by closed stdin (worker exits by itself and
+reports `cancelled`), kill after the grace time, a rejected input and a
+worker that crashes without a report.
 
 Inside Blender, headless (`blender_smoke.py`): reads a sphere through the
 add-on, runs the worker and builds the result object, then checks counts and
 transform. Background mode has no window, so the modal operator, the panel,
 Esc and the progress display can only be checked by hand in the UI.
 
+CI (`.github/workflows/addon.yml`) runs all of it on Ubuntu 24.04 (Blender
+4.2 LTS, the oldest supported) and Windows (MSVC, Blender 5.2): CMake build,
+DLL check (Windows), CLI argument checks, the worker tests, packaging,
+`blender --command extension validate` and `install-file` on the zip, then
+`blender_smoke.py --installed`.
+
 ## Status (2026-10-15)
 
-- Tested: everything in `test_worker.py`, on Ubuntu 24.04 with Python 3.12 and
-  numpy 1.26, against the CLI built from this branch.
-- **Not tested: anything that imports `bpy`.** Blender is not installed on the
-  machine this was written on (searched the whole disk: no binary, AppImage,
-  tarball, Snap, Flatpak or `~/.config/blender`), so `__init__.py` (operator, panel, preferences,
-  mesh read and import), `blender_smoke.py` and the manifest have only been
-  byte-compiled. Windows and macOS are untested (the Windows branch of
-  `--stdin-control` has not been compiled).
+- Tested here: `test_worker.py` on Ubuntu 24.04 (Python 3.13, numpy 2.5)
+  against `autoremesher-cli` with the system oneTBB, against it with the
+  static oneTBB build Windows uses, and against the Qt app's headless mode.
+- Windows and the `bpy` side: covered only by CI (see *Tests*). Not covered
+  anywhere: the panel, the modal operator, Esc and the progress display in a
+  real Blender window, and Windows on ARM. macOS is untested.

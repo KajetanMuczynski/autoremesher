@@ -14,25 +14,46 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""Headless check of the add-on inside Blender (not run yet: no Blender here).
+"""Headless check of the add-on inside Blender.
 
-    AUTOREMESHER_EXECUTABLE=build/app/autoremesher \
+From the source tree, with a remesher given by path:
+
+    AUTOREMESHER_EXECUTABLE=build/cli/autoremesher-cli \
         blender -b --factory-startup --python-exit-code 1 --python addon/tests/blender_smoke.py
+
+Or the installed extension zip with its bundled remesher (what CI runs):
+
+    blender --command extension install-file -r user_default -e build/addon/quadami-...zip
+    blender -b --factory-startup --python-exit-code 1 --python addon/tests/blender_smoke.py -- --installed
 
 Background mode has no window, so the modal operator cannot run; this drives
 the same steps it does: read the mesh, run the worker, build the object.
 """
 
+import importlib
 import os
 import sys
 
+import addon_utils
 import bpy
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-import autoremesher_blender as addon  # noqa: E402
-from autoremesher_blender import names, report, worker  # noqa: E402
+installed = "--installed" in (sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else [])
+if installed:
+    # The id is the extension's folder name; read it from the source tree.
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "autoremesher_blender"))
+    from names import ID  # noqa: E402
+    module_name = "bl_ext.user_default." + ID
+    addon_utils.enable(module_name, default_set=True, handle_error=None)
+    addon = sys.modules[module_name]
+    names = importlib.import_module(module_name + ".names")
+    report = importlib.import_module(module_name + ".report")
+    worker = importlib.import_module(module_name + ".worker")
+else:
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+    import autoremesher_blender as addon  # noqa: E402
+    from autoremesher_blender import names, report, worker  # noqa: E402
 
-addon.register()
+    addon.register()
 try:
     bpy.ops.mesh.primitive_uv_sphere_add(segments=128, ring_count=64)
     source = bpy.context.active_object
@@ -45,8 +66,12 @@ try:
 
     settings = getattr(bpy.context.scene, names.ID)
     settings.target_quads = 2000
-    executable = worker.find_executable()
+    preferences = addon._preferences(bpy.context)
+    executable = worker.find_executable(bpy.path.abspath(preferences.executable) if preferences else "")
+    if installed:
+        assert executable == worker.bundled_executable(), (executable, worker.bundled_executable())
     assert executable, "set AUTOREMESHER_EXECUTABLE"
+    print("blender_smoke: remesher %s" % executable)
     outcome = worker.remesh(executable, positions, triangles, settings.parameters())
     assert outcome.ok, (outcome.status, outcome.message, outcome.log)
 
@@ -64,4 +89,7 @@ try:
         print("  %-20s %s%s" % (label, value, "  <-" if problem else ""))
     print("blender_smoke: OK, Blender %s" % bpy.app.version_string)
 finally:
-    addon.unregister()
+    if installed:
+        addon_utils.disable(module_name, default_set=True)
+    else:
+        addon.unregister()
