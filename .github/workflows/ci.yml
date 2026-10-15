@@ -39,8 +39,8 @@ jobs:
         run: git diff --ignore-space-at-eol --exit-code
 
   # The core tests and the output gate, on the same Release build of autoremesher_core.
-  # macOS runs it because a macOS-only crash (armadillo, release.yml) showed up only
-  # after merging; Windows builds the core in the addon job.
+  # macOS runs it because the shipped DMG builds there with Apple clang and nothing else
+  # on a PR does; Windows builds the core in the addon job.
   core:
     name: core (${{ matrix.name }})
     strategy:
