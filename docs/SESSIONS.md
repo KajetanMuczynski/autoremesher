@@ -134,3 +134,10 @@ Template:
 - Found: no compromise; no secrets or `pull_request_target`. Open risks: AppImage built with unverified "continuous" linuxdeployqt/appimagetool; AppImage and Windows zip ship Qt 5.15.2; install-qt-action v3 still runs a mutable inner ref (v4.4.1 fixes it); Homebrew qt@5 disabled 2027-05-19.
 - Measured: zizmor 1.31 offline 31 high + 19 medium → 0; vendored Eigen byte-identical to 5.0.1, meshoptimizer `.cpp` identical to v1.2.
 - Next: pin and checksum the AppImage tools; install-qt-action v4.4.1; hashed CI requirements; Kajetan's repo settings list in the report.
+
+## 2026-10-15 · Claude (cloud thread "Compare with other remeshers") · TODO 1.8 partly done
+- Repos/commits: fork master `6f68495` (tested build) → docs PR (TODO 1.8, 1.4 status).
+- Did: built Instant Meshes (`7b31608`) and QuadriFlow (`810b7a0`) from source, ran Blender 5.2.2's QuadriFlow through the `bpy` wheel, and ran them with our Quality, Fast and adaptivity-0 modes on the 18-mesh corpus at 2k/10k/50k, each calibrated to the same face count (±5 %). Metrics per extr §5.2 families with the §5.3 pass gates; report and figures in `research/remesher-comparison.md`.
+- Found: we lead on count accuracy (52/54 first try within ±5 %; QuadriFlow median 0.91) and Hausdorff (1.2–3.9× lower), keep islands, refuse no input. We trail on non-quads (50/54 runs; the others output only quads), vertices off the input surface (13× QuadriFlow's distance; 2.8), poles on hard surface/thin shells, and CAD creases. With adaptivity 0 the same pipeline has the best SJ, skew, fold and pole numbers of all tools, so the default's defects come mostly from the sizing field (4.1/4.5).
+- Measured: see the report's tables; all runs in `research/remesher-comparison-scripts/results/runs.csv`.
+- Next: 4.1/4.5 with the comparison as the A/B (target: adaptivity 0's SJ p1 ≈ 0.83 at adaptivity 1's Hausdorff); 2.8 projection; ZRemesher, Quad Remesher and quadwild-bimdf outputs on Kajetan's machine.
