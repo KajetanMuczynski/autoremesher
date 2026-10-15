@@ -50,7 +50,7 @@ struct HeadlessParams {
     double edgeScaling = 1.0;
     double sharpEdgeDegrees = 90.0;
     double smoothNormalDegrees = 0.0;
-    double adaptivity = 1.0;
+    double adaptivity = 0.5;
     double anisotropy = 1.0;
     bool stdinControl = false;
 };
@@ -142,7 +142,7 @@ int main(int argc, char** argv)
     parser.addOption(smoothNormalOption);
 
     QCommandLineOption adaptivityOption(QStringList { "adaptivity" },
-        QCoreApplication::translate("main", "Curvature-adaptive quad density (default: 1.0, range: 0.0-1.0)"),
+        QCoreApplication::translate("main", "Curvature-adaptive quad density (default: 0.5, range: 0.0-1.0)"),
         QCoreApplication::translate("main", "value"));
     parser.addOption(adaptivityOption);
 
