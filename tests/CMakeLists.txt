@@ -20,3 +20,7 @@ add_test(NAME open_boundary COMMAND open_boundary_test)
 add_executable(quality_report_test quality_report_test.cpp)
 target_link_libraries(quality_report_test PRIVATE autoremesher_core)
 add_test(NAME quality_report COMMAND quality_report_test)
+
+add_executable(small_island_test small_island_test.cpp)
+target_link_libraries(small_island_test PRIVATE autoremesher_core)
+add_test(NAME small_island COMMAND small_island_test)

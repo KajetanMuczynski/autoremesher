@@ -547,6 +547,21 @@ bool IsotropicHalfedgeMesh::isVertexPairConnected(Vertex *first, Vertex *second)
     return connected;
 }
 
+bool IsotropicHalfedgeMesh::isFaceOfVertex(Vertex *vertex, Vertex *second, Vertex *third)
+{
+    bool found = false;
+    iterateVertexHalfedges(vertex, [&](Halfedge *halfedge) {
+        Vertex *next = halfedge->nextHalfedge->startVertex;
+        Vertex *previous = halfedge->previousHalfedge->startVertex;
+        if ((next == second && previous == third) || (next == third && previous == second)) {
+            found = true;
+            return false;
+        }
+        return true;
+    });
+    return found;
+}
+
 bool IsotropicHalfedgeMesh::flipEdge(Halfedge *halfedge)
 {
     if (nullptr == halfedge->oppositeHalfedge)
@@ -708,6 +723,16 @@ bool IsotropicHalfedgeMesh::collapseEdge(Halfedge *halfedge, double maxEdgeLengt
         otherNeighborVertices.begin(), otherNeighborVertices.end(),
         std::back_inserter(sharedNeighborVertices));
     if (sharedNeighborVertices.size() > 2) {
+        return false;
+    }
+
+    // The shared neighbors are the top and bottom vertex. If both endpoints
+    // also span a face with them, the edge belongs to a tetrahedron, and
+    // collapsing it leaves two triangles glued along all three edges. This is
+    // the edge part of the link condition; without it a small closed island
+    // shrank to such a pair and vanished from the output.
+    if (isFaceOfVertex(halfedge->startVertex, topVertex, bottomVertex) &&
+            isFaceOfVertex(halfedge->nextHalfedge->startVertex, topVertex, bottomVertex)) {
         return false;
     }
     
