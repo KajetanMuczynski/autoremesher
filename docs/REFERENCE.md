@@ -142,7 +142,7 @@ Costliest named steps over the corpus: merge-5 cleanup 14.7 %, singularity simpl
 - Input ladder 0.1M → 6.4M: everything after decimation is bounded by the target; pre-processing is the growth (P4 corrected).
 - CHOLMOD: helps the factorisation at 50k only; not worth it before greedy rounding (P2, TODO 8.1).
 - tbbmalloc preload: 1.22–1.54× with identical output (P5, TODO 8.0).
-- Adaptivity 0: quad count 0.80–1.16 × target, UV flips 4–20× lower (M3, M7).
+- Adaptivity 0: quad count 0.80–1.16 × target on 3 meshes (all 18, measured in TODO 2.11: median 0.82, 0.61–1.57), UV flips 4–20× lower (M3, M7).
 - CPU profile at 50k: allocator and node containers 45–53 %, Eigen Cholesky 8–14 %, isotropic remesher 9–15 %.
 
 **Verdicts applied.**
@@ -155,7 +155,7 @@ Costliest named steps over the corpus: merge-5 cleanup 14.7 %, singularity simpl
 | P4 | Corrected |
 | P8 | Not observed |
 | M1, M2 | Confirmed |
-| M3 | Supported indirectly |
+| M3 | Supported indirectly; measured directly in TODO 2.11 (§5 M3) |
 | M4, M7 | Corrected |
 | M14 | Partly confirmed |
 | New | P9, P10, M15, M16 |
@@ -203,10 +203,12 @@ Each item: what the code does, why it is a problem, what the research recommends
   "log s satisfies a Poisson equation" is necessary, not sufficient. Density painting (F3) inherits all of this: sharp density changes force pole pairs.
 - **Fix (size §2, [I] design):** place cones using the effective curvature K − Δφ* (φ* = target log density from the sizing field), then project by least squares: (L + λM)φ = div(⋆ω_X) + λMφ*. One SPD solve; residual curl is absorbed by the cover energy. Replaces both the curl correction and the disabled solve. For fixed period jumps the joint problem in (θ, φ) is linear least squares (size §2.3). Research-grade alternatives that move cones by distortion: moving frames (Coiffier–Corman 2023, MIT Python), RSP (Corman–Crane 2025, `ASK`), integrable odeco fields (Couplet et al. 2026, no code).
 - **Measured, indirect [M]:** turning curvature sizing off (adaptivity 0) cuts UV flips 4–20× at the same target, and at 10k beats the default at 50k. Consistent with M3 but does not separate it from plain scale-gradient distortion; no direct curl measurement.
+- **Measured, direct [M] (TODO 2.11, 2026-10-15):** at 10k quads the continuous cover solve covers 0.40–0.97 of the cells that the sized frame field asks for (Σ A/(s_u s_v)) with the curvature scale field, against 0.94–1.00 with a uniform one. Hard-surface parts lose most (boat 0.40, sword 0.50, csg_bracket 0.52). The lost part is the curl that the least-squares projection drops. 2.11 rescales the continuous solution to the expected count before rounding, so the per-island rescale factor is now a cheap M3 indicator (log it in 1.6); 4.5 should bring it toward 1.
 - **Questions:** SQ-Z1, SQ-Z2, SQ-Z3, SQ-Z5.
 
 ### M4. Field and parametrization solved at quad resolution
 - **Code [V]:** T has ≈2 triangles per target quad, and quad size = λ·ℓ̄_T·m_f·ρ_f^{±1}, so the quad edge ≈ the mean triangle edge **on average**. Locally T's resolution follows h (stage 3) and quad size follows m (stage 5); where they disagree T can be coarser than the quads (more than one isoline per triangle, the hard case for extraction) **[I]**. **Measured [M]:** "quad edge ≈ triangle edge" holds only with adaptivity 0 (2.4–2.6 triangles per quad, ratio 1.01–1.06). With the default, each quad covers a median 5.8 triangles (3.3–13.4), quad edge ≈ 1.6× triangle edge, so on average T is *finer* than the quads; the local "coarser" case was not measured.
+- **Measured after TODO 2.11 [M] (2026-10-15):** the default's 5.8 triangles per quad came from the count undershoot. With the count fixed, T has 2.3–2.7 triangles per output quad (median at 10k / 2k), quad edge ≈ 1.0 T edge, at any adaptivity. Against master run at the raised target that gives the same output count (2k / 10k): time 0.73 / 0.62×, but angle deviation p95 26.7 → 29.5° / 24.1 → 26.8°, Hausdorff 0.52 → 0.87 / 0.10 → 0.17 % of the diagonal, UV flips 1.36 → 2.02 / 0.50 → 0.51 %. Building T 2.25× finer (same count; 5.9 / 4.7 triangles per quad) gives UV flips 1.08 / 0.42 %, Hausdorff 0.44 / 0.107 %, angle p95 30.4° / 24.7°, at 1.53 / 1.65× the time of the current default. So finer T recovers or beats master on flips and distance and on angles at 10k, not on angles at 2k. Since 2.11 the count does not depend on T, so T's resolution is a pure quality/time setting (TODO 2.15).
 - **Problem [I]:** curvature directions are computed after decimation (no error bound) and remeshing to quad resolution, so creases and small forms are gone before the field sees them; singularities can only sit on coarse vertices.
 - **Fix:** compute the curvature tensor on the input at radius r ≈ c·h and transfer it (RECONCILIATION D3); optionally solve the field on a mesh k = 2–4× finer with an index-preserving restriction to the cover mesh; for 5M+ inputs, Ebke et al. 2016 proxy + transfer. Costs 4–16× larger systems, so it waits for the solver interface.
 - **Questions:** SQ-X3.
@@ -225,7 +227,7 @@ Each item: what the code does, why it is a problem, what the research recommends
 
 ### M7. Two density estimators and an uncontrolled quad count
 - **Code [V]:** stage 3 and stage 5 differ in estimator (mean vs. max over the one-ring), normalisation (75th percentile vs. face mean), law and clamps. Neither is count-normalised after clamping.
-- **Problem, measured [M]:** with the default adaptivity the output has **0.37–0.51 × the requested quads** (median at 50k/10k/2k; below target in 53 of 54 runs). The stage-5 factor m_f enlarges quads by ≈1.5× in edge length on average. With adaptivity 0 the count is 0.80–1.16 × target, which confirms the uniform ≈0.87 Q estimate (spec §16). The spec's "mesh-dependent direction" is **refuted**: the bias is systematic. Why m_f inflates was not traced. A likely cause **[I]**: m_f is normalised by a face-count mean on T, which stage 3 already refined in curved regions, so κ̄ is biased upward; the 0.3 floor also truncates the high-curvature tail. Interim fix: TODO 2.11.
+- **Problem, measured [M]:** with the default adaptivity the output has **0.37–0.51 × the requested quads** (median at 50k/10k/2k; below target in 53 of 54 runs). The stage-5 factor m_f enlarges quads by ≈1.5× in edge length on average. With adaptivity 0 the count is 0.80–1.16 × target, which confirms the uniform ≈0.87 Q estimate (spec §16). The spec's "mesh-dependent direction" is **refuted**: the bias is systematic. **Traced and fixed (TODO 2.11, PR #2) [M]:** m_f is normalised by κ̄, a per-vertex mean on T, which stage 3 refined in curved regions, so κ̄ is 1.2–12 × the area mean (median 2.3) and the field asks for Σ A m⁻² / Σ A = 0.27–0.85 of the base count; the clamps change this by < 3 %. The rest of the shortfall is the M3 cover loss (0.40–0.97) and the uniform ≈0.87. On all 18 meshes adaptivity 0 gives 0.82 median (0.61–1.57), not 0.80–1.16. After 2.11: 0.98–1.00 × target median, 107 of 108 runs within ±10 %, adaptivity 1 and 0.
 - **Fix (size §1, engineering):** one sizing field: scale-aware tensor, κ = max(|κ₁|, |κ₂|), percentile clamp, implicit smoothing, h ∝ κ^{−a/2} (chord-error law, a = 0 uniform), thin-part cap h ≤ SDF/k, density paint as h·2^p, log-domain gradation (Dijkstra), count normalisation h ← h·√(∫h⁻² dA / N_target). Both T's resolution and the quad size come from it.
 - **Questions:** SQ-Z3, SQ-Z4.
 
