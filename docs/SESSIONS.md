@@ -128,8 +128,15 @@ Template:
 - Measured: Suzanne 5k on master: Fast 5091 quads / 4 non-quads / 5 folded, Quality 4769 / 3 / 2 (4763 / 3 / 2 with the fix), eye loops open, head UV flips 141 / 9624 (Fast) and 127 / 19 990 (Quality). A/B: 63/90 byte-identical; 26 runs with non-manifold edges (316 in all) → 0; quads −0.1 to −1.7 %, boundary edges unchanged.
 - Next: holes in closed inputs (rest of 2.13); remaining non-quads/folds are 4.1/4.5 + 3.3.
 
+## 2026-10-15 · Claude (cloud thread "Supply-chain audit") · CI and dependency supply-chain audit
+- Repos/commits: fork master `6f68495` → PR #24 (ci(ci), draft).
+- Did: audited both workflows, every fetched or bundled library and tool, and the add-on zip; checked recent advisories (actions-cool tag hijack May/Sep 2026, Megalodon, PyPI Shai-Hulud copycat, Qt 5.15 CVEs, Homebrew qt@5 deprecation). PR #24 pins all actions to commit SHAs, sets a read-only token, drops persisted checkout credentials, pins the test-model repo, checks the Blender archive's SHA-256 and adds Dependabot for actions. Report: project files `research/supply-chain-audit-2026-10-15.md`.
+- Found: no compromise; no secrets or `pull_request_target`. Open risks: AppImage built with unverified "continuous" linuxdeployqt/appimagetool; AppImage and Windows zip ship Qt 5.15.2; install-qt-action v3 still runs a mutable inner ref (v4.4.1 fixes it); Homebrew qt@5 disabled 2027-05-19.
+- Measured: zizmor 1.31 offline 31 high + 19 medium → 0; vendored Eigen byte-identical to 5.0.1, meshoptimizer `.cpp` identical to v1.2.
+- Next: pin and checksum the AppImage tools; install-qt-action v4.4.1; hashed CI requirements; Kajetan's repo settings list in the report.
+
 ## 2026-10-15 · Claude (cloud thread "Sizing and curl consistency") · TODO 4.5 projection measured, default adaptivity 0.5
-- Repos/commits: fork master `6f68495` → PR (feat(sizing), TODO 4.1).
+- Repos/commits: fork master `6f68495` → PR #26 (feat(sizing), TODO 4.1).
 - Did: prototyped the 4.5 projection (L + λM)φ = β + λMφ* with β the field's circulation (= K − K̂, checked), swept λ, compared it with plain smoothing of log h, with lower adaptivity, and with the curl correction off or more regularised; ran the 18-mesh corpus at 2k / 10k, Fast and Quality, with output metrics. Added `continuous_rescale` and the realised-vs-requested size slope to the diagnostics, set the default adaptivity to 0.5 and deleted the disabled conformal solve. Report: research/sizing-projection-2026-10-15.md (scripts and the experiment patch next to it).
 - Found: the projection brings the continuous rescale factor to ≈1 and continuous flips to ×0.18, but on the output it is no better than lowering adaptivity and costs mean distance; integrability adds little over smoothing. Stage 5 at a = 1 is the 1/κ law; a = 0.5 is the chord-error law. The curl correction is still needed. With sizing fixed, rounding (3.3) makes most of the remaining flips.
 - Measured: a = 0.5 against a = 1 over 72 runs: final UV flips ×0.48, non-quads ×0.72, folded ×0.72, irregular ×0.86, angle p95 ×0.76, mean distance ×0.98, Hausdorff ×1.11, time ×0.97, count unchanged. Projection (c = 1): flips ×0.42, non-quads ×0.70, mean distance ×1.13.
