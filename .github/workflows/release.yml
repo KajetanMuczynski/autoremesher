@@ -475,7 +475,25 @@ jobs:
                           @executable_path*) rpath="$app/Contents/MacOS${rpath#@executable_path}" ;;
                         esac
                         if [ -e "$rpath/${dep#@rpath/}" ]; then target="$rpath/${dep#@rpath/}"; break; fi
-                      done ;;
+                      done
+                      # macdeployqt leaves @rpath references between Homebrew libraries alone
+                      # (brotli under freetype, depending on the runner image): bundle the
+                      # library and point the reference at Contents/Frameworks.
+                      case "$target" in
+                        "$app"/*) ;;
+                        *)
+                          name="${dep#@rpath/}"; frameworks="$app/Contents/Frameworks"
+                          if [ ! -e "$frameworks/$name" ] && [ -e "$(brew --prefix)/lib/$name" ]; then
+                            cp -L "$(brew --prefix)/lib/$name" "$frameworks/$name"
+                            chmod u+w "$frameworks/$name"
+                            install_name_tool -id "@executable_path/../Frameworks/$name" "$frameworks/$name"
+                          fi
+                          if [ -e "$frameworks/$name" ]; then
+                            install_name_tool -change "$dep" "@executable_path/../Frameworks/$name" "$lib"
+                            echo "bundled $name for $(basename "$lib")"
+                            target="$frameworks/$name"
+                          fi ;;
+                      esac ;;
                   esac
                   case "$target" in
                     "$app"/*) [ -e "$target" ] ;;
