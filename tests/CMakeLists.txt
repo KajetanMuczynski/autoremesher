@@ -16,3 +16,7 @@ add_test(NAME diagnostics COMMAND diagnostics_test)
 add_executable(open_boundary_test open_boundary_test.cpp)
 target_link_libraries(open_boundary_test PRIVATE autoremesher_core)
 add_test(NAME open_boundary COMMAND open_boundary_test)
+
+add_executable(quality_report_test quality_report_test.cpp)
+target_link_libraries(quality_report_test PRIVATE autoremesher_core)
+add_test(NAME quality_report COMMAND quality_report_test)

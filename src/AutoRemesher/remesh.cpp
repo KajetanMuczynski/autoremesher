@@ -17,6 +17,7 @@
  *  SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include <AutoRemesher/AutoRemesher>
+#include <AutoRemesher/MeasureMesh>
 #include <AutoRemesher/Remesh>
 #include <AutoRemesher/RemeshPreview>
 #include <algorithm>
@@ -75,121 +76,127 @@ namespace {
         }
         return vertex;
     }
+}
 
-    void measureMesh(const RemeshMesh& mesh, QualityReport* report)
-    {
-        const size_t vertexCount = mesh.positions.size() / 3;
-        const size_t faceCount = mesh.faceSizes.size();
-        const auto position = [&](uint32_t vertex) {
-            return Vector3(mesh.positions[3 * (size_t)vertex],
-                mesh.positions[3 * (size_t)vertex + 1],
-                mesh.positions[3 * (size_t)vertex + 2]);
-        };
+void measureMesh(const RemeshMesh& mesh, QualityReport* report)
+{
+    const size_t vertexCount = mesh.positions.size() / 3;
+    const size_t faceCount = mesh.faceSizes.size();
+    const auto position = [&](uint32_t vertex) {
+        return Vector3(mesh.positions[3 * (size_t)vertex],
+            mesh.positions[3 * (size_t)vertex + 1],
+            mesh.positions[3 * (size_t)vertex + 2]);
+    };
 
-        report->vertexCount = vertexCount;
-        report->faceCount = faceCount;
+    report->vertexCount = vertexCount;
+    report->faceCount = faceCount;
 
-        // One entry per face side: the undirected edge as a sorted vertex pair,
-        // which face it belongs to and whether the face walks it low to high.
-        struct EdgeUse {
-            uint64_t key;
-            uint32_t face;
-            bool forward;
-        };
-        std::vector<EdgeUse> uses;
-        uses.reserve(mesh.faceIndices.size());
-        std::vector<Vector3> faceNormals(faceCount);
-        std::vector<size_t> parents(vertexCount);
-        std::iota(parents.begin(), parents.end(), (size_t)0);
-        std::vector<uint8_t> used(vertexCount, 0);
+    // One entry per face side: the undirected edge as a sorted vertex pair,
+    // which face it belongs to and whether the face walks it low to high.
+    struct EdgeUse {
+        uint64_t key;
+        uint32_t face;
+        bool forward;
+    };
+    std::vector<EdgeUse> uses;
+    uses.reserve(mesh.faceIndices.size());
+    std::vector<size_t> parents(vertexCount);
+    std::iota(parents.begin(), parents.end(), (size_t)0);
+    std::vector<uint8_t> used(vertexCount, 0);
 
-        size_t offset = 0;
-        for (size_t face = 0; face < faceCount; ++face) {
-            const size_t size = mesh.faceSizes[face];
-            const uint32_t* corners = mesh.faceIndices.data() + offset;
-            offset += size;
-            if (4 == size)
-                ++report->quadCount;
-            else
-                ++report->nonQuadCount;
-            if (0 == size) {
-                ++report->degenerateFaceCount;
-                continue;
+    size_t offset = 0;
+    for (size_t face = 0; face < faceCount; ++face) {
+        const size_t size = mesh.faceSizes[face];
+        const uint32_t* corners = mesh.faceIndices.data() + offset;
+        offset += size;
+        if (4 == size)
+            ++report->quadCount;
+        else
+            ++report->nonQuadCount;
+        if (0 == size) {
+            ++report->degenerateFaceCount;
+            continue;
+        }
+
+        bool repeated = false;
+        for (size_t i = 0; i < size; ++i) {
+            for (size_t j = i + 1; j < size; ++j) {
+                if (corners[i] == corners[j])
+                    repeated = true;
             }
+        }
 
-            bool repeated = false;
+        // Twice the area vector, by a fan from the first corner.
+        Vector3 normal;
+        double longestEdgeSquared = 0.0;
+        const Vector3 origin = position(corners[0]);
+        for (size_t i = 0; i < size; ++i) {
+            const Vector3 from = position(corners[i]);
+            const Vector3 to = position(corners[(i + 1) % size]);
+            longestEdgeSquared = std::max(longestEdgeSquared, (to - from).lengthSquared());
+            if (i > 0 && i + 1 < size)
+                normal += Vector3::crossProduct(from - origin, to - origin);
+        }
+        if (repeated || 0.5 * normal.length() <= 1e-12 * longestEdgeSquared) {
+            ++report->degenerateFaceCount;
+        } else {
+            // Folded: some corner turns against the area vector, i.e. its
+            // scaled Jacobian is <= 0, so the face is non-convex or twisted.
             for (size_t i = 0; i < size; ++i) {
-                for (size_t j = i + 1; j < size; ++j) {
-                    if (corners[i] == corners[j])
-                        repeated = true;
+                const Vector3 corner = position(corners[i]);
+                const Vector3 next = position(corners[(i + 1) % size]);
+                const Vector3 previous = position(corners[(i + size - 1) % size]);
+                if (Vector3::dotProduct(Vector3::crossProduct(next - corner, previous - corner), normal) <= 0.0) {
+                    ++report->foldedFaceCount;
+                    break;
                 }
             }
-
-            // Twice the area vector, by a fan from the first corner.
-            Vector3 normal;
-            double longestEdgeSquared = 0.0;
-            const Vector3 origin = position(corners[0]);
-            for (size_t i = 0; i < size; ++i) {
-                const Vector3 from = position(corners[i]);
-                const Vector3 to = position(corners[(i + 1) % size]);
-                longestEdgeSquared = std::max(longestEdgeSquared, (to - from).lengthSquared());
-                if (i > 0 && i + 1 < size)
-                    normal += Vector3::crossProduct(from - origin, to - origin);
-            }
-            faceNormals[face] = normal;
-            if (repeated || 0.5 * normal.length() <= 1e-12 * longestEdgeSquared)
-                ++report->degenerateFaceCount;
-
-            for (size_t i = 0; i < size; ++i) {
-                const uint32_t first = corners[i];
-                const uint32_t second = corners[(i + 1) % size];
-                used[first] = 1;
-                if (first == second)
-                    continue;
-                const uint32_t low = std::min(first, second);
-                const uint32_t high = std::max(first, second);
-                uses.push_back({ ((uint64_t)low << 32) | high, (uint32_t)face, first == low });
-                const size_t firstRoot = findRoot(parents, first);
-                const size_t secondRoot = findRoot(parents, second);
-                if (firstRoot != secondRoot)
-                    parents[std::max(firstRoot, secondRoot)] = std::min(firstRoot, secondRoot);
-            }
         }
 
-        std::sort(uses.begin(), uses.end(), [](const EdgeUse& a, const EdgeUse& b) {
-            return a.key != b.key ? a.key < b.key : a.face < b.face;
-        });
-        std::vector<Vector3> neighborNormals(faceCount);
-        for (size_t begin = 0; begin < uses.size();) {
-            size_t end = begin + 1;
-            while (end < uses.size() && uses[end].key == uses[begin].key)
-                ++end;
-            const size_t count = end - begin;
-            if (1 == count) {
-                ++report->boundaryEdgeCount;
-            } else if (2 == count) {
-                const EdgeUse& a = uses[begin];
-                const EdgeUse& b = uses[begin + 1];
-                if (a.forward == b.forward)
-                    ++report->orientationFlipCount;
-                neighborNormals[a.face] += faceNormals[b.face];
-                neighborNormals[b.face] += faceNormals[a.face];
-            } else {
-                ++report->nonManifoldEdgeCount;
-            }
-            begin = end;
-        }
-
-        for (size_t face = 0; face < faceCount; ++face) {
-            if (Vector3::dotProduct(faceNormals[face], neighborNormals[face]) < 0.0)
-                ++report->foldedFaceCount;
-        }
-
-        for (size_t vertex = 0; vertex < vertexCount; ++vertex) {
-            if (used[vertex] && findRoot(parents, vertex) == vertex)
-                ++report->componentCount;
+        for (size_t i = 0; i < size; ++i) {
+            const uint32_t first = corners[i];
+            const uint32_t second = corners[(i + 1) % size];
+            used[first] = 1;
+            if (first == second)
+                continue;
+            const uint32_t low = std::min(first, second);
+            const uint32_t high = std::max(first, second);
+            uses.push_back({ ((uint64_t)low << 32) | high, (uint32_t)face, first == low });
+            const size_t firstRoot = findRoot(parents, first);
+            const size_t secondRoot = findRoot(parents, second);
+            if (firstRoot != secondRoot)
+                parents[std::max(firstRoot, secondRoot)] = std::min(firstRoot, secondRoot);
         }
     }
+
+    std::sort(uses.begin(), uses.end(), [](const EdgeUse& a, const EdgeUse& b) {
+        return a.key != b.key ? a.key < b.key : a.face < b.face;
+    });
+    for (size_t begin = 0; begin < uses.size();) {
+        size_t end = begin + 1;
+        while (end < uses.size() && uses[end].key == uses[begin].key)
+            ++end;
+        const size_t count = end - begin;
+        if (1 == count) {
+            ++report->boundaryEdgeCount;
+        } else if (2 == count) {
+            const EdgeUse& a = uses[begin];
+            const EdgeUse& b = uses[begin + 1];
+            if (a.forward == b.forward)
+                ++report->orientationFlipCount;
+        } else {
+            ++report->nonManifoldEdgeCount;
+        }
+        begin = end;
+    }
+
+    for (size_t vertex = 0; vertex < vertexCount; ++vertex) {
+        if (used[vertex] && findRoot(parents, vertex) == vertex)
+            ++report->componentCount;
+    }
+}
+
+namespace {
 
     // Always the classic locale, so a host that installs the user's locale
     // globally still gets a decimal point and no digit grouping.
