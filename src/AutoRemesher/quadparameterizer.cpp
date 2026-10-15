@@ -268,7 +268,7 @@ namespace {
         const std::vector<int>& rotation, const std::vector<signed char>& cornerConstraints,
         const std::vector<double>* faceScaling, double scale, double regularization,
         std::vector<double>* scalingU, std::vector<double>* scalingV,
-        std::vector<Vector3>* field)
+        std::vector<Vector3>* field, DiagnosticRecord* diagnostics)
     {
         const size_t faceCount = mesh.faceCount();
         const bool hasFaceScaling = faceScaling && faceScaling->size() == faceCount;
@@ -341,10 +341,21 @@ namespace {
         }
 
         std::vector<double> correction;
-        if (!system.solve(&correction) || correction.size() != 3 * faceCount)
+        const bool solved = system.solve(&correction);
+        appendSolveStats(diagnostics, "solve", system.lastSolveStats());
+        if (!solved || correction.size() != 3 * faceCount)
             return;
 
         const double limit = .3, scaleLimit = std::log(1.5);
+        size_t clampedAngles = 0, clampedScales = 0;
+        for (size_t f = 0; f < faceCount; ++f) {
+            if (std::fabs(correction[3 * f]) > limit)
+                ++clampedAngles;
+            if (std::fabs(correction[3 * f + 1]) > scaleLimit || std::fabs(correction[3 * f + 2]) > scaleLimit)
+                ++clampedScales;
+        }
+        diagnostics->set("clamped_angles", (double)clampedAngles);
+        diagnostics->set("clamped_scales", (double)clampedScales);
         for (size_t f = 0; f < faceCount; ++f) {
             const double angle = std::max(-limit, std::min(limit, correction[3 * f]));
             (*field)[f] = unit(std::cos(angle) * (*field)[f] + std::sin(angle) * perpendicular[f],
@@ -478,8 +489,21 @@ namespace {
         s->scaleSolution(std::sqrt(ratio));
     }
 
+    // The corner uvs of the current solution, laid out as measureUvOrientation
+    // expects.
+    std::vector<double> cornerUvs(const MixedIntegerLeastSquares& s, size_t uvVariables)
+    {
+        std::vector<double> uvs(uvVariables);
+        for (size_t i = 0; i < uvVariables; ++i)
+            uvs[i] = s.value(i);
+        return uvs;
+    }
+
+    // Appends "cover_system" and one "rounding_iteration" per pass to
+    // `diagnostics`, and fills `result` with the residuals and map validity.
     bool solveQuadCover(const CoverContext& ctx, std::vector<double>* values,
-        const ProgressHandler* progressHandler)
+        const ProgressHandler* progressHandler,
+        std::vector<DiagnosticRecord>* diagnostics, DiagnosticRecord* result)
     {
         const SurfaceMesh& mesh = ctx.mesh;
         const std::vector<Vector3>& field = ctx.field;
@@ -624,22 +648,56 @@ namespace {
         }
         report(0.2f, "Eliminating cover constraints");
         s.finalizeConstraints();
+        diagnostics->push_back(DiagnosticRecord("cover_system")
+                                   .set("faces", (double)mesh.faceCount())
+                                   .set("variables", (double)variables)
+                                   .set("kernel_size", (double)s.kernelSize())
+                                   .set("original_integers", (double)s.originalIntegerVariableCount())
+                                   .set("kernel_integers", (double)s.integerKernelVariableCount())
+                                   .set("hard_coordinates", (double)hardCoordinateCount)
+                                   .set("dropped_constraints", (double)s.droppedConstraintCount()));
         // Rounding usually converges after a couple of passes, well short of the
         // cap, so spread the fraction over the passes it is expected to take and
         // clamp instead of pacing it against the cap and barely moving.
         const size_t maximumIterations = 100;
         const size_t expectedIterations = 4;
+        size_t iterations = 0;
         for (size_t iteration = 0; iteration < maximumIterations; ++iteration) {
             report(0.3f + 0.65f * std::min(1.0f, (float)iteration / expectedIterations),
                 "Rounding cover to integers");
-            if (!s.solveIteration())
+            const bool solved = s.solveIteration();
+            ++iterations;
+            const MixedIntegerLeastSquares::IterationStats& stats = s.lastIterationStats();
+            DiagnosticRecord record("rounding_iteration");
+            record.set("iteration", (double)stats.iteration)
+                .set("kernel_integers", (double)stats.integerVariables)
+                .set("fixed_before", (double)stats.fixedBefore)
+                .set("newly_fixed", (double)stats.newlyFixed)
+                .set("max_rounding_shift", stats.maximumRoundingShift)
+                .set("mean_rounding_shift", stats.meanRoundingShift);
+            appendSolveStats(&record, "solve", stats.solve);
+            diagnostics->push_back(std::move(record));
+            result->set("iterations", (double)iterations);
+            if (!solved)
                 return false;
-            if (0 == iteration)
+            if (0 == iteration) {
                 matchCellCount(mesh, expectedCells, &s);
+                // Nothing is fixed in the first pass, so its solution is the
+                // continuous relaxation: flips there are not caused by
+                // rounding.
+                appendUvOrientation(result, "continuous", measureUvOrientation(cornerUvs(s, uvVariables)));
+            }
             if (s.converged())
                 break;
         }
         report(0.98f, "Rounding cover to integers");
+        size_t violatedConstraints = 0;
+        const double constraintResidual = s.constraintResidual(1e-6, &violatedConstraints);
+        result->set("converged", s.converged() ? 1.0 : 0.0)
+            .set("integrality_residual", s.integralityResidual())
+            .set("constraint_residual", constraintResidual)
+            .set("violated_constraints", (double)violatedConstraints);
+        appendUvOrientation(result, "rounded", measureUvOrientation(cornerUvs(s, uvVariables)));
         values->resize(variables);
         for (size_t i = 0; i < variables; ++i)
             (*values)[i] = s.value(i);
@@ -648,7 +706,7 @@ namespace {
 
     void buildResultUv(const SurfaceMesh& mesh, const std::vector<int>& rotation,
         const std::vector<double>& allValues,
-        size_t uvVariables, QuadParameterizer::Result* result)
+        size_t uvVariables, QuadParameterizer::Result* result, DiagnosticRecord* diagnostics)
     {
         std::vector<double> uv(allValues.begin(), allValues.begin() + uvVariables);
         for (double& coordinate : uv) {
@@ -656,6 +714,8 @@ namespace {
             if (std::fabs(coordinate - integer) < 0.01)
                 coordinate = integer;
         }
+        // The map quad extraction actually sees, after the snap above.
+        appendUvOrientation(diagnostics, "snapped", measureUvOrientation(uv));
         result->singularVertices.clear();
         for (size_t vertex = 0; vertex < mesh.vertexCount(); ++vertex) {
             const auto& fan = mesh.cornersAroundVertex(vertex);
@@ -705,6 +765,28 @@ bool QuadParameterizer::parameterize(const std::vector<Vector3>& vertices,
 
     std::vector<Vector3> normals;
     initializeFieldAndNormals(mesh, guidance, &normals, &result->field);
+    {
+        // Faces where unit() had to fall back because a normal or a projected
+        // guidance direction had (near) zero length.
+        const bool hasGuidance = guidance && guidance->size() == mesh.faceCount();
+        size_t zeroNormals = 0, zeroGuidance = 0;
+        for (size_t f = 0; f < mesh.faceCount(); ++f) {
+            const Vector3 normal = mesh.faceNormal(f);
+            if (normal.length() < 1e-12)
+                ++zeroNormals;
+            if (hasGuidance) {
+                const Vector3 projected = (*guidance)[f] - normals[f] * Vector3::dotProduct((*guidance)[f], normals[f]);
+                if (projected.length() < 1e-12)
+                    ++zeroGuidance;
+            }
+        }
+        result->diagnostics.push_back(DiagnosticRecord("cover_input")
+                                          .set("faces", (double)mesh.faceCount())
+                                          .set("vertices", (double)mesh.vertexCount())
+                                          .set("scale", scale)
+                                          .set("zero_normal_faces", (double)zeroNormals)
+                                          .set("zero_guidance_faces", (double)zeroGuidance));
+    }
     const std::vector<Vector3> fieldBeforeBrush = result->field;
 
     std::vector<double> activeScalingU(mesh.faceCount(), 1.0), activeScalingV(mesh.faceCount(), 1.0);
@@ -729,8 +811,11 @@ bool QuadParameterizer::parameterize(const std::vector<Vector3>& vertices,
         applyDirectionalSwaps(mesh, fieldBeforeBrush, result->field, normals,
             &activeScalingU, &activeScalingV);
     report(0.20f, "Correcting field curl");
+    DiagnosticRecord curlDiagnostics("curl_correction");
     applyCurlCorrection(mesh, normals, rotation, cornerConstraints,
-        faceScaling, scale, 1e-4, &activeScalingU, &activeScalingV, &result->field);
+        faceScaling, scale, 1e-4, &activeScalingU, &activeScalingV, &result->field,
+        &curlDiagnostics);
+    result->diagnostics.push_back(std::move(curlDiagnostics));
     const std::vector<char> seam = computeSeam(mesh, rotation);
 
     const CoverContext ctx { mesh, result->field, normals, rotation, seam, cornerConstraints,
@@ -745,11 +830,18 @@ bool QuadParameterizer::parameterize(const std::vector<Vector3>& vertices,
         };
     }
     std::vector<double> allValues;
-    if (!solveQuadCover(ctx, &allValues, coverProgress ? &coverProgress : nullptr))
+    DiagnosticRecord coverResult("cover_result");
+    if (!solveQuadCover(ctx, &allValues, coverProgress ? &coverProgress : nullptr,
+            &result->diagnostics, &coverResult)) {
+        coverResult.set("ok", 0.0);
+        result->diagnostics.push_back(std::move(coverResult));
         return false;
+    }
 
     report(0.99f, "Building cover uvs");
-    buildResultUv(mesh, rotation, allValues, uvVariables, result);
+    buildResultUv(mesh, rotation, allValues, uvVariables, result, &coverResult);
+    coverResult.set("ok", 1.0);
+    result->diagnostics.push_back(std::move(coverResult));
     return true;
 }
 }

@@ -18,6 +18,7 @@
  */
 #ifndef AUTO_REMESHER_REMESH_H
 #define AUTO_REMESHER_REMESH_H
+#include <AutoRemesher/Diagnostics>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -35,7 +36,7 @@
 namespace AutoRemesher {
 
 const int InterfaceVersionMajor = 1;
-const int InterfaceVersionMinor = 0;
+const int InterfaceVersionMinor = 1;
 
 // Defaults are those of the command line.
 struct RemeshParameters {
@@ -130,7 +131,8 @@ struct QualityReport {
     std::vector<std::pair<std::string, double>> stepSeconds;
     std::vector<std::string> warnings;
     // Numeric counters added by later versions (solver, rounding, cleanup);
-    // readers must accept keys they don't know.
+    // readers must accept keys they don't know.  Since 1.1: whole-run totals
+    // and maxima of `RemeshResult::stageDiagnostics` (summarizeDiagnostics()).
     std::vector<std::pair<std::string, double>> diagnostics;
 };
 
@@ -140,6 +142,10 @@ struct RemeshResult {
     RemeshParameters parameters;
     RemeshMesh mesh;
     QualityReport report;
+    // Since 1.1: the per-stage records of the run, also after a failed run
+    // (empty when the core never started).  diagnosticsToJsonLines() writes
+    // them as JSON lines, schema "autoremesher.stage-diagnostics".
+    std::vector<DiagnosticRecord> stageDiagnostics;
 };
 
 RemeshResult remesh(const RemeshRequest& request,

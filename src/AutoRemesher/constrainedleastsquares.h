@@ -22,8 +22,10 @@
 #ifndef AUTO_REMESHER_CONSTRAINED_LEAST_SQUARES_H
 #define AUTO_REMESHER_CONSTRAINED_LEAST_SQUARES_H
 
+#include <AutoRemesher/Diagnostics>
 #include <cstddef>
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -43,6 +45,39 @@ public:
 
     bool solve(std::vector<double>* solution);
 
+    // What the last solve() did and cost, for the diagnostics report.  Only
+    // recorded; nothing reads it back.
+    struct SolveStats {
+        size_t variables = 0;
+        size_t energies = 0;
+        size_t constraints = 0;
+        // Unknowns of the factorised system after constraint substitution.
+        size_t freeVariables = 0;
+        size_t normalNonZeros = 0;
+        // Non-zeros of L; 0 when the platform solver does not expose it.
+        size_t factorNonZeros = 0;
+        double ridge = 0.0;
+        // Whether this solve rebuilt and refactorised the system, or reused
+        // the factorisation of an earlier solve with a new right-hand side.
+        bool refactorized = false;
+        // The constraints did not reduce to substitutions, so the dense
+        // Lagrange (KKT) system was solved with SparseLU instead.
+        bool lagrangeFallback = false;
+        bool succeeded = false;
+        size_t nonFiniteValues = 0;
+        double buildSeconds = 0.0;
+        double factorizeSeconds = 0.0;
+        double solveSeconds = 0.0;
+        double totalSeconds = 0.0;
+        // Running totals over the lifetime of this object.
+        size_t factorizations = 0;
+        size_t solves = 0;
+    };
+    const SolveStats& lastSolveStats() const
+    {
+        return m_lastSolveStats;
+    }
+
 private:
     struct LinearEquation {
         std::vector<std::pair<size_t, double>> coefficients;
@@ -61,7 +96,7 @@ private:
     bool buildSubstitutions();
     bool buildReducedSystem();
     bool solveReduced(std::vector<double>* solution);
-    bool solveWithLagrangeMultipliers(std::vector<double>* solution) const;
+    bool solveWithLagrangeMultipliers(std::vector<double>* solution);
 
     size_t m_variableCount;
     std::vector<LinearEquation> m_energyEquations;
@@ -75,6 +110,11 @@ private:
 
     struct Cache;
     std::unique_ptr<Cache> m_cache;
+    SolveStats m_lastSolveStats;
 };
+
+// Appends one solve's statistics to `record` as `<prefix>_<field>`.
+void appendSolveStats(DiagnosticRecord* record, const std::string& prefix,
+    const ConstrainedLeastSquares::SolveStats& stats);
 }
 #endif

@@ -47,6 +47,8 @@ const char* const usage = "Usage: autoremesher-cli -i input.obj -o output.obj [o
                           "  -o, --output <file.obj>     where to write the quad mesh (required)\n"
                           "  --report-json <file.json>   status and quality report, also written when\n"
                           "                              the run fails (schema autoremesher.remesh-result)\n"
+                          "  --stage-diagnostics <file>  per-stage solver, rounding and timing records as\n"
+                          "                              JSON lines (schema autoremesher.stage-diagnostics)\n"
                           "  --target-quads <count>      target quad count (default 50000)\n"
                           "  --adaptivity <0..1>         curvature-adaptive density (default 1)\n"
                           "  --anisotropy <0..1>         curvature-adaptive elongation (default 1)\n"
@@ -66,6 +68,7 @@ struct Options {
     std::string inputPath;
     std::string outputPath;
     std::string reportJsonPath;
+    std::string stageDiagnosticsPath;
     RemeshParameters parameters;
     bool stdinControl = false;
 };
@@ -135,6 +138,8 @@ int parseArguments(const std::vector<std::string>& arguments, Options* options)
             options->outputPath = value;
         else if ("--report-json" == name)
             options->reportJsonPath = value;
+        else if ("--stage-diagnostics" == name)
+            options->stageDiagnosticsPath = value;
         else if ("--target-quads" == name)
             valid = parseCount(value, &parameters.targetQuadCount);
         else if ("--adaptivity" == name)
@@ -214,6 +219,14 @@ int run(const std::vector<std::string>& arguments)
     bool reportWritten = true;
     if (!options.reportJsonPath.empty())
         reportWritten = Cli::writeTextFile(options.reportJsonPath, toJson(result), &error);
+    if (reportWritten && !options.stageDiagnosticsPath.empty()) {
+        const std::vector<std::pair<std::string, std::string>> context = {
+            { "input", options.inputPath },
+            { "target_quads", std::to_string(options.parameters.targetQuadCount) },
+        };
+        reportWritten = Cli::writeTextFile(options.stageDiagnosticsPath,
+            diagnosticsToJsonLines(result.stageDiagnostics, context), &error);
+    }
 
     if (RemeshStatus::Ok == result.status) {
         const QualityReport& report = result.report;

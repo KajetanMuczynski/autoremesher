@@ -22,6 +22,7 @@
 #ifndef AUTO_REMESHER_QUAD_PARAMETERIZER_H
 #define AUTO_REMESHER_QUAD_PARAMETERIZER_H
 
+#include <AutoRemesher/Diagnostics>
 #include <AutoRemesher/Progress>
 #include <AutoRemesher/Vector2>
 #include <AutoRemesher/Vector3>
@@ -37,6 +38,9 @@ public:
         std::vector<Vector3> field;
         std::vector<int> cornerRotations;
         std::vector<size_t> singularVertices;
+        // Sizes, solver statistics, rounding behaviour and map validity of
+        // this solve, also filled in when it fails.
+        std::vector<DiagnosticRecord> diagnostics;
     };
     // quadEdgeLength is the quad edge, in mesh units, where the face scalings
     // are 1; each face scaling multiplies it.

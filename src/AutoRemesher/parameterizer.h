@@ -19,6 +19,7 @@
  */
 #ifndef AUTO_REMESHER_PARAMETERIZER_H
 #define AUTO_REMESHER_PARAMETERIZER_H
+#include <AutoRemesher/Diagnostics>
 #include <AutoRemesher/Progress>
 #include <AutoRemesher/Vector2>
 #include <AutoRemesher/Vector3>
@@ -106,6 +107,13 @@ public:
 
     bool parameterize();
 
+    // Records of the field, simplification and cover solves of the last
+    // parameterize(), also after a failure.  Their island is left unset.
+    std::vector<DiagnosticRecord> takeDiagnostics()
+    {
+        return std::move(m_diagnostics);
+    }
+
 private:
     const std::vector<Vector3>* m_vertices = nullptr;
     const std::vector<std::vector<size_t>>* m_triangles = nullptr;
@@ -123,6 +131,7 @@ private:
     bool m_singularitySimplification = true;
     size_t m_maximumSingularityPairDistance = 6;
     ProgressHandler m_progressHandler;
+    std::vector<DiagnosticRecord> m_diagnostics;
 
     std::vector<double> computeFaceScalingField(const std::vector<Vector3>& vertices,
         const std::vector<std::vector<size_t>>& triangles,

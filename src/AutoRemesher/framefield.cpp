@@ -84,7 +84,7 @@ namespace {
 }
 
 bool FrameField::create(const SurfaceMesh& mesh, double sharpEdgeDegrees,
-    std::vector<Vector3>* field)
+    std::vector<Vector3>* field, std::vector<DiagnosticRecord>* diagnostics)
 {
     if (nullptr == field || mesh.faceCount() == 0)
         return false;
@@ -198,6 +198,23 @@ bool FrameField::create(const SurfaceMesh& mesh, double sharpEdgeDegrees,
             certaintyRows.push_back({ rowU, rowV });
         }
 
+    DiagnosticRecord record("frame_field");
+    size_t lockedFaces = 0;
+    for (size_t f = 0; f < faces; ++f)
+        if (locked[f])
+            ++lockedFaces;
+    record.set("faces", (double)faces).set("locked_faces", (double)lockedFaces);
+    // Faces whose solved periodic vector was (near) zero, so the
+    // normalisation had to leave it as is: an undefined direction.
+    size_t zeroPeriodic = 0;
+    const auto finishRecord = [&](bool succeeded) {
+        if (nullptr == diagnostics)
+            return;
+        record.set("ok", succeeded ? 1.0 : 0.0).set("zero_periodic_faces", (double)zeroPeriodic);
+        appendSolveStats(&record, "solve", system.lastSolveStats());
+        diagnostics->push_back(std::move(record));
+    };
+
     std::vector<double> solved;
     for (size_t iteration = 0; iteration < 5; ++iteration) {
         size_t rowIndex = 0;
@@ -207,11 +224,17 @@ bool FrameField::create(const SurfaceMesh& mesh, double sharpEdgeDegrees,
                 system.setEnergyRightHandSide(certaintyRows[rowIndex].second, periodic[2 * f + 1]);
                 ++rowIndex;
             }
-        if (!system.solve(&solved))
+        if (!system.solve(&solved)) {
+            finishRecord(false);
             return false;
+        }
         periodic.swap(solved);
+        for (size_t f = 0; f < faces; ++f)
+            if (std::hypot(periodic[2 * f], periodic[2 * f + 1]) <= 1e-30)
+                ++zeroPeriodic;
         normalizePeriodic();
     }
+    finishRecord(true);
     field->resize(faces);
     tbb::parallel_for(tbb::blocked_range<size_t>(0, faces), [&](const tbb::blocked_range<size_t>& range) {
         for (size_t faceIndex = range.begin(); faceIndex != range.end(); ++faceIndex) {

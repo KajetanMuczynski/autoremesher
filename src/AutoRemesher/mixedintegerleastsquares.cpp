@@ -220,7 +220,8 @@ void MixedIntegerLeastSquares::finalizeConstraints()
         processConstraint(recordedConstraint(index));
     endPass(2);
     for (size_t index = 0; index < m_constraintRanges.size(); ++index)
-        processConstraint(recordedConstraint(index));
+        if (!processConstraint(recordedConstraint(index)))
+            ++m_droppedConstraintCount;
     endPass(3);
 
     buildKernel();
@@ -450,6 +451,14 @@ bool MixedIntegerLeastSquares::solveIteration()
 {
     if (m_pass < 3 || m_kernelSize == 0)
         return false;
+    IterationStats& stats = m_lastIterationStats;
+    stats = IterationStats();
+    stats.iteration = m_iterationCount++;
+    stats.kernelSize = m_kernelSize;
+    stats.integerVariables = integerKernelVariableCount();
+    for (size_t i = 0; i < m_fixed.size(); ++i)
+        if (m_fixed[i])
+            ++stats.fixedBefore;
     if (m_values.empty()) {
         m_values.assign(m_kernelSize, 0.0);
         m_fixed.assign(m_kernelSize, false);
@@ -464,9 +473,16 @@ bool MixedIntegerLeastSquares::solveIteration()
         for (size_t i = 0; i < m_kernelSize; ++i)
             if (!m_fixed[i] && m_period[i] > 0) {
                 double d = std::fabs(m_values[i] / m_period[i] - std::round(m_values[i] / m_period[i]));
-                if (d < threshold)
+                if (d < threshold) {
                     m_fixed[i] = true;
+                    const double shift = d * m_period[i];
+                    ++stats.newlyFixed;
+                    stats.maximumRoundingShift = std::max(stats.maximumRoundingShift, shift);
+                    stats.meanRoundingShift += shift;
+                }
             }
+        if (stats.newlyFixed > 0)
+            stats.meanRoundingShift /= (double)stats.newlyFixed;
     }
     if (nullptr == m_system) {
         m_system.reset(new ConstrainedLeastSquares(m_kernelSize));
@@ -483,7 +499,9 @@ bool MixedIntegerLeastSquares::solveIteration()
     for (size_t i = 0; i < m_kernelSize; ++i)
         if (m_fixed[i])
             m_system->addConstraint({ { i, 1.0 } }, double(m_period[i]) * std::round(m_values[i] / double(m_period[i])));
-    return m_system->solve(&m_values);
+    const bool solved = m_system->solve(&m_values);
+    stats.solve = m_system->lastSolveStats();
+    return solved;
 }
 
 bool MixedIntegerLeastSquares::scaleSolution(double factor)
@@ -543,6 +561,37 @@ size_t MixedIntegerLeastSquares::integerKernelVariableCount() const
         if (m_period[i] > 0)
             ++count;
     return count;
+}
+
+double MixedIntegerLeastSquares::integralityResidual() const
+{
+    double residual = 0.0;
+    for (size_t i = 0; i < m_initialPeriod.size(); ++i) {
+        const int period = m_initialPeriod[i];
+        if (period <= 0)
+            continue;
+        const double x = value(i) / period;
+        residual = std::max(residual, std::fabs(x - std::round(x)));
+    }
+    return residual;
+}
+
+double MixedIntegerLeastSquares::constraintResidual(double tolerance, size_t* violatedCount) const
+{
+    double residual = 0.0;
+    size_t violated = 0;
+    for (const auto& range : m_constraintRanges) {
+        double sum = 0.0;
+        for (size_t k = range.first; k < range.first + range.second; ++k)
+            sum += m_constraintData[k].a * value(m_constraintData[k].index);
+        const double magnitude = std::fabs(sum);
+        residual = std::max(residual, magnitude);
+        if (magnitude > tolerance)
+            ++violated;
+    }
+    if (nullptr != violatedCount)
+        *violatedCount = violated;
+    return residual;
 }
 
 size_t MixedIntegerLeastSquares::originalIntegerVariableCount() const
