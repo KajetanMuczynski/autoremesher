@@ -216,9 +216,11 @@ HEADERS += src/AutoRemesher/autoremesher.h
 
 SOURCES += src/AutoRemesher/remesh.cpp
 HEADERS += src/AutoRemesher/remesh.h
+HEADERS += src/AutoRemesher/measuremesh.h
 HEADERS += src/AutoRemesher/remeshpreview.h
 HEADERS += include/AutoRemesher/Remesh
 HEADERS += include/AutoRemesher/RemeshPreview
+HEADERS += include/AutoRemesher/MeasureMesh
 
 SOURCES += src/AutoRemesher/isotropicremesher.cpp
 HEADERS += src/AutoRemesher/isotropicremesher.h
