@@ -1292,6 +1292,19 @@ void QuadExtractor::rebuildHalfEdges()
     }
 }
 
+void QuadExtractor::fillHoles(const std::vector<Vector3>& vertices,
+    std::vector<std::vector<size_t>>* polygons,
+    const Boundary* inputBoundary)
+{
+    QuadExtractor extractor(nullptr, nullptr, nullptr);
+    extractor.m_remeshedVertices = vertices;
+    extractor.m_remeshedPolygons = std::move(*polygons);
+    extractor.m_inputBoundary = inputBoundary;
+    extractor.rebuildHalfEdges();
+    extractor.fixHoles();
+    *polygons = std::move(extractor.m_remeshedPolygons);
+}
+
 QuadExtractor::Boundary QuadExtractor::findBoundary(const std::vector<Vector3>& vertices,
     const std::vector<std::vector<size_t>>& triangles)
 {
@@ -1477,13 +1490,14 @@ void QuadExtractor::fixHoles()
         }
 
         std::cerr << "Fixing hole at length:" << loop.size() << "..." << std::endl;
-        fixHoleWithQuads(loop, true);
-        if (loop.size() >= 4)
+        // The second pass only takes over a hole the scored pass left open:
+        // run on a closed one it would add the closing face again.
+        if (!fixHoleWithQuads(loop, true) && loop.size() >= 4)
             fixHoleWithQuads(loop, false);
     }
 }
 
-void QuadExtractor::fixHoleWithQuads(std::vector<size_t>& hole, bool checkScore)
+bool QuadExtractor::fixHoleWithQuads(std::vector<size_t>& hole, bool checkScore)
 {
     auto recordHalfEdgesOfLastPolygon = [&]() {
         const auto& it = m_remeshedPolygons[m_remeshedPolygons.size() - 1];
@@ -1496,19 +1510,19 @@ void QuadExtractor::fixHoleWithQuads(std::vector<size_t>& hole, bool checkScore)
     for (;;) {
         if (hole.size() <= 2) {
             std::cerr << "fixHoleWithQuads cancel on edge length:" << hole.size() << std::endl;
-            return;
+            return false;
         }
 
         if (3 == hole.size()) {
             m_remeshedPolygons.push_back({ (size_t)hole[2], (size_t)hole[1], (size_t)hole[0] });
             recordHalfEdgesOfLastPolygon();
-            return;
+            return true;
         }
 
         if (4 == hole.size()) {
             m_remeshedPolygons.push_back({ (size_t)hole[3], (size_t)hole[2], (size_t)hole[1], (size_t)hole[0] });
             recordHalfEdgesOfLastPolygon();
-            return;
+            return true;
         }
 
         std::vector<std::pair<int, double>> edgeScores;
@@ -1530,7 +1544,7 @@ void QuadExtractor::fixHoleWithQuads(std::vector<size_t>& hole, bool checkScore)
             if (checkScore) {
                 if (score.second <= 0) {
                     std::cerr << "fixHoleWithQuads failed, highest score(dot):" << score.second << std::endl;
-                    return;
+                    return false;
                 }
             }
             int i = score.first;
@@ -1568,6 +1582,7 @@ void QuadExtractor::fixHoleWithQuads(std::vector<size_t>& hole, bool checkScore)
         if (!holeChanged)
             break;
     }
+    return false;
 }
 
 void QuadExtractor::searchBoundaries(const std::set<std::pair<size_t, size_t>>& halfEdges,

@@ -105,6 +105,13 @@ public:
         m_inputBoundary = inputBoundary;
     }
 
+    // The hole-filling step of extract() on its own: fills the holes of a
+    // polygon mesh as extract() does, leaving open the loops that follow
+    // inputBoundary (nullptr fills every hole up to 65 edges).
+    static void fillHoles(const std::vector<Vector3>& vertices,
+        std::vector<std::vector<size_t>>* polygons,
+        const Boundary* inputBoundary = nullptr);
+
 private:
     // The isoline a connection was cut from: which uv coordinate is held constant,
     // which integer value it is held at, and which triangle produced the segment.
@@ -153,7 +160,10 @@ private:
     void simplifyGraph(std::unordered_map<size_t, std::unordered_set<size_t>>& graph);
     void searchBoundaries(const std::set<std::pair<size_t, size_t>>& halfEdges,
         std::vector<std::vector<size_t>>* loops);
-    void fixHoleWithQuads(std::vector<size_t>& hole, bool checkScore = true);
+    // Closes the hole with quads (and a last triangle on an odd loop) and
+    // returns true when it closed it.  Each quad it adds takes two vertices
+    // off hole, so on false hole is what is still open.
+    bool fixHoleWithQuads(std::vector<size_t>& hole, bool checkScore = true);
     bool testPointInTriangle(const std::vector<Vector3>& points,
         const std::vector<size_t>& triangle,
         const std::vector<size_t>& testPoints);

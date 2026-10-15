@@ -24,3 +24,7 @@ add_test(NAME quality_report COMMAND quality_report_test)
 add_executable(small_island_test small_island_test.cpp)
 target_link_libraries(small_island_test PRIVATE autoremesher_core)
 add_test(NAME small_island COMMAND small_island_test)
+
+add_executable(hole_filling_test hole_filling_test.cpp)
+target_link_libraries(hole_filling_test PRIVATE autoremesher_core)
+add_test(NAME hole_filling COMMAND hole_filling_test)
