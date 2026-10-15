@@ -19,10 +19,12 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
+#include "cli/stdincontrol.h"
 #include "mainwindow.h"
 #include "preferences.h"
 #include "theme.h"
 #include "version.h"
+#include <AutoRemesher/Remesh>
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QDebug>
@@ -43,13 +45,18 @@ struct HeadlessParams {
     QString inputPath;
     QString outputPath;
     QString reportPath;
+    QString reportJsonPath;
     int targetQuads = 50000;
     double edgeScaling = 1.0;
     double sharpEdgeDegrees = 90.0;
     double smoothNormalDegrees = 0.0;
     double adaptivity = 1.0;
     double anisotropy = 1.0;
+    bool stdinControl = false;
 };
+
+// Lives until exit, so the detached stdin reader never outlives it.
+static AutoRemesher::CancelToken g_stdinCancelToken;
 
 static HeadlessParams parseHeadlessArgs(QCommandLineParser& parser)
 {
@@ -58,6 +65,8 @@ static HeadlessParams parseHeadlessArgs(QCommandLineParser& parser)
     params.outputPath = parser.value("output");
     if (parser.isSet("report"))
         params.reportPath = parser.value("report");
+    if (parser.isSet("report-json"))
+        params.reportJsonPath = parser.value("report-json");
     if (parser.isSet("target-quads"))
         params.targetQuads = parser.value("target-quads").toInt();
     if (parser.isSet("edge-scaling"))
@@ -70,6 +79,7 @@ static HeadlessParams parseHeadlessArgs(QCommandLineParser& parser)
         params.adaptivity = parser.value("adaptivity").toDouble();
     if (parser.isSet("anisotropy"))
         params.anisotropy = parser.value("anisotropy").toDouble();
+    params.stdinControl = parser.isSet("stdin-control");
     return params;
 }
 
@@ -106,6 +116,11 @@ int main(int argc, char** argv)
         QCoreApplication::translate("main", "report.txt"));
     parser.addOption(reportOption);
 
+    QCommandLineOption reportJsonOption(QStringList { "report-json" },
+        QCoreApplication::translate("main", "Path to write the run's status and quality report as JSON (schema autoremesher.remesh-result), also when remeshing fails."),
+        QCoreApplication::translate("main", "report.json"));
+    parser.addOption(reportJsonOption);
+
     QCommandLineOption targetQuadsOption(QStringList { "target-quads" },
         QCoreApplication::translate("main", "Target quad count (default: 50000)"),
         QCoreApplication::translate("main", "count"));
@@ -135,6 +150,10 @@ int main(int argc, char** argv)
         QCoreApplication::translate("main", "Curvature-adaptive quad elongation (default: 1.0, range: 0.0-1.0)"),
         QCoreApplication::translate("main", "value"));
     parser.addOption(anisotropyOption);
+
+    QCommandLineOption stdinControlOption(QStringList { "stdin-control" },
+        QCoreApplication::translate("main", "Cancel the run when stdin receives the line \"cancel\" or is closed; the run stops at its next cancel point and --report-json says \"cancelled\"."));
+    parser.addOption(stdinControlOption);
 
     parser.process(app);
 
@@ -221,6 +240,11 @@ int main(int argc, char** argv)
             params.targetQuads, params.edgeScaling,
             params.sharpEdgeDegrees, params.smoothNormalDegrees,
             params.adaptivity, params.anisotropy);
+        mainWindow->setHeadlessReportJsonPath(params.reportJsonPath);
+        if (params.stdinControl) {
+            mainWindow->setHeadlessCancelToken(&g_stdinCancelToken);
+            AutoRemesher::Cli::startStdinCancelReader(&g_stdinCancelToken);
+        }
         mainWindow->runHeadless();
 
         return app.exec();

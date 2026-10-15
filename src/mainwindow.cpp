@@ -1003,6 +1003,16 @@ void MainWindow::setHeadlessParams(const QString& inputPath, const QString& outp
     m_anisotropy = static_cast<float>(anisotropy);
 }
 
+void MainWindow::setHeadlessReportJsonPath(const QString& path)
+{
+    m_headlessReportJsonPath = path;
+}
+
+void MainWindow::setHeadlessCancelToken(const AutoRemesher::CancelToken* cancelToken)
+{
+    m_headlessCancelToken = cancelToken;
+}
+
 void MainWindow::saveMeshToFile(const QString& filename)
 {
     if (nullptr == m_remeshedVertices || nullptr == m_remeshedQuads)
@@ -1055,9 +1065,8 @@ void MainWindow::runHeadless()
 
     QuadMeshGenerator::Parameters parameters;
 
-    parameters.targetTriangleCount = m_targetQuadCount * 2;
-    parameters.scaling = m_targetScaling;
-    parameters.modelType = m_modelType;
+    parameters.targetQuadCount = m_targetQuadCount;
+    parameters.edgeScaling = m_targetScaling;
     parameters.adaptivity = m_adaptivity;
     parameters.anisotropy = m_anisotropy;
     parameters.sharpEdgeDegrees = m_sharpEdgeDegrees;
@@ -1067,6 +1076,7 @@ void MainWindow::runHeadless()
     connect(m_quadMeshGenerator, &QuadMeshGenerator::reportProgress, this, &MainWindow::updateProgress);
     connect(m_quadMeshGenerator, &QuadMeshGenerator::reportProgressDetailed, this, &MainWindow::updateProgressDetailed);
     m_quadMeshGenerator->setParameters(parameters);
+    m_quadMeshGenerator->setCancelToken(m_headlessCancelToken);
     m_quadMeshGenerator->moveToThread(thread);
     connect(thread, &QThread::started, m_quadMeshGenerator, &QuadMeshGenerator::process);
     connect(m_quadMeshGenerator, &QuadMeshGenerator::finished, this, &MainWindow::quadMeshReady);
@@ -1099,9 +1109,8 @@ void MainWindow::generateQuadMesh()
 
     QuadMeshGenerator::Parameters parameters;
 
-    parameters.targetTriangleCount = m_targetQuadCount * 2;
-    parameters.scaling = m_targetScaling;
-    parameters.modelType = m_modelType;
+    parameters.targetQuadCount = m_targetQuadCount;
+    parameters.edgeScaling = m_targetScaling;
     parameters.adaptivity = m_adaptivity;
     parameters.anisotropy = m_anisotropy;
     parameters.sharpEdgeDegrees = m_sharpEdgeDegrees;
@@ -1143,6 +1152,16 @@ void MainWindow::quadMeshReady()
     m_isotropicExtractedConnectionMoved = m_quadMeshGenerator->isotropicExtractedConnectionMoved();
     m_isotropicSingularVertices = m_quadMeshGenerator->isotropicSingularVertices();
     m_isotropicExtractedConnections = m_quadMeshGenerator->isotropicExtractedConnections();
+
+    if (m_headlessMode && !m_headlessReportJsonPath.isEmpty()) {
+        QFile reportFile(m_headlessReportJsonPath);
+        if (reportFile.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            const std::string& json = m_quadMeshGenerator->reportJson();
+            reportFile.write(json.data(), (qint64)json.size());
+        } else {
+            std::cerr << "Error: Failed to write " << m_headlessReportJsonPath.toStdString() << std::endl;
+        }
+    }
 
     delete m_quadMeshGenerator;
     m_quadMeshGenerator = nullptr;
