@@ -55,6 +55,9 @@ else:
 
     addon.register()
 try:
+    shown = addon.MAIN_PARAMETERS + addon.ADVANCED_PARAMETERS
+    assert sorted(shown) == sorted(worker.PARAMETER_FLAGS), (shown, worker.PARAMETER_FLAGS)
+
     bpy.ops.mesh.primitive_uv_sphere_add(segments=128, ring_count=64)
     source = bpy.context.active_object
     source.location = (1.0, 2.0, 3.0)
