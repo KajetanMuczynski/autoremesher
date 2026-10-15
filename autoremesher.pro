@@ -261,6 +261,12 @@ HEADERS += include/AutoRemesher/FrameField
 SOURCES += src/AutoRemesher/quadparameterizer.cpp
 HEADERS += src/AutoRemesher/quadparameterizer.h
 HEADERS += include/AutoRemesher/QuadParameterizer
+SOURCES += src/AutoRemesher/diagnostics.cpp
+HEADERS += src/AutoRemesher/diagnostics.h
+HEADERS += include/AutoRemesher/Diagnostics
+SOURCES += src/AutoRemesher/predicates.cpp
+HEADERS += src/AutoRemesher/predicates.h
+HEADERS += include/AutoRemesher/Predicates
 
 
 SOURCES += src/AutoRemesher/quadextractor.cpp

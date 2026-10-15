@@ -22,14 +22,13 @@
 #ifndef AUTO_REMESHER_MIXED_INTEGER_LEAST_SQUARES_H
 #define AUTO_REMESHER_MIXED_INTEGER_LEAST_SQUARES_H
 
+#include <AutoRemesher/ConstrainedLeastSquares>
 #include <cstddef>
 #include <memory>
 #include <utility>
 #include <vector>
 
 namespace AutoRemesher {
-
-class ConstrainedLeastSquares;
 
 class MixedIntegerLeastSquares {
 public:
@@ -67,6 +66,44 @@ public:
     size_t kernelSize() const;
     size_t integerKernelVariableCount() const;
     size_t originalIntegerVariableCount() const;
+
+    // Diagnostics only; none of these change the solve.
+
+    // What the last solveIteration() rounded and how its solve went.  A
+    // rounding shift is |x - p round(x / p)| in the variable's own units,
+    // taken over the integers this iteration fixed.
+    struct IterationStats {
+        size_t iteration = 0;
+        size_t kernelSize = 0;
+        size_t integerVariables = 0;
+        size_t fixedBefore = 0;
+        size_t newlyFixed = 0;
+        double maximumRoundingShift = 0.0;
+        double meanRoundingShift = 0.0;
+        ConstrainedLeastSquares::SolveStats solve;
+    };
+    const IterationStats& lastIterationStats() const
+    {
+        return m_lastIterationStats;
+    }
+
+    // Constraint rows that still had non-zero coefficients after elimination
+    // (pass 3).  The kernel does not satisfy them; they used to be dropped
+    // without a trace.
+    size_t droppedConstraintCount() const
+    {
+        return m_droppedConstraintCount;
+    }
+
+    // max |x / p - round(x / p)| over the variables given a period before
+    // elimination, evaluated on the current solution.  Integers fixed in the
+    // kernel can still leave an original variable fractional when the
+    // elimination folded it into a combination of kernel variables.
+    double integralityResidual() const;
+
+    // max |a . x| over all constraints as added (every constraint row is
+    // homogeneous), and how many exceed `tolerance`.
+    double constraintResidual(double tolerance, size_t* violatedCount) const;
 
 private:
     struct Coeff {
@@ -128,6 +165,9 @@ private:
     mutable std::vector<Coeff> m_merged;
 
     std::unique_ptr<ConstrainedLeastSquares> m_system;
+    IterationStats m_lastIterationStats;
+    size_t m_iterationCount = 0;
+    size_t m_droppedConstraintCount = 0;
 };
 }
 #endif

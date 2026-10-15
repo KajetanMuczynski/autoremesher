@@ -21,6 +21,7 @@
  */
 #ifndef AUTO_REMESHER_AUTO_REMESHER_H
 #define AUTO_REMESHER_AUTO_REMESHER_H
+#include <AutoRemesher/Diagnostics>
 #include <AutoRemesher/Progress>
 #include <AutoRemesher/Vector3>
 #include <atomic>
@@ -229,6 +230,15 @@ public:
         return m_stageTimes;
     }
 
+    // Per-stage measurements of the last remesh(): one "run" record, one
+    // "step" record per named step, one "island" record per island, then each
+    // island's solver and rounding records in island order.  Write them with
+    // diagnosticsToJsonLines().
+    const std::vector<DiagnosticRecord>& diagnostics() const
+    {
+        return m_diagnostics;
+    }
+
     static const double m_defaultSharpEdgeDegrees;
 
     // Per-island durations are accumulated in microseconds: a mesh split into
@@ -266,6 +276,7 @@ private:
     int m_reportedPermille = -1;
     const char* m_reportedStatus = nullptr;
     std::vector<std::string> m_phaseReport;
+    std::vector<DiagnosticRecord> m_diagnostics;
     mutable std::mutex m_progressMutex;
     std::mutex m_stageTimingMutex;
     std::vector<StageTime> m_stageTimes;

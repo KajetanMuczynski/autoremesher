@@ -314,6 +314,7 @@ std::vector<double> Parameterizer::computeFaceScalingField(const std::vector<Vec
 
 bool Parameterizer::parameterize()
 {
+    m_diagnostics.clear();
 #if AUTO_REMESHER_DEV
     {
         FILE* fp = fopen("debug-input-for-parameterization.obj", "wb");
@@ -392,7 +393,7 @@ bool Parameterizer::parameterize()
     if (nullptr != m_triangleFieldVectors) {
         field = *m_triangleFieldVectors;
     } else if (!FrameField::create(topology, m_sharpEdgeDegrees,
-                   &field)) {
+                   &field, &m_diagnostics)) {
         std::cerr << "Frame field solve failed" << std::endl;
         return false;
     }
@@ -407,6 +408,13 @@ bool Parameterizer::parameterize()
         simplifier.setSharpEdgeDegrees(m_sharpEdgeDegrees);
         simplifier.setMaximumPairDistance(m_maximumSingularityPairDistance);
         simplifier.simplify();
+        {
+            DiagnosticRecord record("singularity_simplifier");
+            record.set("singularities_before", (double)simplifier.singularityCountBefore());
+            record.set("singularities_after", (double)simplifier.singularityCountAfter());
+            record.set("cancelled_pairs", (double)simplifier.cancelledPairCount());
+            m_diagnostics.push_back(std::move(record));
+        }
     }
 
     //faceScalingField = computeConformalScaling(topology, simplifier.vertexCharges(),
@@ -439,10 +447,13 @@ bool Parameterizer::parameterize()
             baseEdgeLength = std::sqrt(area / m_targetQuadCount);
     }
     QuadParameterizer::Result cover;
-    if (!QuadParameterizer::parameterize(*m_vertices, *m_triangles,
-            &field, m_scaling * baseEdgeLength, m_sharpEdgeDegrees, &cover,
-            &faceScalingField, &faceScalingU, &faceScalingV,
-            coverProgress ? &coverProgress : nullptr)) {
+    const bool coverSolved = QuadParameterizer::parameterize(*m_vertices, *m_triangles,
+        &field, m_scaling * baseEdgeLength, m_sharpEdgeDegrees, &cover,
+        &faceScalingField, &faceScalingU, &faceScalingV,
+        coverProgress ? &coverProgress : nullptr);
+    for (auto& record : cover.diagnostics)
+        m_diagnostics.push_back(std::move(record));
+    if (!coverSolved) {
         std::cerr << "Quad cover solve failed" << std::endl;
         return false;
     }

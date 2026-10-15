@@ -29,6 +29,7 @@
 #include <Eigen/AccelerateSupport>
 #endif
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <limits>
 
@@ -45,6 +46,22 @@ namespace {
     // the mean diagonal instead, which keeps a solve's outcome independent of
     // the units the input mesh happens to be modelled in.
     const double relativeRidge = 1e-10;
+
+    typedef std::chrono::steady_clock Clock;
+
+    double secondsSince(const Clock::time_point& start)
+    {
+        return std::chrono::duration<double>(Clock::now() - start).count();
+    }
+
+    size_t countNonFinite(const Eigen::VectorXd& values)
+    {
+        size_t count = 0;
+        for (Eigen::Index i = 0; i < values.size(); ++i)
+            if (!std::isfinite(values[i]))
+                ++count;
+        return count;
+    }
 
     double ridgeFor(const Eigen::SparseMatrix<double>& normalMatrix)
     {
@@ -70,6 +87,8 @@ struct ConstrainedLeastSquares::Cache {
 #endif
     bool patternAnalyzed = false;
     bool factorized = false;
+    size_t factorNonZeros = 0;
+    size_t nonFiniteValues = 0;
 
     bool factorize()
     {
@@ -80,6 +99,7 @@ struct ConstrainedLeastSquares::Cache {
             acceleratedSolver.factorize(normalMatrix);
             if (acceleratedSolver.info() == Eigen::Success) {
                 patternAnalyzed = true;
+                factorNonZeros = 0;
                 return true;
             }
             useAccelerated = false;
@@ -92,6 +112,7 @@ struct ConstrainedLeastSquares::Cache {
         if (solver.info() != Eigen::Success)
             return false;
         patternAnalyzed = true;
+        factorNonZeros = (size_t)solver.matrixL().nestedExpression().nonZeros();
         return true;
     }
 
@@ -100,12 +121,14 @@ struct ConstrainedLeastSquares::Cache {
 #if AUTO_REMESHER_USE_ACCELERATE
         if (useAccelerated) {
             const Eigen::VectorXd solution = acceleratedSolver.solve(rightHandSide);
-            *succeeded = acceleratedSolver.info() == Eigen::Success && solution.allFinite();
+            nonFiniteValues = countNonFinite(solution);
+            *succeeded = acceleratedSolver.info() == Eigen::Success && 0 == nonFiniteValues;
             return solution;
         }
 #endif
         const Eigen::VectorXd solution = solver.solve(rightHandSide);
-        *succeeded = solver.info() == Eigen::Success && solution.allFinite();
+        nonFiniteValues = countNonFinite(solution);
+        *succeeded = solver.info() == Eigen::Success && 0 == nonFiniteValues;
         return solution;
     }
 };
@@ -291,9 +314,19 @@ bool ConstrainedLeastSquares::solveReduced(std::vector<double>* solution)
     }
 
     if (m_matrixDirty) {
+        const Clock::time_point buildStart = Clock::now();
         if (!buildReducedSystem())
             return false;
-        if (!cache.factorize())
+        m_lastSolveStats.buildSeconds = secondsSince(buildStart);
+        m_lastSolveStats.refactorized = true;
+        m_lastSolveStats.normalNonZeros = (size_t)cache.normalMatrix.nonZeros();
+        m_lastSolveStats.ridge = ridgeFor(cache.normalMatrix);
+        const Clock::time_point factorizeStart = Clock::now();
+        ++m_lastSolveStats.factorizations;
+        const bool factorized = cache.factorize();
+        m_lastSolveStats.factorizeSeconds = secondsSince(factorizeStart);
+        m_lastSolveStats.factorNonZeros = cache.factorNonZeros;
+        if (!factorized)
             return false;
         cache.factorized = true;
         m_matrixDirty = false;
@@ -307,8 +340,11 @@ bool ConstrainedLeastSquares::solveReduced(std::vector<double>* solution)
             * (m_energyEquations[static_cast<size_t>(row)].rightHandSide - cache.rowShift[row]);
     }
     bool solveSucceeded = false;
+    const Clock::time_point solveStart = Clock::now();
     const Eigen::VectorXd reducedSolution = cache.solve(cache.scaledMatrix.transpose() * scaledRightHandSide,
         &solveSucceeded);
+    m_lastSolveStats.solveSeconds = secondsSince(solveStart);
+    m_lastSolveStats.nonFiniteValues = cache.nonFiniteValues;
     if (!solveSucceeded)
         return false;
 
@@ -332,16 +368,35 @@ bool ConstrainedLeastSquares::solve(std::vector<double>* solution)
     if (0 == m_variableCount)
         return false;
 
+    const Clock::time_point start = Clock::now();
+    SolveStats& stats = m_lastSolveStats;
+    const size_t factorizations = stats.factorizations;
+    const size_t solves = stats.solves;
+    stats = SolveStats();
+    stats.factorizations = factorizations;
+    stats.solves = solves + 1;
+    stats.variables = m_variableCount;
+    stats.energies = m_energyEquations.size();
+    stats.constraints = m_constraintEquations.size();
     if (m_matrixDirty) {
         m_cache->patternAnalyzed = false;
         m_cache->factorized = false;
-        if (!buildSubstitutions())
-            return solveWithLagrangeMultipliers(solution);
+        if (!buildSubstitutions()) {
+            stats.lagrangeFallback = true;
+            stats.refactorized = true;
+            ++stats.factorizations;
+            stats.succeeded = solveWithLagrangeMultipliers(solution);
+            stats.totalSeconds = secondsSince(start);
+            return stats.succeeded;
+        }
     }
-    return solveReduced(solution);
+    stats.freeVariables = m_freeCount;
+    stats.succeeded = solveReduced(solution);
+    stats.totalSeconds = secondsSince(start);
+    return stats.succeeded;
 }
 
-bool ConstrainedLeastSquares::solveWithLagrangeMultipliers(std::vector<double>* solution) const
+bool ConstrainedLeastSquares::solveWithLagrangeMultipliers(std::vector<double>* solution)
 {
     const Eigen::Index variableCount = static_cast<Eigen::Index>(m_variableCount);
     const Eigen::Index originalConstraintCount = static_cast<Eigen::Index>(m_constraintEquations.size());
@@ -400,17 +455,49 @@ bool ConstrainedLeastSquares::solveWithLagrangeMultipliers(std::vector<double>* 
     for (Eigen::Index i = 0; i < variableCount; ++i)
         entries.emplace_back(i, i, ridge);
     normal.setFromTriplets(entries.begin(), entries.end());
+    m_lastSolveStats.freeVariables = (size_t)normal.rows();
+    m_lastSolveStats.normalNonZeros = (size_t)normal.nonZeros();
+    m_lastSolveStats.ridge = ridge;
     Eigen::SparseLU<Eigen::SparseMatrix<double>> solver;
+    const Clock::time_point factorizeStart = Clock::now();
     solver.compute(normal);
+    m_lastSolveStats.factorizeSeconds = secondsSince(factorizeStart);
     if (solver.info() != Eigen::Success)
         return false;
+    m_lastSolveStats.factorNonZeros = (size_t)(solver.nnzL() + solver.nnzU());
+    const Clock::time_point solveStart = Clock::now();
     const Eigen::VectorXd solutionVector = solver.solve(rightHandSide);
-    if (solver.info() != Eigen::Success || !solutionVector.allFinite())
+    m_lastSolveStats.solveSeconds = secondsSince(solveStart);
+    m_lastSolveStats.nonFiniteValues = countNonFinite(solutionVector);
+    if (solver.info() != Eigen::Success || 0 != m_lastSolveStats.nonFiniteValues)
         return false;
     solution->resize(m_variableCount);
     for (size_t i = 0; i < m_variableCount; ++i)
         (*solution)[i] = solutionVector[static_cast<Eigen::Index>(i)];
     return true;
+}
+
+void appendSolveStats(DiagnosticRecord* record, const std::string& prefix,
+    const ConstrainedLeastSquares::SolveStats& stats)
+{
+    const std::string p = prefix + "_";
+    record->set(p + "ok", stats.succeeded ? 1.0 : 0.0);
+    record->set(p + "variables", (double)stats.variables);
+    record->set(p + "energies", (double)stats.energies);
+    record->set(p + "constraints", (double)stats.constraints);
+    record->set(p + "n", (double)stats.freeVariables);
+    record->set(p + "normal_nnz", (double)stats.normalNonZeros);
+    record->set(p + "factor_nnz", (double)stats.factorNonZeros);
+    record->set(p + "ridge", stats.ridge);
+    record->set(p + "refactorized", stats.refactorized ? 1.0 : 0.0);
+    record->set(p + "kkt_fallback", stats.lagrangeFallback ? 1.0 : 0.0);
+    record->set(p + "non_finite", (double)stats.nonFiniteValues);
+    record->set(p + "build_ms", 1e3 * stats.buildSeconds);
+    record->set(p + "factorize_ms", 1e3 * stats.factorizeSeconds);
+    record->set(p + "solve_ms", 1e3 * stats.solveSeconds);
+    record->set(p + "total_ms", 1e3 * stats.totalSeconds);
+    record->set(p + "factorizations", (double)stats.factorizations);
+    record->set(p + "solves", (double)stats.solves);
 }
 
 }

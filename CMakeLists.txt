@@ -61,12 +61,14 @@ set(THIRDPARTY "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty")
 add_library(autoremesher_core STATIC
     src/AutoRemesher/autoremesher.cpp
     src/AutoRemesher/constrainedleastsquares.cpp
+    src/AutoRemesher/diagnostics.cpp
     src/AutoRemesher/framefield.cpp
     src/AutoRemesher/isotropicremesher.cpp
     src/AutoRemesher/meshseparator.cpp
     src/AutoRemesher/mixedintegerleastsquares.cpp
     src/AutoRemesher/parameterizer.cpp
     src/AutoRemesher/positionkey.cpp
+    src/AutoRemesher/predicates.cpp
     src/AutoRemesher/quadextractor.cpp
     src/AutoRemesher/quadparameterizer.cpp
     src/AutoRemesher/remesh.cpp

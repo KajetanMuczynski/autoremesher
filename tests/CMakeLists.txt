@@ -8,3 +8,7 @@
 add_executable(quad_count_test quad_count_test.cpp)
 target_link_libraries(quad_count_test PRIVATE autoremesher_core)
 add_test(NAME quad_count COMMAND quad_count_test)
+
+add_executable(diagnostics_test diagnostics_test.cpp)
+target_link_libraries(diagnostics_test PRIVATE autoremesher_core)
+add_test(NAME diagnostics COMMAND diagnostics_test)

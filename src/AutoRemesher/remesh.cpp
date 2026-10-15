@@ -308,6 +308,9 @@ RemeshResult remeshWithPreview(const RemeshRequest& request,
 
     if (nullptr != preview)
         preview->phaseReport = engine.phaseReport();
+    result.stageDiagnostics = engine.diagnostics();
+    if (!result.stageDiagnostics.empty())
+        report.diagnostics = summarizeDiagnostics(result.stageDiagnostics);
     if (engine.cancelled())
         return finish(RemeshStatus::Cancelled, "cancelled");
     if (!completed)
