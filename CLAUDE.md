@@ -67,10 +67,11 @@ CI (`.github/workflows/`):
   - `qt-app (linux)`: qmake app and `ar_bench`, `ci/smoke_test.sh` on both (1,200-2,400 quads).
   - `addon (linux-x64|windows-x64)`: CLI, worker tests, zip installed into a real Blender
     (4.2 LTS on Linux, 5.2 on Windows).
-- `release.yml` (upstream's packaging: AppImage, Windows zip, macOS DMG, armadillo at 50k quads):
-  push to master and tags, and PRs that change release.yml (files named `pr<N>` there). Not part of
-  **CI passed**. The macOS DMG bundles the offscreen Qt platform plugin, so its headless CLI check
-  runs with `QT_QPA_PLATFORM=offscreen`.
+  - `package / AppImage (linux)`, `package / zip (windows)`, `package / DMG (macos)`: `release.yml`
+    (upstream's packaging, each tested on the armadillo at 50k quads), called from ci.yml, so it is
+    part of **CI passed** (~5 min, the slowest job). Files are named `pr<N>` on PRs.
+- `release.yml` also runs on its own for tags. The macOS DMG bundles the offscreen Qt platform
+  plugin, so its headless CLI check runs with `QT_QPA_PLATFORM=offscreen`.
 
 Running the binary with no args opens the GUI. The core needs `setTargetTriangleCount(n > 0)` or
 `remesh()` fails.

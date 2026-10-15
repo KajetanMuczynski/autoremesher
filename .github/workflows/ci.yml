@@ -2,7 +2,7 @@
 # Every check a change to master must pass, in one workflow, so one job ("CI passed") can
 # stand for all of them in branch protection. It runs on every pull request (any base
 # branch), on pushes to master, and by hand (Actions > ci > Run workflow) for a branch
-# without a PR. release.yml (packaging) is separate and runs on master and tags only.
+# without a PR. The packaging (release.yml) runs inside it as the job "package".
 #
 # GitHub starts no pull_request run while a PR has merge conflicts, so a conflicted PR
 # shows "CI passed" as missing, never as green.
@@ -253,12 +253,17 @@ jobs:
           path: ${{ steps.package.outputs.zip }}
           if-no-files-found: error
 
+  # AppImage, Windows zip and macOS DMG, each remeshing the armadillo at 50k quads from
+  # the packaged app. The longest job here (about 5 min), but it runs in parallel.
+  package:
+    uses: ./.github/workflows/release.yml
+
   # The one check branch protection requires. Green only when every job above
   # succeeded: a failed, cancelled or skipped job turns it red.
   ci-passed:
     name: CI passed
     if: always()
-    needs: [format, core, qt-app, addon]
+    needs: [format, core, qt-app, addon, package]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
