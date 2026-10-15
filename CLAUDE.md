@@ -35,6 +35,9 @@ Headless CLI (what the Blender bridge calls); `offscreen` avoids needing a displ
     # 16k-tri UV sphere -> 1624 quads, 0 non-quads, 0.55 s. Other flags: --report, --edge-scaling,
     # --sharp-edge, --smooth-normal, --adaptivity, --anisotropy (see src/main.cpp)
 
+Qt-free core and benchmarks: `tools/bench/` (`ar_bench` driver, corpus, metrics; see its README).
+`tools/bench/build.sh <work-dir>` builds the app and the bench drivers out of tree.
+
 Running the binary with no args opens the GUI. The core needs `setTargetTriangleCount(n > 0)` or
 `remesh()` fails.
 
