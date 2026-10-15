@@ -19,6 +19,13 @@ Notes for Claude working in this repository.
 - **No code from repos without a LICENSE file**: re-implement from the paper or get written permission.
 - Check every new dependency against the plan's `LICENSES.md` before adding it.
 
+## Dependency updates (Kajetan, 2026-10-15)
+- Bump a dependency only to a release that is at least 7 days old, pinned by commit SHA or checksum
+  (actions by SHA, FetchContent by commit, downloads by SHA-256), never by a movable tag or "latest".
+  Exception: a release that fixes a known CVE affecting us goes in at once.
+- Dependabot does this for GitHub Actions (`.github/dependabot.yml`, `cooldown: 7 days`); by hand for
+  oneTBB, vendored Eigen/meshoptimizer, Qt, Homebrew formulae, Blender and the AppImage tools.
+
 ## Build (checked 2026-10-15: Ubuntu 24.04, GCC 13.3, Qt 5.15.13, oneTBB 2021.11)
 Deps: `qt5-qmake qtbase5-dev libqt5opengl5-dev qttools5-dev-tools libqt5svg5-dev libtbb-dev libgl1-mesa-dev`
 (`libqt5opengl5-dev` comes only as a recommend of `qtbase5-dev`; without it qmake fails with "Unknown module(s) in QT: opengl").
