@@ -20,6 +20,7 @@ else()
     set(AUTOREMESHER_DEFAULT_BUNDLED_TBB OFF)
 endif()
 option(AUTOREMESHER_BUNDLED_TBB "Build oneTBB from source and link it statically" ${AUTOREMESHER_DEFAULT_BUNDLED_TBB})
+option(AUTOREMESHER_BUILD_TESTS "Build the core tests in tests/ (run with ctest)" OFF)
 option(AUTOREMESHER_STATIC_RUNTIME "Link the MSVC C++ runtime statically (/MT)" ON)
 
 # Before project(): the runtime choice must reach oneTBB's targets too.
@@ -114,6 +115,11 @@ if(MSVC)
 endif()
 if(AUTOREMESHER_IPO)
     set_property(TARGET autoremesher_core autoremesher-cli PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
+endif()
+
+if(AUTOREMESHER_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
 endif()
 
 # `cmake --install` lays out what the Blender add-on bundles (addon/package.py):
