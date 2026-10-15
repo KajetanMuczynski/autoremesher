@@ -648,14 +648,17 @@ namespace {
         }
         report(0.2f, "Eliminating cover constraints");
         s.finalizeConstraints();
-        diagnostics->push_back(DiagnosticRecord("cover_system")
-                                   .set("faces", (double)mesh.faceCount())
-                                   .set("variables", (double)variables)
-                                   .set("kernel_size", (double)s.kernelSize())
-                                   .set("original_integers", (double)s.originalIntegerVariableCount())
-                                   .set("kernel_integers", (double)s.integerKernelVariableCount())
-                                   .set("hard_coordinates", (double)hardCoordinateCount)
-                                   .set("dropped_constraints", (double)s.droppedConstraintCount()));
+        {
+            DiagnosticRecord record("cover_system");
+            record.set("faces", (double)mesh.faceCount());
+            record.set("variables", (double)variables);
+            record.set("kernel_size", (double)s.kernelSize());
+            record.set("original_integers", (double)s.originalIntegerVariableCount());
+            record.set("kernel_integers", (double)s.integerKernelVariableCount());
+            record.set("hard_coordinates", (double)hardCoordinateCount);
+            record.set("dropped_constraints", (double)s.droppedConstraintCount());
+            diagnostics->push_back(std::move(record));
+        }
         // Rounding usually converges after a couple of passes, well short of the
         // cap, so spread the fraction over the passes it is expected to take and
         // clamp instead of pacing it against the cap and barely moving.
@@ -669,12 +672,12 @@ namespace {
             ++iterations;
             const MixedIntegerLeastSquares::IterationStats& stats = s.lastIterationStats();
             DiagnosticRecord record("rounding_iteration");
-            record.set("iteration", (double)stats.iteration)
-                .set("kernel_integers", (double)stats.integerVariables)
-                .set("fixed_before", (double)stats.fixedBefore)
-                .set("newly_fixed", (double)stats.newlyFixed)
-                .set("max_rounding_shift", stats.maximumRoundingShift)
-                .set("mean_rounding_shift", stats.meanRoundingShift);
+            record.set("iteration", (double)stats.iteration);
+            record.set("kernel_integers", (double)stats.integerVariables);
+            record.set("fixed_before", (double)stats.fixedBefore);
+            record.set("newly_fixed", (double)stats.newlyFixed);
+            record.set("max_rounding_shift", stats.maximumRoundingShift);
+            record.set("mean_rounding_shift", stats.meanRoundingShift);
             appendSolveStats(&record, "solve", stats.solve);
             diagnostics->push_back(std::move(record));
             result->set("iterations", (double)iterations);
@@ -693,10 +696,10 @@ namespace {
         report(0.98f, "Rounding cover to integers");
         size_t violatedConstraints = 0;
         const double constraintResidual = s.constraintResidual(1e-6, &violatedConstraints);
-        result->set("converged", s.converged() ? 1.0 : 0.0)
-            .set("integrality_residual", s.integralityResidual())
-            .set("constraint_residual", constraintResidual)
-            .set("violated_constraints", (double)violatedConstraints);
+        result->set("converged", s.converged() ? 1.0 : 0.0);
+        result->set("integrality_residual", s.integralityResidual());
+        result->set("constraint_residual", constraintResidual);
+        result->set("violated_constraints", (double)violatedConstraints);
         appendUvOrientation(result, "rounded", measureUvOrientation(cornerUvs(s, uvVariables)));
         values->resize(variables);
         for (size_t i = 0; i < variables; ++i)
@@ -780,12 +783,15 @@ bool QuadParameterizer::parameterize(const std::vector<Vector3>& vertices,
                     ++zeroGuidance;
             }
         }
-        result->diagnostics.push_back(DiagnosticRecord("cover_input")
-                                          .set("faces", (double)mesh.faceCount())
-                                          .set("vertices", (double)mesh.vertexCount())
-                                          .set("scale", scale)
-                                          .set("zero_normal_faces", (double)zeroNormals)
-                                          .set("zero_guidance_faces", (double)zeroGuidance));
+        {
+            DiagnosticRecord record("cover_input");
+            record.set("faces", (double)mesh.faceCount());
+            record.set("vertices", (double)mesh.vertexCount());
+            record.set("scale", scale);
+            record.set("zero_normal_faces", (double)zeroNormals);
+            record.set("zero_guidance_faces", (double)zeroGuidance);
+            result->diagnostics.push_back(std::move(record));
+        }
     }
     const std::vector<Vector3> fieldBeforeBrush = result->field;
 

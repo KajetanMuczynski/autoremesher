@@ -1138,37 +1138,40 @@ bool AutoRemesher::remeshIslands()
             if (4 != face.size())
                 ++nonQuadFaces;
         DiagnosticRecord run("run");
-        run.set("input_vertices", (double)m_vertices.size())
-            .set("input_triangles", (double)m_triangles.size())
-            .set("target_triangles", (double)m_targetTriangleCount)
-            .set("islands", (double)islandContexes.size())
-            .set("adaptivity", m_adaptivity)
-            .set("anisotropy", m_anisotropy)
-            .set("output_vertices", (double)m_remeshedVertices.size())
-            .set("output_faces", (double)m_remeshedQuads.size())
-            .set("output_non_quads", (double)nonQuadFaces)
-            .set("voxel_ms", milliseconds(t_voxelUs))
-            .set("split_ms", milliseconds(t_splitUs))
-            .set("build_ms", milliseconds(t_buildUs))
-            .set("isotropic_wall_ms", milliseconds(t_isotropicWallUs))
-            .set("parameterize_wall_ms", milliseconds(t_parameterizeWallUs))
-            .set("merge_ms", milliseconds(t_mergeUs))
-            .set("total_ms", milliseconds(t_totalUs))
-            .set("cpu_seconds", processCpuSeconds() - cpuStart)
-            .set("isotropic_peak_rss_bytes", (double)isotropicPeakRss)
-            .set("peak_rss_bytes", (double)peakResidentSetBytes())
-            .set("decimated_islands", (double)decimatedIslands)
-            .set("decimated_triangles_before", (double)decimationStats.trianglesBefore.load())
-            .set("decimated_triangles_after", (double)decimationStats.trianglesAfter.load());
+        run.set("input_vertices", (double)m_vertices.size());
+        run.set("input_triangles", (double)m_triangles.size());
+        run.set("target_triangles", (double)m_targetTriangleCount);
+        run.set("islands", (double)islandContexes.size());
+        run.set("adaptivity", m_adaptivity);
+        run.set("anisotropy", m_anisotropy);
+        run.set("output_vertices", (double)m_remeshedVertices.size());
+        run.set("output_faces", (double)m_remeshedQuads.size());
+        run.set("output_non_quads", (double)nonQuadFaces);
+        run.set("voxel_ms", milliseconds(t_voxelUs));
+        run.set("split_ms", milliseconds(t_splitUs));
+        run.set("build_ms", milliseconds(t_buildUs));
+        run.set("isotropic_wall_ms", milliseconds(t_isotropicWallUs));
+        run.set("parameterize_wall_ms", milliseconds(t_parameterizeWallUs));
+        run.set("merge_ms", milliseconds(t_mergeUs));
+        run.set("total_ms", milliseconds(t_totalUs));
+        run.set("cpu_seconds", processCpuSeconds() - cpuStart);
+        run.set("isotropic_peak_rss_bytes", (double)isotropicPeakRss);
+        run.set("peak_rss_bytes", (double)peakResidentSetBytes());
+        run.set("decimated_islands", (double)decimatedIslands);
+        run.set("decimated_triangles_before", (double)decimationStats.trianglesBefore.load());
+        run.set("decimated_triangles_after", (double)decimationStats.trianglesAfter.load());
         m_diagnostics.push_back(std::move(run));
 
         {
             std::lock_guard<std::mutex> lock(m_stageTimingMutex);
             for (const auto& it : m_stageTimes) {
-                m_diagnostics.push_back(DiagnosticRecord("step")
-                                            .label("name", it.name)
-                                            .set("order", it.order)
-                                            .set("accumulated_ms", milliseconds(it.microseconds)));
+                {
+                    DiagnosticRecord record("step");
+                    record.label("name", it.name);
+                    record.set("order", it.order);
+                    record.set("accumulated_ms", milliseconds(it.microseconds));
+                    m_diagnostics.push_back(std::move(record));
+                }
             }
         }
 
@@ -1181,16 +1184,19 @@ bool AutoRemesher::remeshIslands()
                     if (4 == face.size())
                         ++quads;
             }
-            m_diagnostics.push_back(DiagnosticRecord("island", i)
-                                        .set("input_triangles", (double)trianglesIslands[i].size())
-                                        .set("isotropic_triangles", (double)islandContexes[i].triangles.size())
-                                        .set("resample_ms", milliseconds(islandResampleUs[i]))
-                                        .set("parameterize_ms", milliseconds(thread.parameterizeUs))
-                                        .set("extract_ms", milliseconds(thread.extractUs))
-                                        .set("parameterized", thread.parameterized ? 1.0 : 0.0)
-                                        .set("extracted", nullptr != thread.remesher ? 1.0 : 0.0)
-                                        .set("output_faces", (double)faces)
-                                        .set("output_quads", (double)quads));
+            {
+                DiagnosticRecord record("island", i);
+                record.set("input_triangles", (double)trianglesIslands[i].size());
+                record.set("isotropic_triangles", (double)islandContexes[i].triangles.size());
+                record.set("resample_ms", milliseconds(islandResampleUs[i]));
+                record.set("parameterize_ms", milliseconds(thread.parameterizeUs));
+                record.set("extract_ms", milliseconds(thread.extractUs));
+                record.set("parameterized", thread.parameterized ? 1.0 : 0.0);
+                record.set("extracted", nullptr != thread.remesher ? 1.0 : 0.0);
+                record.set("output_faces", (double)faces);
+                record.set("output_quads", (double)quads);
+                m_diagnostics.push_back(std::move(record));
+            }
         }
         for (size_t i = 0; i < parameterizationThreads.size(); ++i) {
             for (const auto& record : parameterizationThreads[i].diagnostics) {

@@ -408,10 +408,13 @@ bool Parameterizer::parameterize()
         simplifier.setSharpEdgeDegrees(m_sharpEdgeDegrees);
         simplifier.setMaximumPairDistance(m_maximumSingularityPairDistance);
         simplifier.simplify();
-        m_diagnostics.push_back(DiagnosticRecord("singularity_simplifier")
-                                    .set("singularities_before", (double)simplifier.singularityCountBefore())
-                                    .set("singularities_after", (double)simplifier.singularityCountAfter())
-                                    .set("cancelled_pairs", (double)simplifier.cancelledPairCount()));
+        {
+            DiagnosticRecord record("singularity_simplifier");
+            record.set("singularities_before", (double)simplifier.singularityCountBefore());
+            record.set("singularities_after", (double)simplifier.singularityCountAfter());
+            record.set("cancelled_pairs", (double)simplifier.cancelledPairCount());
+            m_diagnostics.push_back(std::move(record));
+        }
     }
 
     //faceScalingField = computeConformalScaling(topology, simplifier.vertexCharges(),
