@@ -13,10 +13,11 @@ License: GPL-3.0-or-later, like the rest of the fork.
 ## What it does
 
 - **Sidebar > Quadami** shows the parameters of the core's `remesh()`
-  (docs/INTERFACE.md §3) and nothing else: target quads, adaptivity,
-  anisotropy, edge scaling, sharp edge angle, smooth normal angle. Ranges are
-  the Qt app's. The default target is 5000 quads, not the CLI's 50000, so a
-  first click on a laptop finishes quickly.
+  (docs/INTERFACE.md §3) and nothing else: target quads, adaptivity and sharp
+  edge angle, and in a collapsed *Advanced* section anisotropy, edge scaling
+  and smooth normal angle. Ranges and defaults are the Qt app's; the tooltips
+  describe the measured effect of each. The default target is 5000 quads, not
+  the CLI's 50000, so a first click on a laptop finishes quickly.
 - **Remesh** reads the evaluated mesh (modifiers applied, object space), starts
   the worker and returns control to Blender. Progress shows in the status bar
   and the panel.
