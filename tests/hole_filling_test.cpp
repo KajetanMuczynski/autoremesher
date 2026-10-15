@@ -21,6 +21,16 @@
 // unscored one on whatever the first left open; the unscored pass used to run
 // on holes the first had already closed and add their last quad a second time,
 // a duplicate face with four non-manifold edges (Suzanne 5k, Quality).
+//
+// It also closes every hole it takes on.  Both passes clip quads off the loop
+// and refuse one that crosses the rest of it; on a loop that bends around a
+// corner they refused every quad and left the hole open (sword 2k, Fast).
+// Such a hole is now closed around a new vertex at its center.
+//
+// The repair step after it drops the faces around a pinched vertex, where two
+// pieces of surface touch at a point.  It used to find one only by counting
+// the open edges there, so a pinch between two closed fans stayed in the
+// output (boat 2k, Quality).
 
 #include <AutoRemesher/QuadExtractor>
 #include <algorithm>
@@ -83,16 +93,8 @@ struct Result {
     size_t unpairedHalfEdges = 0; // boundary, or used twice in one direction
 };
 
-Result fill(Mesh mesh, const std::set<std::array<int, 3>>& removed)
+Result check(const std::vector<std::vector<size_t>>& faces, size_t before)
 {
-    std::vector<std::vector<size_t>> faces;
-    for (size_t f = 0; f < mesh.faces.size(); ++f) {
-        if (0 == removed.count(mesh.cells[f]))
-            faces.push_back(mesh.faces[f]);
-    }
-    const size_t before = faces.size();
-    AutoRemesher::QuadExtractor::fillHoles(mesh.vertices, &faces);
-
     Result result;
     result.added = faces.size() - before;
     std::map<std::vector<size_t>, size_t> faceCount;
@@ -113,6 +115,51 @@ Result fill(Mesh mesh, const std::set<std::array<int, 3>>& removed)
     return result;
 }
 
+Result fill(Mesh mesh, const std::set<std::array<int, 3>>& removed)
+{
+    std::vector<std::vector<size_t>> faces;
+    for (size_t f = 0; f < mesh.faces.size(); ++f) {
+        if (0 == removed.count(mesh.cells[f]))
+            faces.push_back(mesh.faces[f]);
+    }
+    const size_t before = faces.size();
+    AutoRemesher::QuadExtractor::fillHoles(&mesh.vertices, &faces);
+    return check(faces, before);
+}
+
+// Vertices where the faces around them split into more than one fan.
+size_t countPinchedVertices(const std::vector<std::vector<size_t>>& faces)
+{
+    // Around a vertex, the face leaving it towards w and the face arriving
+    // from w lie in the same fan.
+    std::map<size_t, std::vector<std::pair<size_t, size_t>>> corners; // vertex -> (from, to)
+    for (const auto& face : faces) {
+        for (size_t i = 0; i < face.size(); ++i)
+            corners[face[i]].push_back({ face[(i + face.size() - 1) % face.size()], face[(i + 1) % face.size()] });
+    }
+    size_t pinched = 0;
+    for (const auto& it : corners) {
+        const auto& around = it.second;
+        std::vector<size_t> fan(around.size());
+        for (size_t i = 0; i < fan.size(); ++i)
+            fan[i] = i;
+        for (bool merged = true; merged;) {
+            merged = false;
+            for (size_t i = 0; i < around.size(); ++i) {
+                for (size_t j = 0; j < around.size(); ++j) {
+                    if (around[i].second == around[j].first && fan[i] != fan[j]) {
+                        fan[i] = fan[j] = std::min(fan[i], fan[j]);
+                        merged = true;
+                    }
+                }
+            }
+        }
+        if (std::set<size_t>(fan.begin(), fan.end()).size() > 1)
+            ++pinched;
+    }
+    return pinched;
+}
+
 }
 
 int main()
@@ -128,6 +175,9 @@ int main()
         { "4-edge hole", 3, { { 4, 1, 1 } }, 1 },
         { "6-edge hole", 3, { { 4, 1, 1 }, { 4, 2, 1 } }, 2 },
         { "8-edge hole", 4, { { 4, 1, 1 }, { 4, 2, 1 }, { 4, 1, 2 }, { 4, 2, 2 } }, 3 },
+        // The three cells at the corner (3, 3, 3), one on each side: a 6-edge
+        // loop bent around the corner, which the quad passes can't clip.
+        { "corner hole", 3, { { 0, 2, 2 }, { 2, 2, 2 }, { 4, 2, 2 } }, 3 },
     };
 
     int failures = 0;
@@ -137,6 +187,37 @@ int main()
         const bool ok = r.added == c.added && 0 == r.duplicateFaces && 0 == r.unpairedHalfEdges;
         failures += ok ? 0 : 1;
         std::printf("%-12s %6zu %6zu %10zu %9zu%s\n", c.name.c_str(), r.added, c.added,
+            r.duplicateFaces, r.unpairedHalfEdges, ok ? "" : "  FAIL");
+    }
+
+    // A closed cube with the vertex (1, 1, 0) of its bottom welded to (1, 1, 3)
+    // on its top: one surface, pinched at a vertex between two closed fans.
+    // The repair takes the pinch out and fills the two holes that leaves, so
+    // the result is a closed manifold again.
+    {
+        Mesh mesh = cube(3);
+        size_t top = 0, bottom = 0;
+        for (size_t v = 0; v < mesh.vertices.size(); ++v) {
+            const auto& p = mesh.vertices[v];
+            if (1 == p.x() && 1 == p.y())
+                (3 == p.z() ? top : bottom) = v;
+        }
+        std::vector<std::vector<size_t>> faces = mesh.faces;
+        for (auto& face : faces) {
+            for (auto& v : face) {
+                if (bottom == v)
+                    v = top;
+            }
+        }
+        const size_t pinchedBefore = countPinchedVertices(faces);
+        AutoRemesher::QuadExtractor::repairSurface(&mesh.vertices, &faces);
+        const Result r = check(faces, 0);
+        const size_t pinchedAfter = countPinchedVertices(faces);
+        const bool ok = 1 == pinchedBefore && 0 == pinchedAfter && 0 == r.duplicateFaces
+            && 0 == r.unpairedHalfEdges && !faces.empty();
+        failures += ok ? 0 : 1;
+        std::printf("\n%-12s %14s %13s %10s %9s\n", "case", "pinched before", "pinched after", "duplicates", "unpaired");
+        std::printf("%-12s %14zu %13zu %10zu %9zu%s\n", "pinch", pinchedBefore, pinchedAfter,
             r.duplicateFaces, r.unpairedHalfEdges, ok ? "" : "  FAIL");
     }
     return failures ? 1 : 0;
