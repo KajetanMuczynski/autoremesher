@@ -594,6 +594,8 @@ bool AutoRemesher::remesh()
         std::vector<Vector3> vertices;
         std::vector<std::vector<size_t>> triangles;
         double voxelSize;
+        double area;
+        double targetQuadCount;
         double scaling;
         double adaptivity;
         double anisotropy;
@@ -625,6 +627,7 @@ bool AutoRemesher::remesh()
                     }
                     context.triangles.push_back(std::move(triangle));
                 }
+                context.area = calculateMeshArea(context.vertices, context.triangles);
 
                 context.scaling = m_scaling;
                 context.voxelSize = m_voxelSize;
@@ -634,6 +637,18 @@ bool AutoRemesher::remesh()
                 context.smoothNormalDegrees = m_smoothNormalDegrees;
             }
         });
+    // Callers ask for two triangles per quad. Each island is asked for its
+    // input area's share of the quads, rather than for a density over its
+    // remeshed area, so the counts add up to the request even where
+    // remeshing smooths noise away or decimation loses area.
+    double totalIslandArea = 0.0;
+    for (const auto& context : islandContexes)
+        totalIslandArea += context.area;
+    for (auto& context : islandContexes) {
+        context.targetQuadCount = totalIslandArea > 0.0
+            ? 0.5 * m_targetTriangleCount * context.area / totalIslandArea
+            : 0.0;
+    }
     auto t_buildEnd = std::chrono::high_resolution_clock::now();
     if (nullptr != m_progressHandler)
         m_progressHandler(m_tag, parallelPhaseBegin, "Remeshing uniformly");
@@ -811,6 +826,7 @@ bool AutoRemesher::remesh()
                         islandResampleEnd, islandParameterizeEnd, 0.0f));
                 if (thread.island->scaling > 0.0)
                     thread.parameterizer->setScaling(thread.island->scaling);
+                thread.parameterizer->setTargetQuadCount(thread.island->targetQuadCount);
                 thread.parameterizer->setGradientAdaptivity(thread.island->adaptivity);
                 thread.parameterizer->setAnisotropy(thread.island->anisotropy);
                 thread.parameterizer->setSharpEdgeDegrees(thread.island->sharpEdgeDegrees);
