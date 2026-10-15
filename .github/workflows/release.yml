@@ -12,6 +12,11 @@ on:
     paths:
       - .github/workflows/release.yml
 
+# Names the files: the branch or tag, or pr<number> on a PR (its ref name, "14/merge",
+# is not a file name).
+env:
+  BUILD_NAME: ${{ github.event_name == 'pull_request' && format('pr{0}', github.event.number) || github.ref_name }}
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -143,7 +148,7 @@ jobs:
           echo "✓ AppImage created successfully"
           file AutoRemesher-x86_64.AppImage
 
-          mv AutoRemesher-x86_64.AppImage autoremesher-${{ github.ref_name }}.AppImage
+          mv AutoRemesher-x86_64.AppImage autoremesher-${{ env.BUILD_NAME }}.AppImage
       - name: Checkout test models
         uses: actions/checkout@v4
         with:
@@ -156,7 +161,7 @@ jobs:
       - name: Run CLI test with armadillo.obj
         run: |
           set -e
-          chmod +x autoremesher-${{ github.ref_name }}.AppImage
+          chmod +x autoremesher-${{ env.BUILD_NAME }}.AppImage
           export DISPLAY=:99
           export XDG_RUNTIME_DIR=/tmp/runtime-root
           mkdir -p "$XDG_RUNTIME_DIR"
@@ -167,10 +172,10 @@ jobs:
           sleep 2
 
           echo "Running CLI test..."
-          ./autoremesher-${{ github.ref_name }}.AppImage \
+          ./autoremesher-${{ env.BUILD_NAME }}.AppImage \
             --input test-models/data/armadillo.obj \
-            --output autoremesher-${{ github.ref_name }}-ubuntu-22.04-remeshed.obj \
-            --report autoremesher-${{ github.ref_name }}-ubuntu-22.04-remeshed_report.txt \
+            --output autoremesher-${{ env.BUILD_NAME }}-ubuntu-22.04-remeshed.obj \
+            --report autoremesher-${{ env.BUILD_NAME }}-ubuntu-22.04-remeshed_report.txt \
             --target-quads 50000 \
             --edge-scaling 1.0 \
             --sharp-edge 90.0 \
@@ -188,29 +193,29 @@ jobs:
             exit 1
           fi
 
-          if [ ! -f autoremesher-${{ github.ref_name }}-ubuntu-22.04-remeshed.obj ]; then
-            echo "ERROR: Output file autoremesher-${{ github.ref_name }}-ubuntu-22.04-remeshed.obj was not created"
+          if [ ! -f autoremesher-${{ env.BUILD_NAME }}-ubuntu-22.04-remeshed.obj ]; then
+            echo "ERROR: Output file autoremesher-${{ env.BUILD_NAME }}-ubuntu-22.04-remeshed.obj was not created"
             exit 1
           fi
 
           echo "✓ CLI test passed: remeshed .obj created"
-          ls -lh autoremesher-${{ github.ref_name }}-ubuntu-22.04-remeshed.obj
+          ls -lh autoremesher-${{ env.BUILD_NAME }}-ubuntu-22.04-remeshed.obj
 
           kill $XVFB_PID 2>/dev/null || true
       - name: Upload CLI test result
         uses: actions/upload-artifact@v4
         with:
-          name: autoremesher-${{ github.ref_name }}-ubuntu-22.04-remeshed.obj
-          path: autoremesher-${{ github.ref_name }}-ubuntu-22.04-remeshed.obj
+          name: autoremesher-${{ env.BUILD_NAME }}-ubuntu-22.04-remeshed.obj
+          path: autoremesher-${{ env.BUILD_NAME }}-ubuntu-22.04-remeshed.obj
       - name: Upload CLI test report
         uses: actions/upload-artifact@v4
         with:
-          name: autoremesher-${{ github.ref_name }}-ubuntu-22.04-remeshed_report.txt
-          path: autoremesher-${{ github.ref_name }}-ubuntu-22.04-remeshed_report.txt
+          name: autoremesher-${{ env.BUILD_NAME }}-ubuntu-22.04-remeshed_report.txt
+          path: autoremesher-${{ env.BUILD_NAME }}-ubuntu-22.04-remeshed_report.txt
       - name: Run AppImage and capture screenshot
         run: |
           set +e
-          chmod +x autoremesher-${{ github.ref_name }}.AppImage
+          chmod +x autoremesher-${{ env.BUILD_NAME }}.AppImage
           export DISPLAY=:99
           export XDG_RUNTIME_DIR=/tmp/runtime-root
           mkdir -p "$XDG_RUNTIME_DIR"
@@ -220,11 +225,11 @@ jobs:
           XVFB_PID=$!
           sleep 2
 
-          timeout 12s ./autoremesher-${{ github.ref_name }}.AppImage > app-run-ubuntu.log 2>&1 &
+          timeout 12s ./autoremesher-${{ env.BUILD_NAME }}.AppImage > app-run-ubuntu.log 2>&1 &
           APP_PID=$!
           sleep 8
 
-          import -display :99 -window root autoremesher-${{ github.ref_name }}-ubuntu-22.04.png || true
+          import -display :99 -window root autoremesher-${{ env.BUILD_NAME }}-ubuntu-22.04.png || true
 
           wait $APP_PID || true
           kill $APP_PID 2>/dev/null || true
@@ -232,13 +237,13 @@ jobs:
       - name: Upload AppImage screenshot
         uses: actions/upload-artifact@v4
         with:
-          name: autoremesher-${{ github.ref_name }}-ubuntu-22.04.png
-          path: autoremesher-${{ github.ref_name }}-ubuntu-22.04.png
+          name: autoremesher-${{ env.BUILD_NAME }}-ubuntu-22.04.png
+          path: autoremesher-${{ env.BUILD_NAME }}-ubuntu-22.04.png
       - name: Upload Linux AppImage artifact
         uses: actions/upload-artifact@v4
         with:
-          name: autoremesher-${{ github.ref_name }}.AppImage
-          path: autoremesher-${{ github.ref_name }}.AppImage
+          name: autoremesher-${{ env.BUILD_NAME }}.AppImage
+          path: autoremesher-${{ env.BUILD_NAME }}.AppImage
 
   win32-msvc-upload:
     runs-on: windows-2022
@@ -289,30 +294,30 @@ jobs:
         run: |
           cd release
           # Main executable
-          7z a ../autoremesher-${{ github.ref_name }}-win32-x86_64.zip autoremesher.exe
+          7z a ../autoremesher-${{ env.BUILD_NAME }}-win32-x86_64.zip autoremesher.exe
           # Plugin directories — pass the directory name (not dir\*) so structure is preserved
           for dir in platforms imageformats styles translations; do
             if [ -d "$dir" ]; then
-              7z a ../autoremesher-${{ github.ref_name }}-win32-x86_64.zip "$dir"
+              7z a ../autoremesher-${{ env.BUILD_NAME }}-win32-x86_64.zip "$dir"
             fi
           done
           # All root-level DLLs (Qt + TBB + opengl32sw + ANGLE)
           for f in *.dll; do
             if [ -f "$f" ]; then
-              7z a ../autoremesher-${{ github.ref_name }}-win32-x86_64.zip "$f"
+              7z a ../autoremesher-${{ env.BUILD_NAME }}-win32-x86_64.zip "$f"
             fi
           done
           cd ..
           # VC++ runtime DLLs (required on systems without the redistributable installed)
           CRT_DIR=$(ls -d "${VCToolsRedistDir}x64"/Microsoft.VC*.CRT 2>/dev/null | head -1)
           if [ -n "$CRT_DIR" ]; then
-            7z a autoremesher-${{ github.ref_name }}-win32-x86_64.zip "${CRT_DIR}/msvcp140.dll"
-            7z a autoremesher-${{ github.ref_name }}-win32-x86_64.zip "${CRT_DIR}/vcruntime140.dll"
+            7z a autoremesher-${{ env.BUILD_NAME }}-win32-x86_64.zip "${CRT_DIR}/msvcp140.dll"
+            7z a autoremesher-${{ env.BUILD_NAME }}-win32-x86_64.zip "${CRT_DIR}/vcruntime140.dll"
             # msvcp140_1.dll and vcruntime140_1.dll may not exist in all toolset versions
-            [ -f "${CRT_DIR}/msvcp140_1.dll" ] && 7z a autoremesher-${{ github.ref_name }}-win32-x86_64.zip "${CRT_DIR}/msvcp140_1.dll" || true
-            [ -f "${CRT_DIR}/vcruntime140_1.dll" ] && 7z a autoremesher-${{ github.ref_name }}-win32-x86_64.zip "${CRT_DIR}/vcruntime140_1.dll" || true
+            [ -f "${CRT_DIR}/msvcp140_1.dll" ] && 7z a autoremesher-${{ env.BUILD_NAME }}-win32-x86_64.zip "${CRT_DIR}/msvcp140_1.dll" || true
+            [ -f "${CRT_DIR}/vcruntime140_1.dll" ] && 7z a autoremesher-${{ env.BUILD_NAME }}-win32-x86_64.zip "${CRT_DIR}/vcruntime140_1.dll" || true
           fi
-          7z l autoremesher-${{ github.ref_name }}-win32-x86_64.zip
+          7z l autoremesher-${{ env.BUILD_NAME }}-win32-x86_64.zip
       - name: Checkout test models
         uses: actions/checkout@v4
         with:
@@ -321,7 +326,7 @@ jobs:
       - name: Extract release zip to test directory
         shell: bash
         run: |
-          ZIP_FILE="autoremesher-${{ github.ref_name }}-win32-x86_64.zip"
+          ZIP_FILE="autoremesher-${{ env.BUILD_NAME }}-win32-x86_64.zip"
           TEST_DIR="$GITHUB_WORKSPACE/test_release"
           mkdir -p "$TEST_DIR"
           7z x "$GITHUB_WORKSPACE/$ZIP_FILE" -o"$TEST_DIR" -y
@@ -334,8 +339,8 @@ jobs:
           export QT_OPENGL=software
           export QT_QPA_PLATFORM=offscreen
 
-          outputFile="autoremesher-${{ github.ref_name }}-windows-2022-remeshed.obj"
-          reportFile="autoremesher-${{ github.ref_name }}-windows-2022-remeshed_report.txt"
+          outputFile="autoremesher-${{ env.BUILD_NAME }}-windows-2022-remeshed.obj"
+          reportFile="autoremesher-${{ env.BUILD_NAME }}-windows-2022-remeshed_report.txt"
           logFile="$GITHUB_WORKSPACE/cli-test-output.txt"
           TEST_EXE="$GITHUB_WORKSPACE/test_release/autoremesher.exe"
 
@@ -372,13 +377,13 @@ jobs:
       - name: Upload CLI test result
         uses: actions/upload-artifact@v4
         with:
-          name: autoremesher-${{ github.ref_name }}-windows-2022-remeshed.obj
-          path: autoremesher-${{ github.ref_name }}-windows-2022-remeshed.obj
+          name: autoremesher-${{ env.BUILD_NAME }}-windows-2022-remeshed.obj
+          path: autoremesher-${{ env.BUILD_NAME }}-windows-2022-remeshed.obj
       - name: Upload CLI test report
         uses: actions/upload-artifact@v4
         with:
-          name: autoremesher-${{ github.ref_name }}-windows-2022-remeshed_report.txt
-          path: autoremesher-${{ github.ref_name }}-windows-2022-remeshed_report.txt
+          name: autoremesher-${{ env.BUILD_NAME }}-windows-2022-remeshed_report.txt
+          path: autoremesher-${{ env.BUILD_NAME }}-windows-2022-remeshed_report.txt
       - name: Run application and capture screenshot (from release zip)
         timeout-minutes: 3
         run: |
@@ -397,19 +402,19 @@ jobs:
           $bitmap = [System.Drawing.Bitmap]::new([System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Width, [System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Height)
           $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
           $graphics.CopyFromScreen(0, 0, 0, 0, $bitmap.Size)
-          $bitmap.Save("$env:GITHUB_WORKSPACE\autoremesher-${{ github.ref_name }}-windows-2022.png")
+          $bitmap.Save("$env:GITHUB_WORKSPACE\autoremesher-${{ env.BUILD_NAME }}-windows-2022.png")
           Stop-Process -Name autoremesher -Force -ErrorAction SilentlyContinue
         shell: powershell
       - name: Upload Windows screenshot
         uses: actions/upload-artifact@v4
         with:
-          name: autoremesher-${{ github.ref_name }}-windows-2022.png
-          path: autoremesher-${{ github.ref_name }}-windows-2022.png
+          name: autoremesher-${{ env.BUILD_NAME }}-windows-2022.png
+          path: autoremesher-${{ env.BUILD_NAME }}-windows-2022.png
       - name: Upload Windows zip artifact
         uses: actions/upload-artifact@v4
         with:
-          name: autoremesher-${{ github.ref_name }}
-          path: autoremesher-${{ github.ref_name }}-win32-x86_64.zip
+          name: autoremesher-${{ env.BUILD_NAME }}
+          path: autoremesher-${{ env.BUILD_NAME }}-win32-x86_64.zip
 
   macos-upload:
     runs-on: macos-latest
@@ -473,12 +478,12 @@ jobs:
             --window-size 660 300 \
             --icon "autoremesher.app" 140 145 \
             --icon "Applications" 520 145 \
-            "${GITHUB_WORKSPACE}/autoremesher-${{ github.ref_name }}.dmg" \
+            "${GITHUB_WORKSPACE}/autoremesher-${{ env.BUILD_NAME }}.dmg" \
             "${STAGING_DIR}"
           rm -rf "${STAGING_DIR}"
       - name: Mount DMG for testing
         run: |
-          DMG_PATH="${GITHUB_WORKSPACE}/autoremesher-${{ github.ref_name }}.dmg"
+          DMG_PATH="${GITHUB_WORKSPACE}/autoremesher-${{ env.BUILD_NAME }}.dmg"
           if [ ! -f "$DMG_PATH" ]; then
             echo "ERROR: DMG not found at $DMG_PATH"
             ls -la "${GITHUB_WORKSPACE}/"
@@ -508,31 +513,31 @@ jobs:
 
           QT_QPA_PLATFORM=offscreen "$DMG_APP/Contents/MacOS/autoremesher" \
             --input test-models/data/armadillo.obj \
-            --output autoremesher-${{ github.ref_name }}-macos-latest-remeshed.obj \
-            --report autoremesher-${{ github.ref_name }}-macos-latest-remeshed_report.txt \
+            --output autoremesher-${{ env.BUILD_NAME }}-macos-latest-remeshed.obj \
+            --report autoremesher-${{ env.BUILD_NAME }}-macos-latest-remeshed_report.txt \
             --target-quads 50000 \
             --edge-scaling 1.0 \
             --sharp-edge 90.0 \
             --smooth-normal 0.0 \
             --adaptivity 1.0
 
-          if [ ! -f autoremesher-${{ github.ref_name }}-macos-latest-remeshed.obj ]; then
+          if [ ! -f autoremesher-${{ env.BUILD_NAME }}-macos-latest-remeshed.obj ]; then
             echo "ERROR: Output file was not created"
             hdiutil detach /Volumes/AutoRemesher -force || true
             exit 1
           fi
           echo "✓ CLI test passed: remeshed .obj created"
-          ls -lh autoremesher-${{ github.ref_name }}-macos-latest-remeshed.obj
+          ls -lh autoremesher-${{ env.BUILD_NAME }}-macos-latest-remeshed.obj
       - name: Upload CLI test result
         uses: actions/upload-artifact@v4
         with:
-          name: autoremesher-${{ github.ref_name }}-macos-latest-remeshed.obj
-          path: autoremesher-${{ github.ref_name }}-macos-latest-remeshed.obj
+          name: autoremesher-${{ env.BUILD_NAME }}-macos-latest-remeshed.obj
+          path: autoremesher-${{ env.BUILD_NAME }}-macos-latest-remeshed.obj
       - name: Upload CLI test report
         uses: actions/upload-artifact@v4
         with:
-          name: autoremesher-${{ github.ref_name }}-macos-latest-remeshed_report.txt
-          path: autoremesher-${{ github.ref_name }}-macos-latest-remeshed_report.txt
+          name: autoremesher-${{ env.BUILD_NAME }}-macos-latest-remeshed_report.txt
+          path: autoremesher-${{ env.BUILD_NAME }}-macos-latest-remeshed_report.txt
       - name: Run application and capture screenshot (from DMG)
         run: |
           DMG_APP="/Volumes/AutoRemesher/autoremesher.app"
@@ -544,7 +549,7 @@ jobs:
 
           open "$DMG_APP"
           sleep 12
-          screencapture autoremesher-${{ github.ref_name }}-macos-latest.png || true
+          screencapture autoremesher-${{ env.BUILD_NAME }}-macos-latest.png || true
           killall autoremesher || true
       - name: Detach DMG
         if: always()
@@ -553,10 +558,10 @@ jobs:
       - name: Upload macOS screenshot
         uses: actions/upload-artifact@v4
         with:
-          name: autoremesher-${{ github.ref_name }}-macos-latest.png
-          path: autoremesher-${{ github.ref_name }}-macos-latest.png
+          name: autoremesher-${{ env.BUILD_NAME }}-macos-latest.png
+          path: autoremesher-${{ env.BUILD_NAME }}-macos-latest.png
       - name: Upload macOS DMG artifact
         uses: actions/upload-artifact@v4
         with:
-          name: autoremesher-${{ github.ref_name }}.dmg
-          path: autoremesher-${{ github.ref_name }}.dmg
+          name: autoremesher-${{ env.BUILD_NAME }}.dmg
+          path: autoremesher-${{ env.BUILD_NAME }}.dmg
