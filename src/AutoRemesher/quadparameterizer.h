@@ -38,9 +38,11 @@ public:
         std::vector<int> cornerRotations;
         std::vector<size_t> singularVertices;
     };
+    // quadEdgeLength is the quad edge, in mesh units, where the face scalings
+    // are 1; each face scaling multiplies it.
     static bool parameterize(const std::vector<Vector3>& vertices,
         const std::vector<std::vector<size_t>>& triangles,
-        const std::vector<Vector3>* guidance, double scaling,
+        const std::vector<Vector3>* guidance, double quadEdgeLength,
         double hardEdgeDegrees, Result* result,
         const std::vector<double>* faceScaling = nullptr,
         const std::vector<double>* faceScalingU = nullptr,
