@@ -51,13 +51,16 @@ private:
     std::vector<int> m_mismatch;
     std::vector<bool> m_sharpCorner;
     std::vector<Vector3> m_frameU, m_frameV;
+    // Scratch that simplify() allocates once and every cancelPair() reuses, so
+    // a pair costs time in the size of its region rather than of the mesh.
+    struct Workspace;
     void buildFramesAndConnection();
     void updateMismatches(const std::vector<size_t>& faces);
+    int vertexCharge(size_t vertex) const;
     std::vector<size_t> facetsAroundVertex(size_t vertex) const;
     size_t cornerAlongEdge(size_t from, size_t to) const;
-    std::vector<size_t> pathBetween(size_t first, size_t second,
-        const std::vector<char>& inRegion, const std::vector<size_t>& freeFaces) const;
-    bool cancelPair(size_t first, size_t second, size_t hops);
+    std::vector<size_t> pathBetween(size_t first, size_t second, Workspace& work) const;
+    bool cancelPair(size_t first, size_t second, size_t hops, Workspace& work);
 };
 
 }
