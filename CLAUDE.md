@@ -48,11 +48,15 @@ The core source list exists three times: `autoremesher.pro` (app), top-level `CM
 (explicit list) and `tools/bench/bench/CMakeLists.txt` (glob, kept separate on purpose so the
 bench can build other checkouts for A/B). A new core `.cpp` goes into the first two.
 
+Core tests (`tests/`, Qt-free, link `autoremesher_core`): configure with `-DAUTOREMESHER_BUILD_TESTS=ON`,
+build target `quad_count_test`, run `ctest --test-dir <build> --output-on-failure`.
+
 Blender add-on (`addon/`, working name Quadami): `python addon/package.py --cli-prefix <install-prefix>`
 builds the extension zip with the CLI bundled; see `addon/README.md`.
 
 CI (`.github/workflows/`):
-- `development.yml`: clang-format check (`ci/lint.sh`, latest brew clang-format on macOS) on every PR.
+- `development.yml` (PRs, push to master): clang-format check (`ci/lint.sh`, latest brew clang-format
+  on macOS) and `core-tests` (the `tests/` targets above).
 - `build.yml` (push and PR, Ubuntu 24.04): builds the qmake app and `ar_bench`, then runs
   `ci/smoke_test.sh <binary>` on both (UV sphere from `ci/make_sphere.py`, accepts 1,200-2,400 quads).
 - `addon.yml` (push only): CLI on Linux and Windows, worker tests, packages the zip and installs it
