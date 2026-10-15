@@ -276,8 +276,9 @@ Each item: what the code does, why it is a problem, what the research recommends
 
 ### M16. Output is not always a valid 2-manifold (new, baseline)
 - **Measured [M]:** 20 of 54 runs have non-manifold edges, in every input class; hard-surface and thin-shell inputs have the most (16–32 edges; sword 50k worst). 4 runs on closed inputs have holes (csg_bracket 2k and 50k, sword 10k and 50k). 11 runs per target contain faces with scaled Jacobian ≤ 0.
-- **Problem:** a non-manifold or holed result breaks downstream tools (subdivision, UVs, sculpting) and Blender operators. Likely downstream of M2 plus the cleanup passes **[I]**; which step creates them was not traced.
-- **Fix:** manifold and hole check in the health counters (TODO 2.3); trace and fix the producing step (TODO 2.13); 6.2's validity-guarded worklist should make it structural.
+- **Problem:** a non-manifold or holed result breaks downstream tools (subdivision, UVs, sculpting) and Blender operators.
+- **Traced 2026-10-15 [M]:** the non-manifold edges came from `fixHoles`, not from the cleanup passes. Its second, unscored `fixHoleWithQuads` pass ran on holes the first pass had already closed at 4 vertices and added the closing quad again: a duplicate face with 4 non-manifold edges. Fixed (PR "do not fill the same hole twice"): 26 of 90 corpus runs (18 meshes + Suzanne 1–3, 2k/10k, Fast and Quality) had 4–36 such edges, all now 0; boundary edges unchanged in every run. The holes in closed inputs are a separate defect and remain.
+- **Fix:** holes in closed inputs: trace (TODO 2.13); manifold and hole check in the health counters (TODO 2.3); 6.2's validity-guarded worklist should make it structural.
 
 ---
 
