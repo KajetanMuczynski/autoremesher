@@ -88,6 +88,99 @@ namespace {
     const double decimateTriggerRatio = 8.0;
     const double decimateTargetRatio = 4.0;
 
+    const double triangleAreaPerSquaredEdge = 0.86602540378 * 0.5;
+
+    // The area share of a small island (an eye, a button) can be a handful of
+    // triangles. The isotropic remesher then shrinks it to a few triangles and
+    // the parameterizer finds no quads on it, so the island vanished from the
+    // output. Such an island is remeshed as if it had asked for this many
+    // triangles instead, but never more than its input has, so that specks of
+    // scan noise do not each grow to this size.
+    const double minimumIslandTriangleCount = 64.0;
+
+    // An island that still fails is run again with its triangle and quad
+    // targets raised by this factor, up to this many times, if it asked for at
+    // most this many triangles. The factor is small because a repaired island
+    // keeps its raised count, which the total then overshoots by. Larger
+    // islands are not retried, since a run costs as much as the island is
+    // large, and neither are islands with fewer input triangles than the
+    // minimum above, so that a triangle soup is not retried triangle by
+    // triangle.
+    const double islandRetryGrowth = 1.25;
+    const size_t maximumIslandRetries = 4;
+    const double maximumRetriedIslandTriangleCount = 1024.0;
+
+    struct SurfaceTopology {
+        size_t components = 0;
+        size_t boundaryEdges = 0;
+        size_t nonManifoldEdges = 0;
+        long long eulerCharacteristic = 0;
+    };
+
+    // Counted on the vertex indices the faces use, whatever their numbering.
+    SurfaceTopology surfaceTopology(const std::vector<std::vector<size_t>>& faces)
+    {
+        SurfaceTopology topology;
+        std::unordered_map<size_t, size_t> compactIndex;
+        std::vector<size_t> parent;
+        const auto root = [&](size_t v) {
+            while (parent[v] != v)
+                v = parent[v] = parent[parent[v]];
+            return v;
+        };
+        std::vector<std::pair<size_t, size_t>> edges;
+        for (const auto& face : faces) {
+            for (size_t i = 0; i < face.size(); ++i) {
+                if (compactIndex.insert({ face[i], parent.size() }).second)
+                    parent.push_back(parent.size());
+            }
+            const size_t first = root(compactIndex[face[0]]);
+            for (size_t i = 0; i < face.size(); ++i) {
+                parent[root(compactIndex[face[i]])] = first;
+                const size_t a = face[i], b = face[(i + 1) % face.size()];
+                edges.push_back({ std::min(a, b), std::max(a, b) });
+            }
+        }
+        for (size_t v = 0; v < parent.size(); ++v) {
+            if (root(v) == v)
+                ++topology.components;
+        }
+        std::sort(edges.begin(), edges.end());
+        size_t edgeCount = 0;
+        for (size_t i = 0; i < edges.size();) {
+            size_t j = i;
+            while (j < edges.size() && edges[j] == edges[i])
+                ++j;
+            ++edgeCount;
+            if (1 == j - i)
+                ++topology.boundaryEdges;
+            else if (j - i > 2)
+                ++topology.nonManifoldEdges;
+            i = j;
+        }
+        topology.eulerCharacteristic = (long long)parent.size() - (long long)edgeCount + (long long)faces.size();
+        return topology;
+    }
+
+    // Whether a run gave the island a usable surface: one piece with some
+    // faces, every edge on at most two of them, and, if the input island is
+    // closed, a closed result of the same Euler characteristic (so the same
+    // genus). Open islands are not held to their boundary: extraction still
+    // caps short boundary loops (REFERENCE M15).
+    bool isHealthyIslandResult(const SurfaceTopology& input, const std::vector<std::vector<size_t>>& quads)
+    {
+        if (quads.empty())
+            return false;
+        const SurfaceTopology output = surfaceTopology(quads);
+        if (1 != output.components || 0 != output.nonManifoldEdges)
+            return false;
+        if (0 == input.boundaryEdges && 0 == input.nonManifoldEdges) {
+            return 0 == output.boundaryEdges
+                && output.eulerCharacteristic == input.eulerCharacteristic;
+        }
+        return true;
+    }
+
     // Thrown from a cancellation point and caught in remesh().  Deliberately not
     // a std::exception, so the per-island error handling doesn't take it for a
     // failed island.
@@ -164,7 +257,7 @@ void AutoRemesher::initializeVoxelSize()
 {
     double area = calculateMeshArea(m_vertices, m_triangles);
     double triangleArea = area / m_targetTriangleCount;
-    m_voxelSize = std::sqrt(triangleArea / (0.86602540378 * 0.5));
+    m_voxelSize = std::sqrt(triangleArea / triangleAreaPerSquaredEdge);
 #if AUTO_REMESHER_DEBUG
     std::cerr << "Area: " << area << " voxelSize: " << m_voxelSize << std::endl;
 #endif
@@ -196,7 +289,7 @@ bool AutoRemesher::decimateIfTooDense(std::vector<Vector3>& vertices,
     if (vertices.size() > (size_t)std::numeric_limits<unsigned int>::max())
         return false;
 
-    const double targetTriangleArea = voxelSize * voxelSize * 0.86602540378 * 0.5;
+    const double targetTriangleArea = voxelSize * voxelSize * triangleAreaPerSquaredEdge;
     if (targetTriangleArea <= 0.0)
         return false;
     const double islandTargetTriangleCount = calculateMeshArea(vertices, triangles) / targetTriangleArea;
@@ -564,6 +657,7 @@ void AutoRemesher::accumulateStageTime(const char* name, float order, long long 
 bool AutoRemesher::remesh()
 {
     m_cancelled = false;
+    m_diagnostics.clear();
     try {
         return remeshIslands();
     } catch (const RemeshCancelled&) {
@@ -598,6 +692,7 @@ bool AutoRemesher::remeshIslands()
     }
     throwIfCancelled();
     auto t_start = std::chrono::high_resolution_clock::now();
+    const double cpuStart = processCpuSeconds();
 
     // Each label names the step that is about to run, not the one that just
     // finished, so the status line matches what the process is actually doing.
@@ -629,11 +724,42 @@ bool AutoRemesher::remeshIslands()
         std::vector<Vector3> vertices;
         std::vector<std::vector<size_t>> triangles;
         double voxelSize;
+        double area;
+        double targetQuadCount;
         double scaling;
         double adaptivity;
         double anisotropy;
         double sharpEdgeDegrees;
         double smoothNormalDegrees;
+    };
+
+    // Copies one island out of the input, with its own vertex numbering.
+    const auto buildIslandContext = [&](size_t islandIndex, IslandContext& context) {
+        const auto& island = trianglesIslands[islandIndex];
+        context.vertices.clear();
+        context.triangles.clear();
+        context.triangles.reserve(island.size());
+        std::unordered_map<size_t, size_t> oldToNewVertexMap;
+        oldToNewVertexMap.reserve(island.size() * 2);
+        for (const auto& face : island) {
+            std::vector<size_t> triangle;
+            triangle.reserve(3);
+            for (size_t i = 0; i < 3; ++i) {
+                auto insertResult = oldToNewVertexMap.insert({ face[i], context.vertices.size() });
+                if (insertResult.second)
+                    context.vertices.push_back(m_vertices[face[i]]);
+                triangle.push_back(insertResult.first->second);
+            }
+            context.triangles.push_back(std::move(triangle));
+        }
+        context.area = calculateMeshArea(context.vertices, context.triangles);
+
+        context.scaling = m_scaling;
+        context.voxelSize = m_voxelSize;
+        context.adaptivity = m_adaptivity;
+        context.anisotropy = m_anisotropy;
+        context.sharpEdgeDegrees = m_sharpEdgeDegrees;
+        context.smoothNormalDegrees = m_smoothNormalDegrees;
     };
 
     if (nullptr != m_progressHandler)
@@ -643,32 +769,29 @@ bool AutoRemesher::remeshIslands()
     std::vector<IslandContext> islandContexes(trianglesIslands.size());
     tbb::parallel_for(tbb::blocked_range<size_t>(0, trianglesIslands.size()),
         [&](const tbb::blocked_range<size_t>& range) {
-            for (size_t islandIndex = range.begin(); islandIndex != range.end(); ++islandIndex) {
-                const auto& island = trianglesIslands[islandIndex];
-                IslandContext& context = islandContexes[islandIndex];
-                context.triangles.reserve(island.size());
-                std::unordered_map<size_t, size_t> oldToNewVertexMap;
-                oldToNewVertexMap.reserve(island.size() * 2);
-                for (const auto& face : island) {
-                    std::vector<size_t> triangle;
-                    triangle.reserve(3);
-                    for (size_t i = 0; i < 3; ++i) {
-                        auto insertResult = oldToNewVertexMap.insert({ face[i], context.vertices.size() });
-                        if (insertResult.second)
-                            context.vertices.push_back(m_vertices[face[i]]);
-                        triangle.push_back(insertResult.first->second);
-                    }
-                    context.triangles.push_back(std::move(triangle));
-                }
-
-                context.scaling = m_scaling;
-                context.voxelSize = m_voxelSize;
-                context.adaptivity = m_adaptivity;
-                context.anisotropy = m_anisotropy;
-                context.sharpEdgeDegrees = m_sharpEdgeDegrees;
-                context.smoothNormalDegrees = m_smoothNormalDegrees;
-            }
+            for (size_t islandIndex = range.begin(); islandIndex != range.end(); ++islandIndex)
+                buildIslandContext(islandIndex, islandContexes[islandIndex]);
         });
+    // Callers ask for two triangles per quad. Each island is asked for its
+    // input area's share of the quads, rather than for a density over its
+    // remeshed area, so the counts add up to the request even where
+    // remeshing smooths noise away or decimation loses area. A small island
+    // is raised to minimumIslandTriangleCount, which also shortens its edges.
+    double totalIslandArea = 0.0;
+    for (const auto& context : islandContexes)
+        totalIslandArea += context.area;
+    for (auto& context : islandContexes) {
+        const double shareTriangleCount = totalIslandArea > 0.0
+            ? m_targetTriangleCount * context.area / totalIslandArea
+            : 0.0;
+        const double floorTriangleCount = std::min(minimumIslandTriangleCount, (double)context.triangles.size());
+        if (shareTriangleCount >= floorTriangleCount || context.area <= 0.0) {
+            context.targetQuadCount = 0.5 * shareTriangleCount;
+            continue;
+        }
+        context.targetQuadCount = 0.5 * floorTriangleCount;
+        context.voxelSize = std::sqrt(context.area / (floorTriangleCount * triangleAreaPerSquaredEdge));
+    }
     auto t_buildEnd = std::chrono::high_resolution_clock::now();
     throwIfCancelled();
     if (nullptr != m_progressHandler)
@@ -676,85 +799,235 @@ bool AutoRemesher::remeshIslands()
 
     std::atomic<long long> resampleTime(0);
     std::atomic<long long> adaptiveFieldTime(0);
+    std::atomic<long long> parameterizeTimeAccumulated(0);
+    std::atomic<long long> extractTimeAccumulated(0);
     DecimationStats decimationStats;
+    DecimationStats retryDecimationStats;
 
-    {
-        m_threadProgressWeights.assign(islandContexes.size(), 1.0f);
-        for (size_t i = 0; i < islandContexes.size(); ++i) {
-            if (!m_triangles.empty())
-                m_threadProgressWeights[i] = (float)(((double)islandContexes[i].triangles.size() / m_triangles.size()));
+    m_threadProgressWeights.assign(islandContexes.size(), 1.0f);
+    for (size_t i = 0; i < islandContexes.size(); ++i) {
+        if (!m_triangles.empty())
+            m_threadProgressWeights[i] = (float)(((double)islandContexes[i].triangles.size() / m_triangles.size()));
+    }
+    m_threadProgress.assign(islandContexes.size(), 0.0f);
+    m_threadStatus.assign(islandContexes.size(), nullptr);
+    m_progressSum = 0.0;
+
+    // Everything one island's run produces: its quads, and the intermediate
+    // meshes and maps the Qt app previews.
+    struct IslandRun {
+        std::vector<Vector3> decimatedVertices;
+        std::vector<std::vector<size_t>> decimatedTriangles;
+        std::vector<Vector3> isotropicVertices;
+        std::vector<std::vector<size_t>> isotropicTriangles;
+        std::vector<std::vector<Vector2>> capturedUvs;
+        std::vector<std::vector<Vector2>> capturedOriginalUvs;
+        std::vector<uint8_t> capturedExtractedConnectionMoved;
+        std::vector<Vector3> capturedSingularVertices;
+        std::vector<size_t> capturedSingularVertexIndices;
+        std::vector<std::pair<Vector3, Vector3>> capturedExtractedConnections;
+        std::vector<Vector3> remeshedVertices;
+        std::vector<std::vector<size_t>> remeshedQuads;
+        std::vector<DiagnosticRecord> diagnostics;
+        bool parameterized = false;
+        bool extracted = false;
+        long long resampleUs = 0;
+        long long parameterizeUs = 0;
+        long long extractUs = 0;
+    };
+    std::vector<IslandRun> islandRuns(islandContexes.size());
+
+    // Decimates and isotropically remeshes the island in place.
+    const auto resampleIsland = [&](size_t islandIndex, IslandContext& ctx, IslandRun& run,
+                                    DecimationStats* stats) {
+        throwIfCancelled();
+        updateProgress(islandIndex, 0.0f, "Remeshing uniformly");
+        const ProgressHandler isotropicProgress = makeStageProgress(islandIndex,
+            0.0f, islandResampleEnd, -1.0f);
+
+        auto t0 = std::chrono::high_resolution_clock::now();
+        resample(ctx.vertices, ctx.triangles, ctx.voxelSize, ctx.adaptivity, ctx.sharpEdgeDegrees, ctx.smoothNormalDegrees, islandIndex, stats,
+            &adaptiveFieldTime, &isotropicProgress,
+            &run.decimatedVertices, &run.decimatedTriangles);
+        auto t1 = std::chrono::high_resolution_clock::now();
+        run.resampleUs = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
+        resampleTime += run.resampleUs;
+
+        run.isotropicVertices = ctx.vertices;
+        run.isotropicTriangles = ctx.triangles;
+
+        updateProgress(islandIndex, islandResampleEnd);
+    };
+
+    // Parameterizes the remeshed island and extracts its quads.
+    const auto parameterizeIsland = [&](size_t islandIndex, const IslandContext& ctx, IslandRun& run) {
+        throwIfCancelled();
+        auto t0 = std::chrono::high_resolution_clock::now();
+
+        const auto& vertices = ctx.vertices;
+        const auto& triangles = ctx.triangles;
+
+        if (vertices.empty() || triangles.empty()) {
+            // Still retire the island, otherwise its share of the bar
+            // is never filled in and the total stalls short of the end.
+            updateProgress(islandIndex, 1.0f);
+            return;
         }
-        m_threadProgress.assign(islandContexes.size(), 0.0f);
-        m_threadStatus.assign(islandContexes.size(), nullptr);
-        m_progressSum = 0.0;
 
-        struct IsotropicPhase {
-            IsotropicPhase(std::vector<IslandContext>* contexts,
-                AutoRemesher* remesher,
-                std::atomic<long long>* resampleTime,
-                std::atomic<long long>* adaptiveFieldTime,
-                DecimationStats* decimationStats,
-                std::vector<std::vector<Vector3>>* islandVertices,
-                std::vector<std::vector<std::vector<size_t>>>* islandTriangles,
-                std::vector<std::vector<Vector3>>* decimatedIslandVertices,
-                std::vector<std::vector<std::vector<size_t>>>* decimatedIslandTriangles)
-                : m_contexts(contexts)
-                , m_remesher(remesher)
-                , m_resampleTime(resampleTime)
-                , m_adaptiveFieldTime(adaptiveFieldTime)
-                , m_decimationStats(decimationStats)
-                , m_islandVertices(islandVertices)
-                , m_islandTriangles(islandTriangles)
-                , m_decimatedIslandVertices(decimatedIslandVertices)
-                , m_decimatedIslandTriangles(decimatedIslandTriangles)
-            {
+        updateProgress(islandIndex, islandResampleEnd);
+        Parameterizer parameterizer(&vertices, &triangles, nullptr);
+        parameterizer.setProgressHandler(
+            makeStageProgress(islandIndex, islandResampleEnd, islandParameterizeEnd, 0.0f));
+        if (ctx.scaling > 0.0)
+            parameterizer.setScaling(ctx.scaling);
+        parameterizer.setTargetQuadCount(ctx.targetQuadCount);
+        parameterizer.setGradientAdaptivity(ctx.adaptivity);
+        parameterizer.setAnisotropy(ctx.anisotropy);
+        parameterizer.setSharpEdgeDegrees(ctx.sharpEdgeDegrees);
+        bool parameterizeSucceeded = true;
+        try {
+            parameterizeSucceeded = parameterizer.parameterize();
+        } catch (const RemeshCancelled&) {
+            throw;
+        } catch (const std::exception& e) {
+            // A pathological island must not abort the whole remesh,
+            // so log the parameterizer failure and skip its quads.
+            parameterizeSucceeded = false;
+            std::cerr << "Island " << (islandIndex + 1)
+                      << ": parameterization failed (" << e.what()
+                      << "), skipping this island." << std::endl;
+        } catch (...) {
+            parameterizeSucceeded = false;
+            std::cerr << "Island " << (islandIndex + 1)
+                      << ": parameterization failed (unknown error), skipping this island." << std::endl;
+        }
+
+        auto t1 = std::chrono::high_resolution_clock::now();
+        run.parameterizeUs = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
+        parameterizeTimeAccumulated += run.parameterizeUs;
+        run.parameterized = parameterizeSucceeded;
+        run.diagnostics = parameterizer.takeDiagnostics();
+
+        if (parameterizeSucceeded) {
+            throwIfCancelled();
+            updateProgress(islandIndex, islandParameterizeEnd);
+            std::unique_ptr<std::vector<std::vector<Vector2>>> uvs = parameterizer.takeTriangleUvs();
+            if (uvs) {
+                // Save a copy of UVs for the [param] preview overlay
+                run.capturedUvs = *uvs;
+                run.capturedOriginalUvs = parameterizer.originalTriangleUvs();
             }
+            // Capture singular vertex positions for the [param] preview
+            run.capturedSingularVertices = parameterizer.singularVertexPositions();
+            run.capturedSingularVertexIndices = parameterizer.singularVertexIndices();
+            QuadExtractor extractor(&vertices, &triangles, uvs.get());
+            extractor.setOriginalTriangleUvs(&run.capturedOriginalUvs);
+            extractor.setSingularVertices(&run.capturedSingularVertexIndices);
+            extractor.setProgressHandler(
+                makeStageProgress(islandIndex, islandParameterizeEnd, 1.0f, 1.0f));
+            if (extractor.extract()) {
+                run.extracted = true;
+                run.capturedExtractedConnections = extractor.extractedConnections();
+                run.capturedExtractedConnectionMoved = extractor.extractedConnectionMoved();
+                run.remeshedVertices = extractor.remeshedVertices();
+                run.remeshedQuads = extractor.remeshedQuads();
+            }
+        }
+        updateProgress(islandIndex, 1.0f);
+        auto t2 = std::chrono::high_resolution_clock::now();
+        run.extractUs = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
+        extractTimeAccumulated += run.extractUs;
+    };
 
-            void operator()(const tbb::blocked_range<size_t>& range) const
-            {
-                for (size_t i = range.begin(); i != range.end(); ++i) {
-                    auto& ctx = (*m_contexts)[i];
+    tbb::parallel_for(tbb::blocked_range<size_t>(0, islandContexes.size()),
+        [&](const tbb::blocked_range<size_t>& range) {
+            for (size_t i = range.begin(); i != range.end(); ++i)
+                resampleIsland(i, islandContexes[i], islandRuns[i], &decimationStats);
+        });
+    auto t_isotropicEnd = std::chrono::high_resolution_clock::now();
+    throwIfCancelled();
+    const size_t isotropicPeakRss = peakResidentSetBytes();
 
-                    m_remesher->throwIfCancelled();
-                    m_remesher->updateProgress(i, 0.0f, "Remeshing uniformly");
-                    const ProgressHandler isotropicProgress = m_remesher->makeStageProgress(i,
-                        0.0f, islandResampleEnd, -1.0f);
+    tbb::parallel_for(tbb::blocked_range<size_t>(0, islandContexes.size()),
+        [&](const tbb::blocked_range<size_t>& range) {
+            for (size_t i = range.begin(); i != range.end(); ++i)
+                parameterizeIsland(i, islandContexes[i], islandRuns[i]);
+        });
 
-                    auto t0 = std::chrono::high_resolution_clock::now();
-                    resample(ctx.vertices, ctx.triangles, ctx.voxelSize, ctx.adaptivity, ctx.sharpEdgeDegrees, ctx.smoothNormalDegrees, i, m_decimationStats,
-                        m_adaptiveFieldTime, &isotropicProgress,
-                        &(*m_decimatedIslandVertices)[i], &(*m_decimatedIslandTriangles)[i]);
-                    auto t1 = std::chrono::high_resolution_clock::now();
-                    *m_resampleTime += std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
-
-                    (*m_islandVertices)[i] = ctx.vertices;
-                    (*m_islandTriangles)[i] = ctx.triangles;
-
-                    m_remesher->updateProgress(i, islandResampleEnd);
+    // On a coarse triangle mesh the rounded parametrization can fold over
+    // (REFERENCE M1, M2), and a small island then comes out empty or torn
+    // even at the minimum size above. Such an island is run again at a
+    // slightly higher count, a few times; it is small, so this costs little.
+    auto t_retryStart = std::chrono::high_resolution_clock::now();
+    std::vector<SurfaceTopology> inputTopologies(trianglesIslands.size());
+    std::vector<size_t> islandsToRetry;
+    for (size_t i = 0; i < islandContexes.size(); ++i) {
+        const auto& ctx = islandContexes[i];
+        if ((double)trianglesIslands[i].size() < minimumIslandTriangleCount
+            || 2.0 * ctx.targetQuadCount > maximumRetriedIslandTriangleCount)
+            continue;
+        inputTopologies[i] = surfaceTopology(trianglesIslands[i]);
+        if (!isHealthyIslandResult(inputTopologies[i], islandRuns[i].remeshedQuads))
+            islandsToRetry.push_back(i);
+    }
+    std::vector<size_t> islandRetryAttemptCounts(islandContexes.size(), 0);
+    std::atomic<size_t> islandRetryAttempts(0);
+    std::atomic<size_t> islandsRepaired(0);
+    tbb::parallel_for(tbb::blocked_range<size_t>(0, islandsToRetry.size()),
+        [&](const tbb::blocked_range<size_t>& range) {
+            for (size_t k = range.begin(); k != range.end(); ++k) {
+                const size_t i = islandsToRetry[k];
+                double voxelSize = islandContexes[i].voxelSize;
+                double targetQuadCount = islandContexes[i].targetQuadCount;
+                for (size_t attempt = 0; attempt < maximumIslandRetries; ++attempt) {
+                    ++islandRetryAttempts;
+                    ++islandRetryAttemptCounts[i];
+                    voxelSize /= std::sqrt(islandRetryGrowth);
+                    targetQuadCount *= islandRetryGrowth;
+                    IslandContext ctx;
+                    buildIslandContext(i, ctx);
+                    ctx.voxelSize = voxelSize;
+                    ctx.targetQuadCount = targetQuadCount;
+                    IslandRun run;
+                    resampleIsland(i, ctx, run, &retryDecimationStats);
+                    parameterizeIsland(i, ctx, run);
+                    const bool healthy = isHealthyIslandResult(inputTopologies[i], run.remeshedQuads);
+                    // Prefer a torn island to a missing one.
+                    if (healthy || (islandRuns[i].remeshedQuads.empty() && !run.remeshedQuads.empty())) {
+                        islandContexes[i] = std::move(ctx);
+                        islandRuns[i] = std::move(run);
+                    }
+                    if (healthy) {
+                        ++islandsRepaired;
+                        break;
+                    }
                 }
             }
+        });
+    auto t_parallelEnd = std::chrono::high_resolution_clock::now();
 
-        private:
-            std::vector<IslandContext>* m_contexts = nullptr;
-            AutoRemesher* m_remesher = nullptr;
-            std::atomic<long long>* m_resampleTime = nullptr;
-            std::atomic<long long>* m_adaptiveFieldTime = nullptr;
-            DecimationStats* m_decimationStats = nullptr;
-            std::vector<std::vector<Vector3>>* m_islandVertices = nullptr;
-            std::vector<std::vector<std::vector<size_t>>>* m_islandTriangles = nullptr;
-            std::vector<std::vector<Vector3>>* m_decimatedIslandVertices = nullptr;
-            std::vector<std::vector<std::vector<size_t>>>* m_decimatedIslandTriangles = nullptr;
-        };
+    m_islandCount = islandRuns.size();
+    m_islandsWithoutOutput = 0;
+    for (const auto& run : islandRuns) {
+        if (run.remeshedQuads.empty())
+            ++m_islandsWithoutOutput;
+    }
 
-        auto mergeIslands = [](const std::vector<std::vector<Vector3>>& islandVertices,
-                                const std::vector<std::vector<std::vector<size_t>>>& islandTriangles,
+    if (nullptr != m_progressHandler)
+        m_progressHandler(m_tag, parallelPhaseEnd, "Merging mesh islands");
+
+    {
+        // Merges either the decimated or the isotropic mesh of every island.
+        auto mergeIslands = [&](bool decimated,
                                 std::vector<Vector3>& mergedVertices,
                                 std::vector<std::vector<size_t>>& mergedTriangles) {
-            for (size_t i = 0; i < islandVertices.size(); ++i) {
+            for (const auto& run : islandRuns) {
+                const auto& islandVertices = decimated ? run.decimatedVertices : run.isotropicVertices;
+                const auto& islandTriangles = decimated ? run.decimatedTriangles : run.isotropicTriangles;
                 const size_t vertexOffset = mergedVertices.size();
                 mergedVertices.insert(mergedVertices.end(),
-                    islandVertices[i].begin(), islandVertices[i].end());
-                for (const auto& triangle : islandTriangles[i]) {
+                    islandVertices.begin(), islandVertices.end());
+                for (const auto& triangle : islandTriangles) {
                     std::vector<size_t> offsetTriangle;
                     offsetTriangle.reserve(triangle.size());
                     for (const size_t index : triangle)
@@ -768,220 +1041,53 @@ bool AutoRemesher::remeshIslands()
         m_isotropicTriangles.clear();
         m_decimatedVertices.clear();
         m_decimatedTriangles.clear();
-        std::vector<std::vector<Vector3>> isotropicIslandVertices(islandContexes.size());
-        std::vector<std::vector<std::vector<size_t>>> isotropicIslandTriangles(islandContexes.size());
-        std::vector<std::vector<Vector3>> decimatedIslandVertices(islandContexes.size());
-        std::vector<std::vector<std::vector<size_t>>> decimatedIslandTriangles(islandContexes.size());
-        tbb::parallel_for(tbb::blocked_range<size_t>(0, islandContexes.size()),
-            IsotropicPhase(&islandContexes, this, &resampleTime, &adaptiveFieldTime,
-                &decimationStats,
-                &isotropicIslandVertices, &isotropicIslandTriangles,
-                &decimatedIslandVertices, &decimatedIslandTriangles));
-        mergeIslands(isotropicIslandVertices, isotropicIslandTriangles,
-            m_isotropicVertices, m_isotropicTriangles);
-        m_decimated = decimationStats.islandsDecimated.load() > 0;
+        mergeIslands(false, m_isotropicVertices, m_isotropicTriangles);
+        m_decimated = decimationStats.islandsDecimated.load() + retryDecimationStats.islandsDecimated.load() > 0;
         if (m_decimated) {
-            mergeIslands(decimatedIslandVertices, decimatedIslandTriangles,
-                m_decimatedVertices, m_decimatedTriangles);
+            mergeIslands(true, m_decimatedVertices, m_decimatedTriangles);
         }
     }
-    auto t_isotropicEnd = std::chrono::high_resolution_clock::now();
-    throwIfCancelled();
-
-    class ParameterizationThread {
-    public:
-        size_t islandIndex = 0;
-        IslandContext* island = nullptr;
-        std::unique_ptr<Parameterizer> parameterizer;
-        std::unique_ptr<QuadExtractor> remesher;
-        AutoRemesher* autoRemesher = nullptr;
-        std::vector<std::vector<Vector2>> capturedUvs;
-        std::vector<std::vector<Vector2>> capturedOriginalUvs;
-        std::vector<uint8_t> capturedExtractedConnectionMoved;
-        std::vector<Vector3> capturedSingularVertices;
-        std::vector<size_t> capturedSingularVertexIndices;
-        std::vector<std::pair<Vector3, Vector3>> capturedExtractedConnections;
-    };
-
-    std::vector<ParameterizationThread> parameterizationThreads(islandContexes.size());
-    for (size_t i = 0; i < islandContexes.size(); ++i) {
-        auto& thread = parameterizationThreads[i];
-        auto& context = islandContexes[i];
-        thread.islandIndex = i;
-        thread.island = &context;
-        thread.autoRemesher = this;
-    }
-
-    class SurfaceParameterizer {
-    public:
-        SurfaceParameterizer(std::vector<ParameterizationThread>* parameterizationThreads,
-            std::atomic<long long>* parameterizeTime,
-            std::atomic<long long>* extractTime)
-            : m_parameterizationThreads(parameterizationThreads)
-            , m_parameterizeTime(parameterizeTime)
-            , m_extractTime(extractTime)
-        {
-        }
-
-        void operator()(const tbb::blocked_range<size_t>& range) const
-        {
-            for (size_t i = range.begin(); i != range.end(); ++i) {
-                auto& thread = (*m_parameterizationThreads)[i];
-
-                thread.autoRemesher->throwIfCancelled();
-                auto t0 = std::chrono::high_resolution_clock::now();
-
-                const auto& vertices = thread.island->vertices;
-                const auto& triangles = thread.island->triangles;
-
-                if (vertices.empty() || triangles.empty()) {
-                    // Still retire the island, otherwise its share of the bar
-                    // is never filled in and the total stalls short of the end.
-                    thread.autoRemesher->updateProgress(thread.islandIndex, 1.0f);
-                    continue;
-                }
-
-                thread.autoRemesher->updateProgress(thread.islandIndex, islandResampleEnd);
-                thread.parameterizer = std::make_unique<Parameterizer>(&vertices,
-                    &triangles,
-                    nullptr);
-                thread.parameterizer->setProgressHandler(
-                    thread.autoRemesher->makeStageProgress(thread.islandIndex,
-                        islandResampleEnd, islandParameterizeEnd, 0.0f));
-                if (thread.island->scaling > 0.0)
-                    thread.parameterizer->setScaling(thread.island->scaling);
-                thread.parameterizer->setGradientAdaptivity(thread.island->adaptivity);
-                thread.parameterizer->setAnisotropy(thread.island->anisotropy);
-                thread.parameterizer->setSharpEdgeDegrees(thread.island->sharpEdgeDegrees);
-                bool parameterizeSucceeded = true;
-                try {
-                    parameterizeSucceeded = thread.parameterizer->parameterize();
-                } catch (const RemeshCancelled&) {
-                    throw;
-                } catch (const std::exception& e) {
-                    // A pathological island must not abort the whole remesh,
-                    // so log the parameterizer failure and skip its quads.
-                    parameterizeSucceeded = false;
-                    std::cerr << "Island " << (thread.islandIndex + 1)
-                              << ": parameterization failed (" << e.what()
-                              << "), skipping this island." << std::endl;
-                } catch (...) {
-                    parameterizeSucceeded = false;
-                    std::cerr << "Island " << (thread.islandIndex + 1)
-                              << ": parameterization failed (unknown error), skipping this island." << std::endl;
-                }
-
-                auto t1 = std::chrono::high_resolution_clock::now();
-                *m_parameterizeTime += std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
-
-                if (parameterizeSucceeded) {
-                    thread.autoRemesher->throwIfCancelled();
-                    thread.autoRemesher->updateProgress(thread.islandIndex, islandParameterizeEnd);
-                    std::unique_ptr<std::vector<std::vector<Vector2>>> uvs = thread.parameterizer->takeTriangleUvs();
-                    if (uvs) {
-                        // Save a copy of UVs for the [param] preview overlay
-                        thread.capturedUvs = *uvs;
-                        thread.capturedOriginalUvs = thread.parameterizer->originalTriangleUvs();
-                    }
-                    // Capture singular vertex positions for the [param] preview
-                    thread.capturedSingularVertices = thread.parameterizer->singularVertexPositions();
-                    thread.capturedSingularVertexIndices = thread.parameterizer->singularVertexIndices();
-                    thread.remesher = std::make_unique<QuadExtractor>(&vertices,
-                        &triangles,
-                        uvs.get());
-                    thread.remesher->setOriginalTriangleUvs(&thread.capturedOriginalUvs);
-                    thread.remesher->setSingularVertices(&thread.capturedSingularVertexIndices);
-                    thread.remesher->setProgressHandler(
-                        thread.autoRemesher->makeStageProgress(thread.islandIndex,
-                            islandParameterizeEnd, 1.0f, 1.0f));
-                    if (!thread.remesher->extract()) {
-                        thread.remesher.reset();
-                    } else {
-                        thread.capturedExtractedConnections = thread.remesher->extractedConnections();
-                        thread.capturedExtractedConnectionMoved = thread.remesher->extractedConnectionMoved();
-                    }
-                }
-                thread.autoRemesher->updateProgress(thread.islandIndex, 1.0f);
-                auto t2 = std::chrono::high_resolution_clock::now();
-                *m_extractTime += std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
-            }
-        }
-
-    private:
-        std::vector<ParameterizationThread>* m_parameterizationThreads = nullptr;
-        std::atomic<long long>* m_parameterizeTime = nullptr;
-        std::atomic<long long>* m_extractTime = nullptr;
-    };
-    std::atomic<long long> parameterizeTimeAccumulated(0);
-    std::atomic<long long> extractTimeAccumulated(0);
-
-    tbb::parallel_for(tbb::blocked_range<size_t>(0, parameterizationThreads.size()),
-        SurfaceParameterizer(&parameterizationThreads,
-            &parameterizeTimeAccumulated,
-            &extractTimeAccumulated));
-    auto t_parallelEnd = std::chrono::high_resolution_clock::now();
-
-    m_islandCount = parameterizationThreads.size();
-    m_islandsWithoutOutput = 0;
-    for (const auto& thread : parameterizationThreads) {
-        if (nullptr == thread.remesher || thread.remesher->remeshedQuads().empty())
-            ++m_islandsWithoutOutput;
-    }
-
-    if (nullptr != m_progressHandler)
-        m_progressHandler(m_tag, parallelPhaseEnd, "Merging mesh islands");
 
     // Merge isotropic UVs from all islands (for [param] preview)
     m_isotropicTriangleUvs.clear();
     m_isotropicOriginalTriangleUvs.clear();
-    for (size_t i = 0; i < parameterizationThreads.size(); ++i) {
-        auto& thread = parameterizationThreads[i];
-        if (thread.capturedUvs.empty())
+    for (const auto& run : islandRuns) {
+        if (run.capturedUvs.empty())
             continue;
         m_isotropicTriangleUvs.insert(m_isotropicTriangleUvs.end(),
-            thread.capturedUvs.begin(), thread.capturedUvs.end());
+            run.capturedUvs.begin(), run.capturedUvs.end());
         m_isotropicOriginalTriangleUvs.insert(m_isotropicOriginalTriangleUvs.end(),
-            thread.capturedOriginalUvs.begin(), thread.capturedOriginalUvs.end());
+            run.capturedOriginalUvs.begin(), run.capturedOriginalUvs.end());
     }
 
     // Merge singular vertex positions from all islands (for [param] preview)
     m_isotropicSingularVertices.clear();
-    for (size_t i = 0; i < parameterizationThreads.size(); ++i) {
-        auto& thread = parameterizationThreads[i];
-        if (thread.capturedSingularVertices.empty())
-            continue;
+    for (const auto& run : islandRuns) {
         m_isotropicSingularVertices.insert(m_isotropicSingularVertices.end(),
-            thread.capturedSingularVertices.begin(), thread.capturedSingularVertices.end());
+            run.capturedSingularVertices.begin(), run.capturedSingularVertices.end());
     }
 
     // Merge the raw quad-extraction connections for the [param] preview.
     m_isotropicExtractedConnections.clear();
     m_isotropicExtractedConnectionMoved.clear();
-    for (const auto& thread : parameterizationThreads) {
+    for (const auto& run : islandRuns) {
         m_isotropicExtractedConnections.insert(m_isotropicExtractedConnections.end(),
-            thread.capturedExtractedConnections.begin(), thread.capturedExtractedConnections.end());
+            run.capturedExtractedConnections.begin(), run.capturedExtractedConnections.end());
         m_isotropicExtractedConnectionMoved.resize(m_isotropicExtractedConnections.size()
-                - thread.capturedExtractedConnections.size(),
+                - run.capturedExtractedConnections.size(),
             0);
         m_isotropicExtractedConnectionMoved.insert(m_isotropicExtractedConnectionMoved.end(),
-            thread.capturedExtractedConnectionMoved.begin(),
-            thread.capturedExtractedConnectionMoved.end());
+            run.capturedExtractedConnectionMoved.begin(),
+            run.capturedExtractedConnectionMoved.end());
         m_isotropicExtractedConnectionMoved.resize(m_isotropicExtractedConnections.size(), 0);
     }
-    for (size_t i = 0; i < parameterizationThreads.size(); ++i) {
-        auto& thread = parameterizationThreads[i];
-        if (nullptr == thread.remesher)
+    for (const auto& run : islandRuns) {
+        if (run.remeshedQuads.empty())
             continue;
-        const auto& quads = thread.remesher->remeshedQuads();
-        if (quads.empty())
-            continue;
-        const auto& vertices = thread.remesher->remeshedVertices();
         size_t vertexStartIndex = m_remeshedVertices.size();
-        m_remeshedVertices.reserve(m_remeshedVertices.size() + vertices.size());
-        for (const auto& it : vertices) {
-            m_remeshedVertices.push_back(it);
-        }
-        for (const auto& it : quads) {
+        m_remeshedVertices.insert(m_remeshedVertices.end(),
+            run.remeshedVertices.begin(), run.remeshedVertices.end());
+        for (const auto& it : run.remeshedQuads) {
             std::vector<size_t> quad;
             quad.reserve(it.size());
             for (const auto& v : it)
@@ -1000,12 +1106,15 @@ bool AutoRemesher::remeshIslands()
     const long long t_splitUs = elapsedUs(t_splitStart, t_afterSplit);
     const long long t_buildUs = elapsedUs(t_afterSplit, t_buildEnd);
     const long long t_isotropicWallUs = elapsedUs(t_buildEnd, t_isotropicEnd);
-    const long long t_parameterizeWallUs = elapsedUs(t_isotropicEnd, t_parallelEnd);
+    const long long t_parameterizeWallUs = elapsedUs(t_isotropicEnd, t_retryStart);
+    const long long t_retryWallUs = elapsedUs(t_retryStart, t_parallelEnd);
     const long long t_parallelWallUs = elapsedUs(t_buildEnd, t_parallelEnd);
     const long long t_mergeUs = elapsedUs(t_parallelEnd, t_mergeEnd);
     const long long t_totalUs = elapsedUs(t_start, t_mergeEnd);
 
-    const long long t_decimateUs = decimationStats.timeUs.load();
+    // Includes the retried islands, so the isotropic remesh time below is net
+    // of all decimation.
+    const long long t_decimateUs = decimationStats.timeUs.load() + retryDecimationStats.timeUs.load();
     const long long t_adaptiveFieldUs = adaptiveFieldTime.load();
     const size_t decimatedIslands = decimationStats.islandsDecimated.load();
 
@@ -1074,6 +1183,13 @@ bool AutoRemesher::remeshIslands()
 
         phase("Isotropic phase wall clock", t_isotropicWallUs);
         phase("Parameterize phase wall clock", t_parameterizeWallUs);
+
+        line.str(std::string());
+        line << "Small islands retried: " << islandsToRetry.size()
+             << ", attempts: " << islandRetryAttempts.load()
+             << ", repaired: " << islandsRepaired.load()
+             << ", " << milliseconds(t_retryWallUs);
+        m_phaseReport.push_back(line.str());
         phase("Parallel phase wall clock", t_parallelWallUs);
 
         {
@@ -1094,6 +1210,84 @@ bool AutoRemesher::remeshIslands()
 
     for (const auto& line : m_phaseReport)
         std::cerr << line << std::endl;
+
+    {
+        const auto milliseconds = [](long long microseconds) {
+            return (double)microseconds / 1000.0;
+        };
+        size_t nonQuadFaces = 0;
+        for (const auto& face : m_remeshedQuads)
+            if (4 != face.size())
+                ++nonQuadFaces;
+        DiagnosticRecord run("run");
+        run.set("input_vertices", (double)m_vertices.size());
+        run.set("input_triangles", (double)m_triangles.size());
+        run.set("target_triangles", (double)m_targetTriangleCount);
+        run.set("islands", (double)islandContexes.size());
+        run.set("adaptivity", m_adaptivity);
+        run.set("anisotropy", m_anisotropy);
+        run.set("output_vertices", (double)m_remeshedVertices.size());
+        run.set("output_faces", (double)m_remeshedQuads.size());
+        run.set("output_non_quads", (double)nonQuadFaces);
+        run.set("voxel_ms", milliseconds(t_voxelUs));
+        run.set("split_ms", milliseconds(t_splitUs));
+        run.set("build_ms", milliseconds(t_buildUs));
+        run.set("isotropic_wall_ms", milliseconds(t_isotropicWallUs));
+        run.set("parameterize_wall_ms", milliseconds(t_parameterizeWallUs));
+        run.set("retry_wall_ms", milliseconds(t_retryWallUs));
+        run.set("merge_ms", milliseconds(t_mergeUs));
+        run.set("total_ms", milliseconds(t_totalUs));
+        run.set("cpu_seconds", processCpuSeconds() - cpuStart);
+        run.set("isotropic_peak_rss_bytes", (double)isotropicPeakRss);
+        run.set("peak_rss_bytes", (double)peakResidentSetBytes());
+        run.set("decimated_islands", (double)decimatedIslands);
+        run.set("decimated_triangles_before", (double)decimationStats.trianglesBefore.load());
+        run.set("decimated_triangles_after", (double)decimationStats.trianglesAfter.load());
+        run.set("retried_islands", (double)islandsToRetry.size());
+        run.set("repaired_islands", (double)islandsRepaired.load());
+        m_diagnostics.push_back(std::move(run));
+
+        {
+            std::lock_guard<std::mutex> lock(m_stageTimingMutex);
+            for (const auto& it : m_stageTimes) {
+                {
+                    DiagnosticRecord record("step");
+                    record.label("name", it.name);
+                    record.set("order", it.order);
+                    record.set("accumulated_ms", milliseconds(it.microseconds));
+                    m_diagnostics.push_back(std::move(record));
+                }
+            }
+        }
+
+        // A retried island reports the run it kept.
+        for (size_t i = 0; i < islandRuns.size(); ++i) {
+            const auto& islandRun = islandRuns[i];
+            size_t quads = 0;
+            for (const auto& face : islandRun.remeshedQuads)
+                if (4 == face.size())
+                    ++quads;
+            DiagnosticRecord record("island", i);
+            record.set("input_triangles", (double)trianglesIslands[i].size());
+            record.set("target_quads", islandContexes[i].targetQuadCount);
+            record.set("isotropic_triangles", (double)islandContexes[i].triangles.size());
+            record.set("resample_ms", milliseconds(islandRun.resampleUs));
+            record.set("parameterize_ms", milliseconds(islandRun.parameterizeUs));
+            record.set("extract_ms", milliseconds(islandRun.extractUs));
+            record.set("parameterized", islandRun.parameterized ? 1.0 : 0.0);
+            record.set("extracted", islandRun.extracted ? 1.0 : 0.0);
+            record.set("retry_attempts", (double)islandRetryAttemptCounts[i]);
+            record.set("output_faces", (double)islandRun.remeshedQuads.size());
+            record.set("output_quads", (double)quads);
+            m_diagnostics.push_back(std::move(record));
+        }
+        for (size_t i = 0; i < islandRuns.size(); ++i) {
+            for (const auto& record : islandRuns[i].diagnostics) {
+                m_diagnostics.push_back(record);
+                m_diagnostics.back().island = i;
+            }
+        }
+    }
 
 #if AUTO_REMESHER_DEBUG
     std::cerr << "Remesh done" << std::endl;

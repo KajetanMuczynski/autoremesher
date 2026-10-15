@@ -140,6 +140,7 @@ private:
         const Vector3 &target, 
         double maxEdgeLengthSquared);
     bool isVertexPairConnected(Vertex *first, Vertex *second);
+    bool isFaceOfVertex(Vertex *vertex, Vertex *second, Vertex *third);
     bool testMoveWouldDegenerate(Vertex *vertex, const Vector3 &target);
     bool testCollapseWouldFoldOrDegenerate(Vertex *vertex,
         Vertex *otherVertex,

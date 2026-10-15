@@ -222,6 +222,7 @@ namespace {
 
 std::vector<double> Parameterizer::computeFaceScalingField(const std::vector<Vector3>& vertices,
     const std::vector<std::vector<size_t>>& triangles,
+    const std::vector<double>& faceAreas,
     const std::vector<Vector3>& vertexNormals,
     const std::vector<std::vector<size_t>>& faceAroundVertexMap) const
 {
@@ -288,11 +289,32 @@ std::vector<double> Parameterizer::computeFaceScalingField(const std::vector<Vec
             }
         });
 
+    // The field only says where quads are smaller or larger than average;
+    // the base quad edge alone sets how many there are. A face of area A with
+    // edge factor m holds A / m^2 base quads, so rescale m until
+    // sum(A / m^2) = sum(A). Without this the count depended on
+    // averageCurvature, a per-vertex mean on a mesh whose vertices the
+    // adaptive remesh concentrates in curved regions: on the baseline corpus
+    // it was 1.2-12 times the area mean, and the field asked for 0.27-0.85 of
+    // the base count.
+    double area = 0.0;
+    double baseQuads = 0.0;
+    for (size_t i = 0; i < triangles.size(); ++i) {
+        area += faceAreas[i];
+        baseQuads += faceAreas[i] / (faceScaling[i] * faceScaling[i]);
+    }
+    if (area > 0.0 && baseQuads > 0.0) {
+        const double normalization = std::sqrt(baseQuads / area);
+        for (auto& it : faceScaling)
+            it *= normalization;
+    }
+
     return faceScaling;
 }
 
 bool Parameterizer::parameterize()
 {
+    m_diagnostics.clear();
 #if AUTO_REMESHER_DEV
     {
         FILE* fp = fopen("debug-input-for-parameterization.obj", "wb");
@@ -318,6 +340,7 @@ bool Parameterizer::parameterize()
 
     report(0.0f, "Computing vertex normals");
     std::vector<Vector3> vertexNormals(m_vertices->size());
+    std::vector<double> faceAreas(m_triangles->size());
     {
         std::vector<Vector3> faceNormals(m_triangles->size());
         tbb::parallel_for(tbb::blocked_range<size_t>(0, m_triangles->size()),
@@ -325,6 +348,8 @@ bool Parameterizer::parameterize()
                 for (size_t i = range.begin(); i != range.end(); ++i) {
                     const auto& it = (*m_triangles)[i];
                     faceNormals[i] = Vector3::normal(
+                        (*m_vertices)[it[0]], (*m_vertices)[it[1]], (*m_vertices)[it[2]]);
+                    faceAreas[i] = Vector3::area(
                         (*m_vertices)[it[0]], (*m_vertices)[it[1]], (*m_vertices)[it[2]]);
                 }
             });
@@ -351,7 +376,7 @@ bool Parameterizer::parameterize()
     }
 
     std::vector<double> faceScalingField = computeFaceScalingField(*m_vertices,
-        *m_triangles, vertexNormals, faceAroundVertexMap);
+        *m_triangles, faceAreas, vertexNormals, faceAroundVertexMap);
 
     report(0.02f, "Building surface topology");
     // The parameterization pipeline uses the triangle/corner mesh;
@@ -368,7 +393,7 @@ bool Parameterizer::parameterize()
     if (nullptr != m_triangleFieldVectors) {
         field = *m_triangleFieldVectors;
     } else if (!FrameField::create(topology, m_sharpEdgeDegrees,
-                   &field)) {
+                   &field, &m_diagnostics)) {
         std::cerr << "Frame field solve failed" << std::endl;
         return false;
     }
@@ -383,6 +408,13 @@ bool Parameterizer::parameterize()
         simplifier.setSharpEdgeDegrees(m_sharpEdgeDegrees);
         simplifier.setMaximumPairDistance(m_maximumSingularityPairDistance);
         simplifier.simplify();
+        {
+            DiagnosticRecord record("singularity_simplifier");
+            record.set("singularities_before", (double)simplifier.singularityCountBefore());
+            record.set("singularities_after", (double)simplifier.singularityCountAfter());
+            record.set("cancelled_pairs", (double)simplifier.cancelledPairCount());
+            m_diagnostics.push_back(std::move(record));
+        }
     }
 
     //faceScalingField = computeConformalScaling(topology, simplifier.vertexCharges(),
@@ -403,11 +435,25 @@ bool Parameterizer::parameterize()
             m_progressHandler(0.28f + (0.99f - 0.28f) * fraction, name);
         };
     }
+    // Base quad edge, where the face scaling is 1: the island's share of the
+    // requested quads spread over its area (the scaling field keeps
+    // sum(area / m^2) = area), or the mean triangle edge without a target.
+    double baseEdgeLength = topology.averageEdgeLength();
+    if (m_targetQuadCount > 0.0) {
+        double area = 0.0;
+        for (const double faceArea : faceAreas)
+            area += faceArea;
+        if (area > 0.0)
+            baseEdgeLength = std::sqrt(area / m_targetQuadCount);
+    }
     QuadParameterizer::Result cover;
-    if (!QuadParameterizer::parameterize(*m_vertices, *m_triangles,
-            &field, m_scaling, m_sharpEdgeDegrees, &cover,
-            &faceScalingField, &faceScalingU, &faceScalingV,
-            coverProgress ? &coverProgress : nullptr)) {
+    const bool coverSolved = QuadParameterizer::parameterize(*m_vertices, *m_triangles,
+        &field, m_scaling * baseEdgeLength, m_sharpEdgeDegrees, &cover,
+        &faceScalingField, &faceScalingU, &faceScalingV,
+        coverProgress ? &coverProgress : nullptr);
+    for (auto& record : cover.diagnostics)
+        m_diagnostics.push_back(std::move(record));
+    if (!coverSolved) {
         std::cerr << "Quad cover solve failed" << std::endl;
         return false;
     }

@@ -22,6 +22,7 @@
 #ifndef AUTO_REMESHER_FRAME_FIELD_H
 #define AUTO_REMESHER_FRAME_FIELD_H
 
+#include <AutoRemesher/Diagnostics>
 #include <AutoRemesher/Vector3>
 #include <cstddef>
 #include <vector>
@@ -32,8 +33,10 @@ class SurfaceMesh;
 
 class FrameField {
 public:
+    // When `diagnostics` is given, appends a "frame_field" record to it.
     static bool create(const SurfaceMesh& mesh, double sharpEdgeDegrees,
-        std::vector<Vector3>* field);
+        std::vector<Vector3>* field,
+        std::vector<DiagnosticRecord>* diagnostics = nullptr);
 };
 }
 #endif

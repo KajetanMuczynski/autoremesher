@@ -56,8 +56,9 @@ class RemeshPreferences(bpy.types.AddonPreferences):
 
     executable: StringProperty(
         name="Remesher executable",
-        description="The autoremesher program (headless CLI). Empty: "
-                    "$AUTOREMESHER_EXECUTABLE, then autoremesher on PATH",
+        description="The remesher program (autoremesher-cli). Empty: "
+                    "$AUTOREMESHER_EXECUTABLE, then the copy bundled with the add-on, "
+                    "then autoremesher-cli on PATH",
         subtype="FILE_PATH",
     )
 
@@ -70,28 +71,46 @@ class RemeshPreferences(bpy.types.AddonPreferences):
 
 class RemeshSettings(bpy.types.PropertyGroup):
     # Exactly the parameters of the core's remesh() (docs/INTERFACE.md section 3),
-    # with the Qt app's ranges.
+    # with the Qt app's ranges. Tooltips state measured behaviour
+    # (research/baseline-and-profiling.md section 4.5, code-to-math-spec.md).
     target_quads: IntProperty(
         name="Target Quads", default=5000, min=1, soft_min=100, soft_max=1000000,
         description="Number of quads to aim for")
     adaptivity: FloatProperty(
         name="Adaptivity", default=1.0, min=0.0, max=1.0,
-        description="Curvature-adaptive quad density")
-    anisotropy: FloatProperty(
-        name="Anisotropy", default=1.0, min=0.0, max=1.0,
-        description="Curvature-adaptive quad elongation")
-    edge_scaling: FloatProperty(
-        name="Edge Scaling", default=1.0, min=1.0, max=4.0,
-        description="Edge scaling factor")
+        description="Smaller quads where the surface curves strongly, larger where it is "
+                    "flat. 0: even quad size and the fewest flipped quads. "
+                    "1: strongest variation")
     sharp_edge_degrees: FloatProperty(
         name="Sharp Edge", default=90.0, min=30.0, max=180.0,
-        description="Dihedral angle in degrees above which an edge is kept as a feature")
+        description="Edges where the surface bends by more than this angle (degrees) "
+                    "are kept as creases. Lower keeps more edges")
+    anisotropy: FloatProperty(
+        name="Anisotropy", default=1.0, min=0.0, max=1.0,
+        description="Lets quads stretch along the direction in which the surface curves "
+                    "least, as on a cylinder (aspect up to 2.3:1). 0: square quads. "
+                    "Measured: almost no effect on quad count or flipped quads; its effect "
+                    "on quad shape is not measured yet")
+    edge_scaling: FloatProperty(
+        name="Edge Scaling", default=1.0, min=1.0, max=4.0,
+        description="Multiplies the quad edge length, so the quad count falls with its "
+                    "square (2 gives about a quarter of the quads). Same effect as "
+                    "lowering Target Quads, which is the clearer control")
     smooth_normal_degrees: FloatProperty(
         name="Smooth Normal", default=0.0, min=0.0, max=180.0,
-        description="Smooth normal angle threshold in degrees")
+        description="0: the result follows the input's flat triangles. Above 0: it follows "
+                    "a smooth curved surface through them instead (helps on low-poly "
+                    "input); faces turned more than this angle (degrees) from a vertex's "
+                    "average normal are left out of its smoothing, so creases stay")
 
     def parameters(self):
         return {name: getattr(self, name) for name in worker.PARAMETER_FLAGS}
+
+
+# How the panel shows the parameters: the main ones, then a collapsed
+# "Advanced" section. Every parameter appears exactly once (blender_smoke.py).
+MAIN_PARAMETERS = ("target_quads", "adaptivity", "sharp_edge_degrees")
+ADVANCED_PARAMETERS = ("anisotropy", "edge_scaling", "smooth_normal_degrees")
 
 
 def _mesh_arrays(context, obj):
@@ -273,8 +292,14 @@ class VIEW3D_PT_remesh_quads(bpy.types.Panel):
         settings = _settings(context)
         column = layout.column(align=True)
         column.enabled = _job is None
-        for name in worker.PARAMETER_FLAGS:
+        for name in MAIN_PARAMETERS:
             column.prop(settings, name)
+        header, body = layout.panel(ID + "_advanced", default_closed=True)
+        header.label(text="Advanced")
+        if body is not None:
+            body.enabled = _job is None
+            for name in ADVANCED_PARAMETERS:
+                body.prop(settings, name)
 
         if _job is not None:
             text = "Cancelling..." if _job.cancel_requested else \

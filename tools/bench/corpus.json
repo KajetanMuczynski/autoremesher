@@ -1,0 +1,23 @@
+{
+ "_comment": "Baseline corpus. 'file' is relative to the meshes folder made by fetch_meshes.sh + make_synthetic.py. sym = mirror plane for symmetry metrics (axis, center); 'auto' center = input bbox centre on that axis.",
+ "meshes": [
+  {"id": "spot", "file": "downloads/spot.obj", "category": "organic, clean, genus 0"},
+  {"id": "koala", "file": "downloads/koala.obj", "category": "organic sculpt"},
+  {"id": "cat", "file": "downloads/cat.obj", "category": "organic sculpt, dense (1.7M tris)"},
+  {"id": "hand", "file": "downloads/hand.obj", "category": "organic, boundary (wrist), fingers"},
+  {"id": "human_neutral", "file": "downloads/human_neutral.obj", "category": "organic, 3 islands, boundary", "sym": ["x", "auto"]},
+  {"id": "blob_sym", "file": "synthetic/blob_sym.obj", "category": "organic, exactly symmetric", "sym": ["x", 0.0]},
+  {"id": "wingnut", "file": "downloads/wingnut.obj", "category": "hard surface"},
+  {"id": "boat", "file": "downloads/boat.obj", "category": "hard surface, developable panels"},
+  {"id": "csg_bracket", "file": "synthetic/csg_bracket.obj", "category": "hard surface CAD (long thin tris), symmetric", "sym": ["x", 0.0]},
+  {"id": "plane", "file": "downloads/plane.obj", "category": "thin shell, closed (wings)"},
+  {"id": "sword", "file": "downloads/sword.obj", "category": "thin shell, closed (blade), scan"},
+  {"id": "thin_leaf", "file": "synthetic/thin_leaf.obj", "category": "thin shell, closed, thinner than quad size", "sym": ["x", 0.0]},
+  {"id": "cloth_sheet", "file": "synthetic/cloth_sheet.obj", "category": "thin shell, open sheet with folds"},
+  {"id": "demosthenes", "file": "downloads/demosthenes.obj", "category": "noisy scan (photogrammetry), boundary"},
+  {"id": "hammer", "file": "downloads/hammer.obj", "category": "noisy raw scan"},
+  {"id": "spot_noisy", "file": "synthetic/spot_noisy.obj", "category": "synthetic noise (0.3% diag)"},
+  {"id": "nefertiti", "file": "downloads/nefertiti.obj", "category": "scan, dense (2.0M tris)"},
+  {"id": "spot_x8", "file": "synthetic/spot_x8.obj", "category": "8 islands (parallelism)"}
+ ]
+}

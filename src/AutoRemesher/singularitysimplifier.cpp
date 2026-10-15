@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <deque>
 #include <iostream>
@@ -69,7 +70,143 @@ namespace {
         const int turns = static_cast<int>(std::lround((fieldAngles[g] - fieldAngles[f] - connection) / (M_PI / 2.0)));
         return ((turns % 4) + 4) % 4;
     }
+
+    // Charge of a vertex: the corner mismatches (quarter turns) summed once
+    // around it, mod 4. Boundary and non-manifold vertices count as regular (0).
+    template <typename Mismatch>
+    int chargeAround(const SurfaceMesh& mesh, size_t vertex, const Mismatch& mismatch)
+    {
+        const std::vector<size_t>& corners = mesh.cornersAroundVertex(vertex);
+        if (corners.empty())
+            return 0;
+        size_t c = corners.front();
+        const size_t start = c;
+        int sum = 0;
+        size_t steps = 0;
+        do {
+            if (++steps > mesh.cornerCount())
+                return 0;
+            sum += mismatch(c);
+            const size_t opposite = mesh.oppositeCorner(c);
+            if (opposite == SurfaceMesh::npos)
+                return 0;
+            c = mesh.nextCorner(opposite);
+            if (mesh.cornerVertex(c) != vertex)
+                return 0;
+        } while (c != start);
+        return ((sum % 4) + 4) % 4;
+    }
+
+    // Membership over mesh-sized indices with O(1) clear(): an index is a
+    // member while its stamp equals the current epoch.
+    class StampSet {
+    public:
+        explicit StampSet(size_t size)
+            : m_stamp(size, 0)
+        {
+        }
+        void clear()
+        {
+            if (++m_epoch == 0) {
+                std::fill(m_stamp.begin(), m_stamp.end(), 0u);
+                m_epoch = 1;
+            }
+        }
+        bool contains(size_t index) const { return m_stamp[index] == m_epoch; }
+        bool insert(size_t index)
+        {
+            if (contains(index))
+                return false;
+            m_stamp[index] = m_epoch;
+            return true;
+        }
+
+    private:
+        std::vector<uint32_t> m_stamp;
+        uint32_t m_epoch = 1;
+    };
+
+    // Mesh-sized map with O(1) clear(); absent keys read as `T()`.
+    template <typename T>
+    class StampMap {
+    public:
+        explicit StampMap(size_t size)
+            : m_keys(size)
+            , m_values(size)
+        {
+        }
+        void clear() { m_keys.clear(); }
+        bool contains(size_t index) const { return m_keys.contains(index); }
+        T get(size_t index) const { return m_keys.contains(index) ? m_values[index] : T(); }
+        void set(size_t index, T value)
+        {
+            m_keys.insert(index);
+            m_values[index] = value;
+        }
+
+    private:
+        StampSet m_keys;
+        std::vector<T> m_values;
+    };
+
+    // Faces within `radius` face-to-face steps of the seeds, in BFS order.
+    void growBall(const SurfaceMesh& mesh, const std::vector<size_t>& seeds, size_t radius,
+        StampMap<size_t>* distance, std::vector<size_t>* faces)
+    {
+        distance->clear();
+        faces->clear();
+        for (size_t f : seeds)
+            if (!distance->contains(f)) {
+                distance->set(f, 0);
+                faces->push_back(f);
+            }
+        for (size_t head = 0; head < faces->size(); ++head) {
+            const size_t f = (*faces)[head];
+            const size_t d = distance->get(f);
+            if (d >= radius)
+                continue;
+            for (size_t c = 3 * f; c < 3 * f + 3; ++c) {
+                const size_t other = mesh.oppositeCorner(c);
+                if (other == SurfaceMesh::npos)
+                    continue;
+                const size_t g = mesh.cornerFace(other);
+                if (!distance->contains(g)) {
+                    distance->set(g, d + 1);
+                    faces->push_back(g);
+                }
+            }
+        }
+    }
+
+    // One edge term of a free face's Gauss-Seidel update, gathered once per pair.
+    struct Coupling {
+        size_t face;
+        double weight;
+        double connection;
+        int jump;
+    };
 }
+
+struct SingularitySimplifier::Workspace {
+    explicit Workspace(const SurfaceMesh& mesh)
+        : firstDistance(mesh.faceCount())
+        , secondDistance(mesh.faceCount())
+        , inRegion(mesh.faceCount())
+        , isFree(mesh.faceCount())
+        , affected(mesh.vertexCount())
+        , previous(mesh.vertexCount())
+        , jump(mesh.cornerCount())
+    {
+    }
+    StampMap<size_t> firstDistance, secondDistance;
+    StampSet inRegion, isFree;
+    StampSet affected;
+    StampMap<size_t> previous;
+    StampMap<int> jump;
+    std::vector<size_t> firstBall, secondBall, region, freeFaces, affectedVertices, queue;
+    std::vector<double> saved;
+    std::vector<Coupling> couplings;
+};
 
 SingularitySimplifier::SingularitySimplifier(const SurfaceMesh& mesh,
     std::vector<Vector3>* faceField)
@@ -83,9 +220,8 @@ std::vector<int> SingularitySimplifier::vertexCharges() const
     std::vector<int> result(m_mesh.vertexCount(), 0);
     if (nullptr == m_field || m_field->size() != m_mesh.faceCount())
         return result;
-    // simplify() is an inner loop that calls this several times per cancelled
-    // pair, so only pay for the per-face frames when the cached corner
-    // mismatches are missing and quarterTurn actually needs them.
+    // Inside simplify() the corner mismatches are cached; only pay for the
+    // per-face frames when they are missing and quarterTurn needs them.
     const bool useCachedMismatch = m_mismatch.size() == m_mesh.cornerCount();
     std::vector<Frame> frames;
     std::vector<double> fieldAngles;
@@ -97,36 +233,15 @@ std::vector<int> SingularitySimplifier::vertexCharges() const
             fieldAngles.push_back(angleInFrame((*m_field)[f], frames.back()));
         }
     }
-    for (size_t v = 0; v < m_mesh.vertexCount(); ++v) {
-        const std::vector<size_t>& corners = m_mesh.cornersAroundVertex(v);
-        if (corners.empty())
-            continue;
-        size_t c = corners.front();
-        const size_t start = c;
-        int sum = 0;
-        size_t steps = 0;
-        do {
-            if (++steps > m_mesh.cornerCount()) {
-                sum = 0;
-                break;
-            }
-            sum += useCachedMismatch ? m_mismatch[c] : quarterTurn(m_mesh, c, frames, fieldAngles);
-            const size_t opposite = m_mesh.oppositeCorner(c);
-            if (opposite == SurfaceMesh::npos) {
-                sum = 0;
-                break;
-            }
-            c = m_mesh.nextCorner(opposite);
-            if (m_mesh.cornerVertex(c) != v) {
-                sum = 0;
-                break;
-            }
-        } while (c != start);
-        if (c == start) {
-            result[v] = ((sum % 4) + 4) % 4;
-        }
-    }
+    const auto computed = [&](size_t c) { return quarterTurn(m_mesh, c, frames, fieldAngles); };
+    for (size_t v = 0; v < m_mesh.vertexCount(); ++v)
+        result[v] = useCachedMismatch ? vertexCharge(v) : chargeAround(m_mesh, v, computed);
     return result;
+}
+
+int SingularitySimplifier::vertexCharge(size_t vertex) const
+{
+    return chargeAround(m_mesh, vertex, [this](size_t c) { return m_mismatch[c]; });
 }
 
 size_t SingularitySimplifier::singularityCount() const
@@ -213,35 +328,35 @@ size_t SingularitySimplifier::cornerAlongEdge(size_t from, size_t to) const
     return SurfaceMesh::npos;
 }
 
-std::vector<size_t> SingularitySimplifier::pathBetween(size_t first, size_t second,
-    const std::vector<char>& inRegion, const std::vector<size_t>& freeFaces) const
+std::vector<size_t> SingularitySimplifier::pathBetween(size_t first, size_t second, Workspace& work) const
 {
-    std::vector<char> isFree(m_mesh.faceCount(), 0);
-    for (const size_t f : freeFaces)
-        isFree[f] = 1;
+    work.isFree.clear();
+    for (const size_t f : work.freeFaces)
+        work.isFree.insert(f);
     const auto usable = [&](size_t vertex) {
         const std::vector<size_t> fan = facetsAroundVertex(vertex);
         if (fan.empty())
             return false;
         for (const size_t f : fan)
-            if (!inRegion[f])
+            if (!work.inRegion.contains(f))
                 return false;
         return true;
     };
     const auto crossable = [&](size_t corner) {
         const size_t other = m_mesh.oppositeCorner(corner);
-        return other != SurfaceMesh::npos && isFree[m_mesh.cornerFace(corner)] && isFree[m_mesh.cornerFace(other)];
+        return other != SurfaceMesh::npos && work.isFree.contains(m_mesh.cornerFace(corner)) && work.isFree.contains(m_mesh.cornerFace(other));
     };
-    std::vector<size_t> previous(m_mesh.vertexCount(), SurfaceMesh::npos);
-    std::deque<size_t> queue;
-    previous[first] = first;
-    queue.push_back(first);
-    while (!queue.empty()) {
-        const size_t v = queue.front();
-        queue.pop_front();
+    // Breadth-first over vertices; `queue` keeps every visited vertex and
+    // `head` is the front of the live queue.
+    work.previous.clear();
+    work.queue.clear();
+    work.previous.set(first, first);
+    work.queue.push_back(first);
+    for (size_t head = 0; head < work.queue.size(); ++head) {
+        const size_t v = work.queue[head];
         if (v == second) {
             std::vector<size_t> path;
-            for (size_t at = second; at != first; at = previous[at])
+            for (size_t at = second; at != first; at = work.previous.get(at))
                 path.push_back(at);
             path.push_back(first);
             std::reverse(path.begin(), path.end());
@@ -249,66 +364,51 @@ std::vector<size_t> SingularitySimplifier::pathBetween(size_t first, size_t seco
         }
         for (const size_t c : m_mesh.cornersAroundVertex(v)) {
             const size_t next = m_mesh.cornerVertex(m_mesh.nextCorner(c));
-            if (previous[next] != SurfaceMesh::npos || !crossable(c))
+            if (work.previous.contains(next) || !crossable(c))
                 continue;
             if (next != second && !usable(next))
                 continue;
-            previous[next] = v;
-            queue.push_back(next);
+            work.previous.set(next, v);
+            work.queue.push_back(next);
         }
     }
     return {};
 }
 
-bool SingularitySimplifier::cancelPair(size_t first, size_t second, size_t hops)
+// Everything here is bounded by the region (faces within hops + margin of
+// both cones), not by the mesh: scratch comes from `work`, and charges are
+// evaluated only at the vertices the region can change.
+bool SingularitySimplifier::cancelPair(size_t first, size_t second, size_t hops, Workspace& work)
 {
     const size_t radius = hops + m_regionMargin;
-    auto ball = [&](const std::vector<size_t>& seeds) {
-        std::vector<size_t> distance(m_mesh.faceCount(), SurfaceMesh::npos);
-        std::deque<size_t> queue;
-        for (size_t f : seeds)
-            if (distance[f] == SurfaceMesh::npos) {
-                distance[f] = 0;
-                queue.push_back(f);
-            }
-        while (!queue.empty()) {
-            const size_t f = queue.front();
-            queue.pop_front();
-            if (distance[f] >= radius)
-                continue;
-            for (size_t c = 3 * f; c < 3 * f + 3; ++c) {
-                const size_t other = m_mesh.oppositeCorner(c);
-                if (other == SurfaceMesh::npos)
-                    continue;
-                const size_t g = m_mesh.cornerFace(other);
-                if (distance[g] == SurfaceMesh::npos) {
-                    distance[g] = distance[f] + 1;
-                    queue.push_back(g);
-                }
-            }
-        }
-        return distance;
-    };
     const std::vector<size_t> firstFan = facetsAroundVertex(first), secondFan = facetsAroundVertex(second);
     if (firstFan.empty() || secondFan.empty()) {
         return false;
     }
-    const auto a = ball(firstFan), b = ball(secondFan);
-    std::vector<char> inRegion(m_mesh.faceCount(), 0);
-    std::vector<size_t> region, freeFaces;
-    for (size_t f = 0; f < m_mesh.faceCount(); ++f)
-        if (a[f] != SurfaceMesh::npos && b[f] != SurfaceMesh::npos) {
-            inRegion[f] = 1;
+    growBall(m_mesh, firstFan, radius, &work.firstDistance, &work.firstBall);
+    growBall(m_mesh, secondFan, radius, &work.secondDistance, &work.secondBall);
+    std::vector<size_t>& region = work.region;
+    region.clear();
+    for (size_t f : work.secondBall)
+        if (work.firstDistance.contains(f))
             region.push_back(f);
-        }
+    // Ascending face order: the smoothing below is Gauss-Seidel and
+    // updateMismatches lets the last face win on shared edges, so the order
+    // is part of the result.
+    std::sort(region.begin(), region.end());
+    work.inRegion.clear();
+    for (size_t f : region)
+        work.inRegion.insert(f);
     if (region.empty()) {
         return false;
     }
+    std::vector<size_t>& freeFaces = work.freeFaces;
+    freeFaces.clear();
     for (size_t f : region) {
         bool frozen = false;
         for (size_t c = 3 * f; c < 3 * f + 3; ++c) {
             const size_t other = m_mesh.oppositeCorner(c);
-            if (m_sharpCorner[c] || other == SurfaceMesh::npos || !inRegion[m_mesh.cornerFace(other)]) {
+            if (m_sharpCorner[c] || other == SurfaceMesh::npos || !work.inRegion.contains(m_mesh.cornerFace(other))) {
                 frozen = true;
                 break;
             }
@@ -321,55 +421,70 @@ bool SingularitySimplifier::cancelPair(size_t first, size_t second, size_t hops)
     }
     for (size_t v : { first, second })
         for (size_t f : facetsAroundVertex(v))
-            if (!inRegion[f]) {
+            if (!work.inRegion.contains(f)) {
                 return false;
             }
-    const std::vector<size_t> path = pathBetween(first, second, inRegion, freeFaces);
+    const std::vector<size_t> path = pathBetween(first, second, work);
     if (path.size() < 2) {
         return false;
     }
-    std::vector<char> affected(m_mesh.vertexCount(), 0);
+    // Only mismatches of region corners change, so only charges of region
+    // vertices can.
+    work.affected.clear();
+    work.affectedVertices.clear();
     for (size_t f : region)
         for (size_t c = 3 * f; c < 3 * f + 3; ++c)
-            affected[m_mesh.cornerVertex(c)] = 1;
-    const auto countAffected = [&]() { size_t count=0; const auto charges=vertexCharges(); for(size_t v=0;v<affected.size();++v) if(affected[v]&&charges[v]!=0) ++count; return count; };
+            if (work.affected.insert(m_mesh.cornerVertex(c)))
+                work.affectedVertices.push_back(m_mesh.cornerVertex(c));
+    const auto countAffected = [&]() {
+        size_t count = 0;
+        for (size_t v : work.affectedVertices)
+            if (vertexCharge(v) != 0)
+                ++count;
+        return count;
+    };
     const size_t before = countAffected();
-    std::vector<double> saved;
-    saved.reserve(freeFaces.size());
+    std::vector<double>& saved = work.saved;
+    saved.clear();
     for (size_t f : freeFaces)
         saved.push_back(m_angles[f]);
 
-    std::vector<int> jump(m_mesh.cornerCount(), 0);
+    StampMap<int>& jump = work.jump;
+    jump.clear();
     for (const size_t f : region)
         for (size_t c = 3 * f; c < 3 * f + 3; ++c) {
             const size_t other = m_mesh.oppositeCorner(c);
             if (other == SurfaceMesh::npos)
                 continue;
-            jump[c] = static_cast<int>(std::lround((m_angles[m_mesh.cornerFace(other)] - m_angles[f] - m_connection[c]) / (M_PI / 2.0)));
+            jump.set(c, static_cast<int>(std::lround((m_angles[m_mesh.cornerFace(other)] - m_angles[f] - m_connection[c]) / (M_PI / 2.0))));
         }
-    const int carried = (((vertexCharges()[first] + 1) % 4) + 4) % 4 - 1;
+    const int carried = (((vertexCharge(first) + 1) % 4) + 4) % 4 - 1;
     for (size_t i = 0; i + 1 < path.size(); ++i) {
         const size_t corner = cornerAlongEdge(path[i], path[i + 1]);
         if (corner == SurfaceMesh::npos) {
             return false;
         }
         const size_t other = m_mesh.oppositeCorner(corner);
-        jump[corner] -= carried;
-        jump[other] += carried;
+        jump.set(corner, jump.get(corner) - carried);
+        jump.set(other, jump.get(other) + carried);
     }
 
+    // Free faces have all three neighbours (see the frozen test above), so
+    // each contributes exactly three couplings, in corner order.
+    std::vector<Coupling>& couplings = work.couplings;
+    couplings.clear();
+    for (size_t f : freeFaces)
+        for (size_t c = 3 * f; c < 3 * f + 3; ++c)
+            couplings.push_back({ m_mesh.cornerFace(m_mesh.oppositeCorner(c)),
+                m_mesh.edgeVector(c).length(), m_connection[c], jump.get(c) });
     for (size_t iteration = 0; iteration < std::max<size_t>(256, 40 * radius * radius); ++iteration) {
         double maxChange = 0;
+        const Coupling* coupling = couplings.data();
         for (size_t f : freeFaces) {
             double sum = 0, sw = 0;
-            for (size_t c = 3 * f; c < 3 * f + 3; ++c) {
-                const size_t other = m_mesh.oppositeCorner(c);
-                if (other == SurfaceMesh::npos)
-                    continue;
-                const size_t g = m_mesh.cornerFace(other);
-                const double w = m_mesh.edgeVector(c).length();
-                sum += w * (m_angles[g] - m_connection[c] - jump[c] * (M_PI / 2.0));
-                sw += w;
+            for (const Coupling* end = coupling + 3; coupling != end; ++coupling) {
+                sum += coupling->weight * (m_angles[coupling->face] - coupling->connection - coupling->jump * (M_PI / 2.0));
+                sw += coupling->weight;
             }
             if (sw > 0) {
                 const double value = sum / sw;
@@ -382,8 +497,7 @@ bool SingularitySimplifier::cancelPair(size_t first, size_t second, size_t hops)
     }
     updateMismatches(region);
     const size_t after = countAffected();
-    const auto charges = vertexCharges();
-    if (charges[first] != 0 || charges[second] != 0 || after + 2 > before) {
+    if (vertexCharge(first) != 0 || vertexCharge(second) != 0 || after + 2 > before) {
         for (size_t i = 0; i < freeFaces.size(); ++i)
             m_angles[freeFaces[i]] = saved[i];
         updateMismatches(region);
@@ -406,6 +520,7 @@ void SingularitySimplifier::simplify()
         if (i)
             m_singularityCountBefore++;
     m_singularityCountAfter = m_singularityCountBefore;
+    Workspace work(m_mesh);
     for (size_t round = 0; round < m_maximumRounds; ++round) {
         const auto charges = vertexCharges();
         std::vector<size_t> singular;
@@ -455,7 +570,7 @@ void SingularitySimplifier::simplify()
         std::vector<char> used(singular.size(), 0);
         size_t cancelled = 0;
         for (const Candidate& c : candidates)
-            if (!used[c.a] && !used[c.b] && cancelPair(singular[c.a], singular[c.b], c.hops)) {
+            if (!used[c.a] && !used[c.b] && cancelPair(singular[c.a], singular[c.b], c.hops, work)) {
                 used[c.a] = used[c.b] = 1;
                 ++cancelled;
             }

@@ -19,6 +19,7 @@
  */
 #ifndef AUTO_REMESHER_PARAMETERIZER_H
 #define AUTO_REMESHER_PARAMETERIZER_H
+#include <AutoRemesher/Diagnostics>
 #include <AutoRemesher/Progress>
 #include <AutoRemesher/Vector2>
 #include <AutoRemesher/Vector3>
@@ -60,9 +61,18 @@ public:
         return m_singularVertexIndices;
     }
 
+    // Multiplies the quad edge length; the quad count goes with 1 / scaling^2.
     void setScaling(double scaling)
     {
         m_scaling = scaling;
+    }
+
+    // Quads requested for this mesh (at scaling 1). The quads are sized for
+    // this count whatever the adaptivity; without it (<= 0) they are about as
+    // large as the mean triangle edge of the input.
+    void setTargetQuadCount(double count)
+    {
+        m_targetQuadCount = count;
     }
 
     void setGradientAdaptivity(double adaptivity)
@@ -97,6 +107,13 @@ public:
 
     bool parameterize();
 
+    // Records of the field, simplification and cover solves of the last
+    // parameterize(), also after a failure.  Their island is left unset.
+    std::vector<DiagnosticRecord> takeDiagnostics()
+    {
+        return std::move(m_diagnostics);
+    }
+
 private:
     const std::vector<Vector3>* m_vertices = nullptr;
     const std::vector<std::vector<size_t>>* m_triangles = nullptr;
@@ -106,6 +123,7 @@ private:
     std::vector<size_t> m_singularVertexIndices;
     std::vector<std::vector<Vector2>> m_originalTriangleUvs;
     double m_scaling = 1.0;
+    double m_targetQuadCount = 0.0;
     double m_adaptivity = 0.5;
     double m_sharpEdgeDegrees = 90.0;
     double m_anisotropy = 1.0;
@@ -113,9 +131,11 @@ private:
     bool m_singularitySimplification = true;
     size_t m_maximumSingularityPairDistance = 6;
     ProgressHandler m_progressHandler;
+    std::vector<DiagnosticRecord> m_diagnostics;
 
     std::vector<double> computeFaceScalingField(const std::vector<Vector3>& vertices,
         const std::vector<std::vector<size_t>>& triangles,
+        const std::vector<double>& faceAreas,
         const std::vector<Vector3>& vertexNormals,
         const std::vector<std::vector<size_t>>& faceAroundVertexMap) const;
 };

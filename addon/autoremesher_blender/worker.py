@@ -17,9 +17,12 @@
 """Run one remesh in a separate process and collect its result.
 
 No bpy in here, so the same code runs inside Blender and in plain Python
-(tests, scripts). The worker process is the headless AutoRemesher CLI:
+(tests, scripts). The worker process is the Qt-free AutoRemesher CLI
+(src/cli), bundled with the add-on in bin/ when it was packaged with one:
 
-    autoremesher -i in.obj -o out.obj --report-json report.json --stdin-control ...
+    autoremesher-cli -i in.obj -o out.obj --report-json report.json --stdin-control ...
+
+The Qt app's headless mode takes the same arguments and also works.
 
 - progress: the CLI prints "42% done. <step>" lines on stdout;
 - cancel: write "cancel" to its stdin; the core stops at its next cancel point,
@@ -109,12 +112,40 @@ def read_obj(path):
             np.array(indices, dtype=np.uint32))
 
 
+CLI_NAME = "autoremesher-cli"
+
+
+def bundled_executable():
+    """Where a packaged add-on keeps its CLI (addon/package.py)."""
+    name = CLI_NAME + (".exe" if os.name == "nt" else "")
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "bin", name)
+
+
+def _usable(path):
+    if not path or not os.path.isfile(path):
+        return False
+    if os.access(path, os.X_OK):
+        return True
+    if os.name == "nt" or path != bundled_executable():
+        return False
+    # Blender unpacks extensions with Python's zipfile, which drops the
+    # executable bit on Linux and macOS.
+    try:
+        os.chmod(path, os.stat(path).st_mode | 0o111)
+    except OSError:
+        return False
+    return os.access(path, os.X_OK)
+
+
 def find_executable(configured=""):
-    """The CLI from the add-on preferences, $AUTOREMESHER_EXECUTABLE or PATH."""
-    for candidate in (configured, os.environ.get("AUTOREMESHER_EXECUTABLE", "")):
-        if candidate and os.path.isfile(candidate) and os.access(candidate, os.X_OK):
-            return candidate
-    return shutil.which("autoremesher")
+    """The CLI from the add-on preferences, $AUTOREMESHER_EXECUTABLE, the copy
+    bundled with the add-on, or autoremesher-cli on PATH, as an absolute path
+    (the worker runs in its own temporary folder)."""
+    for candidate in (configured, os.environ.get("AUTOREMESHER_EXECUTABLE", ""), bundled_executable()):
+        if _usable(candidate):
+            return os.path.abspath(candidate)
+    found = shutil.which(CLI_NAME)
+    return os.path.abspath(found) if found else None
 
 
 def worker_environment(environ):

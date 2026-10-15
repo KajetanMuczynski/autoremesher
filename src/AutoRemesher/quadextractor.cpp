@@ -1292,15 +1292,190 @@ void QuadExtractor::rebuildHalfEdges()
     }
 }
 
+namespace {
+
+    // The open boundary of a triangle mesh: the edges used by one triangle
+    // only, grouped into connected boundary loops.
+    struct MeshBoundary {
+        std::vector<std::pair<size_t, size_t>> edges;
+        std::vector<size_t> edgeLoops;
+        std::vector<std::vector<size_t>> loopVertices;
+    };
+
+    MeshBoundary findMeshBoundary(size_t vertexCount,
+        const std::vector<std::vector<size_t>>& triangles)
+    {
+        std::vector<std::pair<size_t, size_t>> edges;
+        edges.reserve(triangles.size() * 3);
+        for (const auto& triangle : triangles) {
+            for (size_t i = 0; i < triangle.size(); ++i) {
+                const size_t a = triangle[i];
+                const size_t b = triangle[(i + 1) % triangle.size()];
+                edges.push_back({ std::min(a, b), std::max(a, b) });
+            }
+        }
+        std::sort(edges.begin(), edges.end());
+
+        MeshBoundary boundary;
+        for (size_t begin = 0; begin < edges.size();) {
+            size_t end = begin + 1;
+            while (end < edges.size() && edges[end] == edges[begin])
+                ++end;
+            if (1 == end - begin)
+                boundary.edges.push_back(edges[begin]);
+            begin = end;
+        }
+        if (boundary.edges.empty())
+            return boundary;
+
+        std::vector<size_t> parents(vertexCount);
+        for (size_t i = 0; i < vertexCount; ++i)
+            parents[i] = i;
+        const auto findRoot = [&](size_t vertex) {
+            while (parents[vertex] != vertex) {
+                parents[vertex] = parents[parents[vertex]];
+                vertex = parents[vertex];
+            }
+            return vertex;
+        };
+        for (const auto& edge : boundary.edges) {
+            const size_t first = findRoot(edge.first);
+            const size_t second = findRoot(edge.second);
+            if (first != second)
+                parents[std::max(first, second)] = std::min(first, second);
+        }
+        std::map<size_t, size_t> rootToLoop;
+        std::set<size_t> boundaryVertices;
+        boundary.edgeLoops.reserve(boundary.edges.size());
+        for (const auto& edge : boundary.edges) {
+            const auto inserted = rootToLoop.insert({ findRoot(edge.first), rootToLoop.size() });
+            boundary.edgeLoops.push_back(inserted.first->second);
+            boundaryVertices.insert(edge.first);
+            boundaryVertices.insert(edge.second);
+        }
+        boundary.loopVertices.resize(rootToLoop.size());
+        for (const size_t vertex : boundaryVertices)
+            boundary.loopVertices[rootToLoop[findRoot(vertex)]].push_back(vertex);
+        return boundary;
+    }
+
+    double distanceToSegment(const Vector3& point, const Vector3& from, const Vector3& to)
+    {
+        const Vector3 direction = to - from;
+        const double lengthSquared = direction.lengthSquared();
+        double t = lengthSquared > 0.0 ? Vector3::dotProduct(point - from, direction) / lengthSquared : 0.0;
+        t = std::max(0.0, std::min(1.0, t));
+        return (point - (from + direction * t)).length();
+    }
+
+    // Whether an output boundary loop runs along one boundary loop of the
+    // triangle mesh, i.e. is the input's own boundary and not a hole left by
+    // the extraction: every loop vertex lies within `tolerance` of that
+    // boundary loop and every vertex of that boundary loop lies within
+    // `tolerance` of the output loop (a two-sided Hausdorff test).  A hole next
+    // to the boundary fails the second half, since the rest of the boundary
+    // loop is far from it.
+    bool followsMeshBoundary(const std::vector<Vector3>& loop,
+        const std::vector<Vector3>& meshVertices,
+        const MeshBoundary& boundary,
+        double tolerance)
+    {
+        if (loop.empty() || boundary.edges.empty())
+            return false;
+        Vector3 lower = loop[0];
+        Vector3 upper = loop[0];
+        for (const auto& position : loop) {
+            for (size_t axis = 0; axis < 3; ++axis) {
+                lower[axis] = std::min(lower[axis], position[axis] - tolerance);
+                upper[axis] = std::max(upper[axis], position[axis] + tolerance);
+            }
+        }
+        const auto insideBox = [&](const Vector3& position) {
+            for (size_t axis = 0; axis < 3; ++axis) {
+                if (position[axis] < lower[axis] || position[axis] > upper[axis])
+                    return false;
+            }
+            return true;
+        };
+
+        std::vector<size_t> nearbyEdges;
+        for (size_t i = 0; i < boundary.edges.size(); ++i) {
+            if (insideBox(meshVertices[boundary.edges[i].first]) || insideBox(meshVertices[boundary.edges[i].second]))
+                nearbyEdges.push_back(i);
+        }
+
+        size_t boundaryLoop = boundary.loopVertices.size();
+        for (const auto& position : loop) {
+            double nearestDistance = std::numeric_limits<double>::max();
+            size_t nearestLoop = boundary.loopVertices.size();
+            for (const size_t i : nearbyEdges) {
+                const double distance = distanceToSegment(position,
+                    meshVertices[boundary.edges[i].first], meshVertices[boundary.edges[i].second]);
+                if (distance < nearestDistance) {
+                    nearestDistance = distance;
+                    nearestLoop = boundary.edgeLoops[i];
+                }
+            }
+            if (nearestDistance > tolerance)
+                return false;
+            if (boundaryLoop == boundary.loopVertices.size())
+                boundaryLoop = nearestLoop;
+            else if (boundaryLoop != nearestLoop)
+                return false;
+        }
+
+        for (const size_t vertex : boundary.loopVertices[boundaryLoop]) {
+            const Vector3& position = meshVertices[vertex];
+            if (!insideBox(position))
+                return false;
+            double nearestDistance = std::numeric_limits<double>::max();
+            for (size_t i = 0; i < loop.size(); ++i)
+                nearestDistance = std::min(nearestDistance, distanceToSegment(position, loop[i], loop[(i + 1) % loop.size()]));
+            if (nearestDistance > tolerance)
+                return false;
+        }
+        return true;
+    }
+
+}
+
 void QuadExtractor::fixHoles()
 {
     std::vector<std::vector<size_t>> loops;
     searchBoundaries(m_halfEdges, &loops);
+    MeshBoundary meshBoundary;
+    bool meshBoundaryFound = false;
     for (auto& loop : loops) {
         if (loop.size() > 65) {
             std::cerr << "Ignore long hole at length:" << loop.size() << std::endl;
             continue;
         }
+
+        // An open input keeps its boundary.  The extraction drops the cells that
+        // the boundary cuts, and sometimes a few next to them, so the output loop
+        // runs up to a few cells inside the input's.  kTolerance is in units of
+        // the loop's mean edge length.  Measured on the baseline corpus at 2k and
+        // 10k quads: real boundaries are within 2.5 of the input's, holes left
+        // by the extraction at least 3.8 away.
+        if (!meshBoundaryFound) {
+            meshBoundary = findMeshBoundary(m_vertices->size(), *m_triangles);
+            meshBoundaryFound = true;
+        }
+        if (!meshBoundary.edges.empty()) {
+            std::vector<Vector3> positions;
+            positions.reserve(loop.size());
+            double perimeter = 0.0;
+            for (size_t i = 0; i < loop.size(); ++i) {
+                positions.push_back(m_remeshedVertices[loop[i]]);
+                perimeter += (m_remeshedVertices[loop[(i + 1) % loop.size()]] - m_remeshedVertices[loop[i]]).length();
+            }
+            const double kTolerance = 3.0;
+            if (followsMeshBoundary(positions, *m_vertices, meshBoundary, kTolerance * perimeter / loop.size())) {
+                std::cerr << "Keep input boundary at length:" << loop.size() << std::endl;
+                continue;
+            }
+        }
+
         std::cerr << "Fixing hole at length:" << loop.size() << "..." << std::endl;
         fixHoleWithQuads(loop, true);
         if (loop.size() >= 4)

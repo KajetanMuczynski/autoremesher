@@ -1,0 +1,80 @@
+THIRD-PARTY NOTICES
+
+This fork is licensed under GPL-3.0-or-later (see LICENSE). It contains code from the
+projects below, each under its own license. The license texts are kept next to the code at
+the paths given. Licenses were read from the bundled files and headers (checked 2026-10-15);
+"not stated" means no version or license could be found in the tree.
+
+Compatibility column: "OK" = can be combined into a GPL-3.0-or-later work; "REVIEW" = open
+question, see the note.
+
+-------------------------------------------------------------------------------------------
+Component            Version          License              Path                          GPL-3+
+-------------------------------------------------------------------------------------------
+AutoRemesher         1.2.0 (4a49f82)  MIT                  LICENSE-MIT-upstream;          OK
+  (upstream, Jeremy Hu)                                    src/, include/, shaders/,
+                                                           resources/ (file headers)
+isotropicremesher    not stated       MIT                  thirdparty/isotropicremesher/  OK
+  (Jeremy Hu)                                              LICENSE
+meshoptimizer        1.2              MIT                  thirdparty/meshoptimizer/      OK
+  (Arseny Kapoulkine)                                      LICENSE.md
+tinyobjloader        2.0.0 (latest    MIT                  src/tiny_obj_loader.h          OK
+  (Syoyo Fujita et al.) changelog entry)                   (header comment)
+Eigen                5.0.1            MPL-2.0, with parts  thirdparty/eigen/COPYING.*,     OK, see [1]
+                                      under BSD-3-Clause,  LICENSE
+                                      Apache-2.0, MINPACK
+Intel TBB            2017.0           Apache-2.0           thirdparty/tbb/LICENSE         OK, see [2]
+                     (interface 9100)
+QtAwesome            not stated       MIT                  thirdparty/QtAwesome/          OK
+  (Rick Blommers)                                          LICENSE.md
+Font Awesome font    4.7.0            SIL OFL (font),      thirdparty/QtAwesome/QtAwesome/ REVIEW [3]
+  (Dave Gandy)                        CC BY 3.0            fonts/fontawesome-4.7.0.ttf
+                                      (pictograms), per
+                                      QtAwesome LICENSE.md
+QtWaitingSpinner     not stated       MIT                  thirdparty/QtWaitingSpinner/   OK
+  (Alexander Turkin,                                       LICENSE
+  William Hallatt)
+-------------------------------------------------------------------------------------------
+
+[1] Eigen. COPYING.README: primarily MPL-2.0, with some files under BSD or other
+    MPL-2.0-compatible licenses. Read in the tree:
+    - MPL-2.0 (LICENSE, COPYING.MPL2). Eigen does not mark itself "Incompatible With
+      Secondary Licenses", so MPL-2.0 section 3.3 allows combining it with GPL code.
+    - BSD-style licenses in file headers (23 files under Eigen/src): Intel's MKL/BLAS/LAPACKE
+      bindings (*_BLAS.h, *_LAPACKE.h, *MKL*.h, PardisoSupport.h, misc/lapacke.h; COPYING.BSD,
+      Intel 2011), Geometry/AlignedBox.h (part from Willow Garage / Open Source Robotics
+      Foundation) and Core/arch/Default/Half.h (conversion routines by Fabian Giesen).
+      AlignedBox.h and Half.h are pulled in by Eigen/Dense, so their notices apply to the binary.
+    - Apache-2.0: Eigen/src/Core/arch/Default/BFloat16.h (from TensorFlow).
+    - MINPACK license (COPYING.MINPACK): only unsupported/Eigen/NonLinearOptimization,
+      NumericalDiff and src/LevenbergMarquardt. Clause 3 asks for an acknowledgment in the
+      end-user documentation. Not included or compiled by this project (src/ and include/
+      use only Eigen/Dense, Eigenvalues, Sparse, SparseCholesky, SparseLU, SparseQR and,
+      on macOS, AccelerateSupport). If those modules are ever used, check this clause first.
+    - IncompleteLUT.h is derived from LGPL SPARSKIT code, relicensed to MPL-2.0 by its author
+      (note in the file). Not used by this project.
+    - bench/btl/ (benchmark harness, not compiled): GPL-2.0-or-later file headers.
+
+[2] Intel TBB 2017 is linked only by the win32-msvc build (autoremesher.pro). Linux links
+    the system oneTBB (libtbb.so.12, Apache-2.0), macOS Homebrew oneTBB, MinGW the MSYS2
+    oneTBB. Apache-2.0 is compatible with GPLv3 but not with GPLv2-only. The bundled copy has
+    no NOTICE file.
+
+[3] Font Awesome 4.7.0. The font is compiled into the app through QtAwesome.qrc. The OFL
+    text itself is not bundled, and QtAwesome's LICENSE.md only names the licenses and links
+    them. Whether a font under SIL OFL and pictograms under CC BY 3.0 can ship inside a
+    GPL-3.0-or-later binary has not been checked; left for review rather than guessed.
+    Attribution as given there: "Font Awesome by Dave Gandy - http://fortawesome.github.com/Font-Awesome".
+
+Not bundled (linked from the system at build time): Qt 5.15 / Qt 6, oneTBB, zlib, OpenGL.
+Release builds that bundle these libraries (the AppImage in .github/workflows/release.yml)
+must ship their notices too; that is not covered by this file.
+
+Note: ACKNOWLEDGEMENTS.html (shown in the app's About box) is inherited from upstream and
+lists libraries that are not in this tree (CoMISo, libQEx, libigl, OpenMesh, CGAL, Geogram,
+OpenVDB, OpenEXR, c-blosc, clapack, quad_cover and others). It does not describe what this
+fork ships; this file does.
+
+Development tools in tools/bench/ are this project's own (GPL-3.0-or-later). They download
+test meshes and Python packages at run time; none are bundled. Mesh licenses are listed in
+tools/bench/meshes.tsv.

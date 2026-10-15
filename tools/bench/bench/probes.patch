@@ -1,0 +1,307 @@
+diff --git a/src/AutoRemesher/autoremesher.cpp b/src/AutoRemesher/autoremesher.cpp
+index c2099fd6..e20a7fe2 100644
+--- a/src/AutoRemesher/autoremesher.cpp
++++ b/src/AutoRemesher/autoremesher.cpp
+@@ -24,6 +24,7 @@
+ #include <AutoRemesher/MeshSeparator>
+ #include <AutoRemesher/Parameterizer>
+ #include <AutoRemesher/QuadExtractor>
++#include "bench_probe.h"
+ #include <algorithm>
+ #include <atomic>
+ #include <chrono>
+@@ -531,6 +532,7 @@ ProgressHandler AutoRemesher::makeStageProgress(size_t islandIndex, float begin,
+                lastTime = std::chrono::high_resolution_clock::now(),
+                lastName = (const char*)nullptr,
+                lastOrder = 0.0f](float fraction, const char* name) mutable {
++        AR_PROBE_SET_STEP(name);
+         // Every stage reports between its steps, so this is where a running
+         // island notices a cancellation.  The stages only hold memory through
+         // RAII here, which the unwinding frees.
+diff --git a/src/AutoRemesher/constrainedleastsquares.cpp b/src/AutoRemesher/constrainedleastsquares.cpp
+index 1617e1bc..162ce370 100644
+--- a/src/AutoRemesher/constrainedleastsquares.cpp
++++ b/src/AutoRemesher/constrainedleastsquares.cpp
+@@ -31,6 +31,7 @@
+ #include <algorithm>
+ #include <cmath>
+ #include <limits>
++#include "bench_probe.h"
+ 
+ namespace AutoRemesher {
+ namespace {
+@@ -46,6 +47,16 @@ namespace {
+     // the units the input mesh happens to be modelled in.
+     const double relativeRidge = 1e-10;
+ 
++#ifdef AR_BENCH_PROBE
++    // Filled in by one ConstrainedLeastSquares::solve() call, recorded at its end.
++    struct SolveProbe {
++        double substitutionsMs = 0, buildMs = 0, analyzeMs = 0, factorMs = 0, solveMs = 0, fallbackMs = 0;
++        double normalSize = 0, normalNonZeros = 0, factorNonZeros = 0, scaledNonZeros = 0;
++        double refactorized = 0, fallback = 0;
++    };
++    thread_local SolveProbe t_solveProbe;
++#endif
++
+     double ridgeFor(const Eigen::SparseMatrix<double>& normalMatrix)
+     {
+         const Eigen::Index size = normalMatrix.rows();
+@@ -85,10 +96,23 @@ struct ConstrainedLeastSquares::Cache {
+             useAccelerated = false;
+             patternAnalyzed = false;
+         }
++#endif
++#ifdef AR_BENCH_PROBE
++        const auto analyzeStart = AR_PROBE_NOW();
+ #endif
+         if (!patternAnalyzed)
+             solver.analyzePattern(normalMatrix);
++#ifdef AR_BENCH_PROBE
++        t_solveProbe.analyzeMs += AR_PROBE_MS_SINCE(analyzeStart);
++        const auto factorStart = AR_PROBE_NOW();
++#endif
+         solver.factorize(normalMatrix);
++#ifdef AR_BENCH_PROBE
++        t_solveProbe.factorMs += AR_PROBE_MS_SINCE(factorStart);
++        t_solveProbe.normalSize = (double)normalMatrix.rows();
++        t_solveProbe.normalNonZeros = (double)normalMatrix.nonZeros();
++        t_solveProbe.factorNonZeros = (double)solver.matrixL().nestedExpression().nonZeros();
++#endif
+         if (solver.info() != Eigen::Success)
+             return false;
+         patternAnalyzed = true;
+@@ -291,8 +315,16 @@ bool ConstrainedLeastSquares::solveReduced(std::vector<double>* solution)
+     }
+ 
+     if (m_matrixDirty) {
++#ifdef AR_BENCH_PROBE
++        const auto buildStart = AR_PROBE_NOW();
++#endif
+         if (!buildReducedSystem())
+             return false;
++#ifdef AR_BENCH_PROBE
++        t_solveProbe.buildMs += AR_PROBE_MS_SINCE(buildStart);
++        t_solveProbe.scaledNonZeros = (double)cache.scaledMatrix.nonZeros();
++        t_solveProbe.refactorized = 1;
++#endif
+         if (!cache.factorize())
+             return false;
+         cache.factorized = true;
+@@ -307,8 +339,14 @@ bool ConstrainedLeastSquares::solveReduced(std::vector<double>* solution)
+             * (m_energyEquations[static_cast<size_t>(row)].rightHandSide - cache.rowShift[row]);
+     }
+     bool solveSucceeded = false;
++#ifdef AR_BENCH_PROBE
++    const auto solveStart = AR_PROBE_NOW();
++#endif
+     const Eigen::VectorXd reducedSolution = cache.solve(cache.scaledMatrix.transpose() * scaledRightHandSide,
+         &solveSucceeded);
++#ifdef AR_BENCH_PROBE
++    t_solveProbe.solveMs += AR_PROBE_MS_SINCE(solveStart);
++#endif
+     if (!solveSucceeded)
+         return false;
+ 
+@@ -332,6 +370,46 @@ bool ConstrainedLeastSquares::solve(std::vector<double>* solution)
+     if (0 == m_variableCount)
+         return false;
+ 
++#ifdef AR_BENCH_PROBE
++    t_solveProbe = SolveProbe();
++    const auto totalStart = AR_PROBE_NOW();
++    const auto finish = [&](bool result) {
++        AR_PROBE_RECORD("cls_solve", { { "variables", (double)m_variableCount },
++                                         { "energies", (double)m_energyEquations.size() },
++                                         { "constraints", (double)m_constraintEquations.size() },
++                                         { "free", (double)m_freeCount },
++                                         { "normal_size", t_solveProbe.normalSize },
++                                         { "normal_nnz", t_solveProbe.normalNonZeros },
++                                         { "factor_nnz", t_solveProbe.factorNonZeros },
++                                         { "scaled_nnz", t_solveProbe.scaledNonZeros },
++                                         { "refactorized", t_solveProbe.refactorized },
++                                         { "fallback", t_solveProbe.fallback },
++                                         { "substitutions_ms", t_solveProbe.substitutionsMs },
++                                         { "build_ms", t_solveProbe.buildMs },
++                                         { "analyze_ms", t_solveProbe.analyzeMs },
++                                         { "factor_ms", t_solveProbe.factorMs },
++                                         { "solve_ms", t_solveProbe.solveMs },
++                                         { "fallback_ms", t_solveProbe.fallbackMs },
++                                         { "total_ms", AR_PROBE_MS_SINCE(totalStart) },
++                                         { "ok", result ? 1.0 : 0.0 } });
++        return result;
++    };
++    if (m_matrixDirty) {
++        m_cache->patternAnalyzed = false;
++        m_cache->factorized = false;
++        const auto substitutionsStart = AR_PROBE_NOW();
++        const bool substituted = buildSubstitutions();
++        t_solveProbe.substitutionsMs = AR_PROBE_MS_SINCE(substitutionsStart);
++        if (!substituted) {
++            t_solveProbe.fallback = 1;
++            const auto fallbackStart = AR_PROBE_NOW();
++            const bool result = solveWithLagrangeMultipliers(solution);
++            t_solveProbe.fallbackMs = AR_PROBE_MS_SINCE(fallbackStart);
++            return finish(result);
++        }
++    }
++    return finish(solveReduced(solution));
++#else
+     if (m_matrixDirty) {
+         m_cache->patternAnalyzed = false;
+         m_cache->factorized = false;
+@@ -339,6 +417,7 @@ bool ConstrainedLeastSquares::solve(std::vector<double>* solution)
+             return solveWithLagrangeMultipliers(solution);
+     }
+     return solveReduced(solution);
++#endif
+ }
+ 
+ bool ConstrainedLeastSquares::solveWithLagrangeMultipliers(std::vector<double>* solution) const
+diff --git a/src/AutoRemesher/mixedintegerleastsquares.cpp b/src/AutoRemesher/mixedintegerleastsquares.cpp
+index 91ac485c..4c9b8c8d 100644
+--- a/src/AutoRemesher/mixedintegerleastsquares.cpp
++++ b/src/AutoRemesher/mixedintegerleastsquares.cpp
+@@ -25,6 +25,7 @@
+ #include <algorithm>
+ #include <cmath>
+ #include <limits>
++#include "bench_probe.h"
+ 
+ namespace AutoRemesher {
+ namespace {
+@@ -450,6 +451,16 @@ bool MixedIntegerLeastSquares::solveIteration()
+ {
+     if (m_pass < 3 || m_kernelSize == 0)
+         return false;
++#ifdef AR_BENCH_PROBE
++    size_t probeIntegers = 0, probeFixedBefore = 0, probeNewlyFixed = 0;
++    double probeThreshold = 0, probeMaxD = 0, probeSumD = 0;
++    for (size_t i = 0; i < m_kernelSize && i < m_fixed.size(); ++i)
++        if (m_period[i] > 0 && m_fixed[i])
++            ++probeFixedBefore;
++    for (size_t i = 0; i < m_kernelSize; ++i)
++        if (m_period[i] > 0)
++            ++probeIntegers;
++#endif
+     if (m_values.empty()) {
+         m_values.assign(m_kernelSize, 0.0);
+         m_fixed.assign(m_kernelSize, false);
+@@ -461,13 +472,32 @@ bool MixedIntegerLeastSquares::solveIteration()
+                 threshold = std::max(d + .001, 1.0);
+                 break;
+             }
++#ifdef AR_BENCH_PROBE
++        probeThreshold = threshold;
++#endif
+         for (size_t i = 0; i < m_kernelSize; ++i)
+             if (!m_fixed[i] && m_period[i] > 0) {
+                 double d = std::fabs(m_values[i] / m_period[i] - std::round(m_values[i] / m_period[i]));
+-                if (d < threshold)
++                if (d < threshold) {
+                     m_fixed[i] = true;
++#ifdef AR_BENCH_PROBE
++                    ++probeNewlyFixed;
++                    probeMaxD = std::max(probeMaxD, d);
++                    probeSumD += d;
++#endif
++                }
+             }
+     }
++#ifdef AR_BENCH_PROBE
++    AR_PROBE_RECORD("mils_iteration", { { "solver", (double)(reinterpret_cast<uintptr_t>(this) & 0xffffff) },
++                                          { "kernel", (double)m_kernelSize },
++                                          { "integer_variables", (double)probeIntegers },
++                                          { "fixed_before", (double)probeFixedBefore },
++                                          { "newly_fixed", (double)probeNewlyFixed },
++                                          { "threshold", probeThreshold },
++                                          { "max_rounding_distance", probeMaxD },
++                                          { "mean_rounding_distance", probeNewlyFixed ? probeSumD / probeNewlyFixed : 0.0 } });
++#endif
+     if (nullptr == m_system) {
+         m_system.reset(new ConstrainedLeastSquares(m_kernelSize));
+         std::vector<std::pair<size_t, double>> coefficients;
+diff --git a/src/AutoRemesher/quadextractor.cpp b/src/AutoRemesher/quadextractor.cpp
+index fe16c7e9..fca04b38 100644
+--- a/src/AutoRemesher/quadextractor.cpp
++++ b/src/AutoRemesher/quadextractor.cpp
+@@ -21,6 +21,7 @@
+ #include <AutoRemesher/MeshSeparator>
+ #include <AutoRemesher/PositionKey>
+ #include <AutoRemesher/QuadExtractor>
++#include "bench_probe.h"
+ #include <algorithm>
+ #include <axisalignedboundingbox.h>
+ #include <axisalignedboundingboxtree.h>
+@@ -1809,6 +1810,7 @@ void QuadExtractor::convertTriangleAndFiveEdgeFans()
+     size_t convertNum = 0;
+     std::unordered_set<size_t> convertedVertices;
+     for (;;) {
++        AR_PROBE_ROUND(m_remeshedPolygons.size());
+         std::map<Edge, std::vector<size_t>> edgeFaces;
+         std::unordered_map<size_t, std::unordered_set<size_t>> vertexNeighbors;
+         std::unordered_map<size_t, std::vector<size_t>> vertexFaces;
+@@ -2092,6 +2094,7 @@ void QuadExtractor::collapseThreeValenceDiagonals()
+     std::unordered_set<size_t> collapsedVertices;
+     size_t collapseCount = 0;
+     for (;;) {
++        AR_PROBE_ROUND(m_remeshedPolygons.size());
+         std::map<Edge, std::vector<size_t>> edgeFaces;
+         std::unordered_map<size_t, std::unordered_set<size_t>> vertexNeighbors;
+         std::unordered_map<size_t, size_t> vertexFaceCounts;
+@@ -2531,6 +2534,7 @@ void QuadExtractor::mergeThreeAndFiveValenceTriangles()
+     size_t mergeNum = 0;
+     std::unordered_set<size_t> mergedVertices;
+     for (;;) {
++        AR_PROBE_ROUND(m_remeshedPolygons.size());
+         std::map<Edge, std::vector<size_t>> edgeFaces;
+         std::unordered_map<size_t, std::unordered_set<size_t>> vertexNeighbors;
+         std::unordered_map<size_t, std::vector<size_t>> vertexFaces;
+@@ -2895,6 +2899,7 @@ void QuadExtractor::collapseThreeValenceCorners()
+     size_t collapseCount = 0;
+     std::unordered_set<size_t> collapsedVertices;
+     for (;;) {
++        AR_PROBE_ROUND(m_remeshedPolygons.size());
+         std::map<Edge, std::vector<size_t>> edgeFaces;
+         std::unordered_map<size_t, std::unordered_set<size_t>> vertexNeighbors;
+         std::unordered_map<size_t, std::vector<size_t>> vertexFaces;
+@@ -3141,6 +3146,7 @@ void QuadExtractor::splitHighValenceTriangleFans()
+     size_t splitNum = 0;
+     std::unordered_set<size_t> splitVertices;
+     for (;;) {
++        AR_PROBE_ROUND(m_remeshedPolygons.size());
+         std::map<Edge, std::vector<size_t>> edgeFaces;
+         std::unordered_map<size_t, std::unordered_set<size_t>> vertexNeighbors;
+         std::unordered_map<size_t, std::vector<size_t>> vertexFaces;
+@@ -3412,6 +3418,7 @@ void QuadExtractor::collapseThreeValenceEdgePairs()
+     size_t collapseCount = 0;
+     std::unordered_set<size_t> collapsedVertices;
+     for (;;) {
++        AR_PROBE_ROUND(m_remeshedPolygons.size());
+         std::map<Edge, std::vector<size_t>> edgeFaces;
+         std::unordered_map<size_t, std::unordered_set<size_t>> vertexNeighbors;
+         std::unordered_map<size_t, std::vector<size_t>> vertexFaces;
+@@ -3728,6 +3735,7 @@ void QuadExtractor::switchHighValenceEdges()
+     size_t switchNum = 0;
+     std::unordered_set<size_t> switchedVertices;
+     for (;;) {
++        AR_PROBE_ROUND(m_remeshedPolygons.size());
+         std::map<Edge, std::vector<size_t>> edgeFaces;
+         std::unordered_map<size_t, std::unordered_set<size_t>> vertexNeighbors;
+         for (size_t faceIndex = 0; faceIndex < m_remeshedPolygons.size(); ++faceIndex) {
+@@ -3990,6 +3998,7 @@ void QuadExtractor::cleanupTriangles()
+     std::unordered_set<size_t> collapsedVertices;
+     size_t collapseCount = 0;
+     for (;;) {
++        AR_PROBE_ROUND(m_remeshedPolygons.size());
+         std::map<Edge, std::vector<size_t>> edgeFaces;
+         for (size_t faceIndex = 0; faceIndex < m_remeshedPolygons.size(); ++faceIndex) {
+             const auto& face = m_remeshedPolygons[faceIndex];
+@@ -4382,6 +4391,7 @@ void QuadExtractor::mergeSharedFiveEdgeFaces(const ProgressHandler* progressHand
+             (*progressHandler)(std::min(0.99f, (float)mergeCount / mergeCeiling),
+                 "Merging shared five edge faces");
+         }
++        AR_PROBE_ROUND(m_remeshedPolygons.size());
+         std::map<Edge, std::vector<size_t>> edgeFaces;
+         std::unordered_map<size_t, std::unordered_set<size_t>> vertexNeighbors;
+         for (size_t faceIndex = 0; faceIndex < m_remeshedPolygons.size(); ++faceIndex) {

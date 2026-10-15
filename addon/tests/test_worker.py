@@ -16,13 +16,14 @@
 
 """Tests of the add-on's worker side, without Blender.
 
-Needs numpy and a built CLI:
+Needs numpy and a built CLI (CMakeLists.txt; the Qt app's headless mode works too):
 
-    AUTOREMESHER_EXECUTABLE=build/app/autoremesher python3 -m unittest discover -s addon/tests -v
+    AUTOREMESHER_EXECUTABLE=build/cli/autoremesher-cli python3 -m unittest discover -s addon/tests -v
 """
 
 import math
 import os
+import shutil
 import stat
 import sys
 import tempfile
@@ -134,13 +135,33 @@ class FakeWorkerTest(unittest.TestCase):
         self.assertIn("code 7", outcome.message)
         self.assertIn("something broke", outcome.message)
 
+    @unittest.skipIf(os.name == "nt", "checks the executable bit")
+    def test_bundled_executable(self):
+        saved_bundled = worker.bundled_executable
+        saved_env = os.environ.pop("AUTOREMESHER_EXECUTABLE", None)
+        try:
+            with tempfile.TemporaryDirectory() as folder:
+                program = os.path.join(folder, "bin", worker.CLI_NAME)
+                os.makedirs(os.path.dirname(program))
+                with open(program, "w") as f:
+                    f.write("#!/bin/sh\n")
+                os.chmod(program, 0o644)  # as Blender's zip extraction leaves it
+                worker.bundled_executable = lambda: program
+                self.assertEqual(worker.find_executable(), program)
+                self.assertTrue(os.access(program, os.X_OK))
+                self.assertEqual(worker.find_executable(sys.executable), os.path.abspath(sys.executable))
+        finally:
+            worker.bundled_executable = saved_bundled
+            if saved_env is not None:
+                os.environ["AUTOREMESHER_EXECUTABLE"] = saved_env
+
     def test_unknown_parameter(self):
         job = worker.RemeshJob("unused", np.zeros((3, 3)), np.array([[0, 1, 2]]), {"mirror": True})
         with self.assertRaises(ValueError):
             job.start()
 
 
-@unittest.skipIf(EXECUTABLE is None, "set AUTOREMESHER_EXECUTABLE to a built autoremesher")
+@unittest.skipIf(EXECUTABLE is None, "set AUTOREMESHER_EXECUTABLE to a built autoremesher-cli")
 class CliTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -163,9 +184,24 @@ class CliTest(unittest.TestCase):
         fractions = [f for f, _ in updates]
         self.assertEqual(fractions, sorted(fractions))
         self.assertTrue(any(s for _, s in updates))
-        # The output lies on the unit sphere (the CLI writes 6 significant digits).
+        # The output lies on the unit sphere.
         radii = np.linalg.norm(outcome.positions, axis=1)
         self.assertLess(float(np.abs(radii - 1.0).max()), 0.01)
+
+    def test_non_ascii_temp_folder(self):
+        # A Windows user name such as "Łucja" ends up in the temporary folder's path.
+        parent = tempfile.mkdtemp(prefix="autoremesher-test-")
+        saved = tempfile.tempdir
+        try:
+            tempfile.tempdir = os.path.join(parent, "Łucja żółw 日本")
+            os.mkdir(tempfile.tempdir)
+            positions, triangles = uv_sphere(16, 32)
+            outcome = worker.remesh(EXECUTABLE, positions, triangles, {"target_quads": 300})
+        finally:
+            tempfile.tempdir = saved
+            shutil.rmtree(parent, ignore_errors=True)
+        self.assertEqual(outcome.status, "ok", outcome.message + "\n" + outcome.log)
+        self.assertGreater(len(outcome.face_sizes), 0)
 
     def _cancel_after(self, seconds, how):
         job = worker.RemeshJob(EXECUTABLE, self.positions, self.triangles, {"target_quads": 20000})
