@@ -56,8 +56,9 @@ class RemeshPreferences(bpy.types.AddonPreferences):
 
     executable: StringProperty(
         name="Remesher executable",
-        description="The autoremesher program (headless CLI). Empty: "
-                    "$AUTOREMESHER_EXECUTABLE, then autoremesher on PATH",
+        description="The remesher program (autoremesher-cli). Empty: "
+                    "$AUTOREMESHER_EXECUTABLE, then the copy bundled with the add-on, "
+                    "then autoremesher-cli on PATH",
         subtype="FILE_PATH",
     )
 

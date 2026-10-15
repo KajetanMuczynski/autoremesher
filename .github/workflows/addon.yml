@@ -1,0 +1,138 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# The Qt-free CLI (autoremesher-cli) and the Blender add-on on Linux and Windows:
+# build the CLI with CMake, run the add-on's worker tests against it, package
+# the extension zip with the CLI bundled, install that zip into a real Blender
+# and remesh a sphere through it in background mode.
+# The Windows zip is uploaded as the artifact addon-windows-x64.
+name: addon
+
+on:
+  push:
+  workflow_dispatch:
+
+concurrency:
+  group: addon-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  addon:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux checks the oldest Blender the manifest allows, Windows a
+          # current release (what a new install gets).
+          - os: ubuntu-24.04
+            platform: linux-x64
+            blender: 4.2.23
+            blender_file: blender-4.2.23-linux-x64.tar.xz
+          - os: windows-latest
+            platform: windows-x64
+            blender: 5.2.2
+            blender_file: blender-5.2.2-windows-x64.zip
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    env:
+      SOURCE_COMMIT: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install numpy pefile
+          if [ "$RUNNER_OS" = Linux ]; then
+            sudo apt-get update
+            # libtbb-dev for the build; the X and GL libraries Blender links even in background mode.
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libtbb-dev \
+              libx11-6 libxi6 libxxf86vm1 libxfixes3 libxrender1 libxkbcommon0 libsm6 libgl1 libegl1
+          fi
+          cmake --version | head -n 1
+
+      # Windows: oneTBB is built from source and linked statically, with the
+      # static C++ runtime (/MT); see CMakeLists.txt.
+      - name: Build autoremesher-cli
+        run: |
+          cmake -S . -B build/cli -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/cli --config Release --parallel 4
+          cmake --install build/cli --config Release --prefix build/cli-install
+          ls -l build/cli-install/bin build/cli-install/licenses
+          cli=build/cli-install/bin/autoremesher-cli
+          if [ "$RUNNER_OS" = Windows ]; then cli="$cli.exe"; fi
+          echo "CLI=$cli" >> "$GITHUB_ENV"
+
+      - name: Check the DLLs it needs
+        if: runner.os == 'Windows'
+        run: python ci/check_dll_imports.py "$CLI"
+
+      - name: CLI arguments
+        run: |
+          "$CLI" --version
+          "$CLI" --help
+          status=0; "$CLI" --target-quads 10 || status=$?
+          [ "$status" = 1 ] || { echo "expected exit status 1 without --input, got $status"; exit 1; }
+
+      # Includes the 16k-triangle sphere remesh (1,200-2,400 quads for a target
+      # of 2,000), cancel through stdin and a temporary folder with non-ASCII
+      # characters in its path.
+      - name: Worker tests
+        run: |
+          export AUTOREMESHER_EXECUTABLE="$CLI"
+          python -m unittest discover -s addon/tests -v
+
+      - name: Package the extension
+        id: package
+        run: |
+          zip=$(python addon/package.py --cli-prefix build/cli-install --platform ${{ matrix.platform }})
+          python -c "import sys, zipfile; [print(i.filename, i.file_size) for i in zipfile.ZipFile(sys.argv[1]).infolist()]" "$zip"
+          echo "zip=$zip" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Blender ${{ matrix.blender }}
+        id: blender-cache
+        uses: actions/cache@v5
+        with:
+          path: blender-download/${{ matrix.blender_file }}
+          key: ${{ matrix.blender_file }}
+
+      - name: Download Blender ${{ matrix.blender }}
+        if: steps.blender-cache.outputs.cache-hit != 'true'
+        run: |
+          series=$(echo "${{ matrix.blender }}" | cut -d. -f1-2)
+          mkdir -p blender-download
+          curl -fsSL --retry 3 -o "blender-download/${{ matrix.blender_file }}" \
+            "https://download.blender.org/release/Blender$series/${{ matrix.blender_file }}"
+
+      - name: Unpack Blender
+        run: |
+          mkdir -p blender
+          case "${{ matrix.blender_file }}" in
+            *.zip) 7z x -y -oblender "blender-download/${{ matrix.blender_file }}" > /dev/null ;;
+            *) tar -xJf "blender-download/${{ matrix.blender_file }}" -C blender ;;
+          esac
+          exe=$(find blender -maxdepth 2 -type f \( -name blender.exe -o -name blender \) | head -n 1)
+          echo "BLENDER=$PWD/$exe" >> "$GITHUB_ENV"
+
+      # Installs the zip the way "Install from Disk..." does, then runs the
+      # installed copy with its bundled remesher (no AUTOREMESHER_EXECUTABLE).
+      - name: Install the zip in Blender and remesh
+        run: |
+          "$BLENDER" --version | head -n 1
+          "$BLENDER" --command extension validate "${{ steps.package.outputs.zip }}"
+          "$BLENDER" --command extension install-file -r user_default -e "${{ steps.package.outputs.zip }}"
+          "$BLENDER" -b --factory-startup --python-exit-code 1 \
+            --python addon/tests/blender_smoke.py -- --installed
+
+      - name: Upload the Windows extension zip
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v7
+        with:
+          name: addon-windows-x64
+          path: ${{ steps.package.outputs.zip }}
+          if-no-files-found: error

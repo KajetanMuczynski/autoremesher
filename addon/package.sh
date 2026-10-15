@@ -15,45 +15,35 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-# Build the installable add-on zip and the remesher CLI it needs, then print
-# both paths. Run from anywhere:
+# Build the remesher CLI and the installable add-on zip with the CLI bundled
+# for this machine, then print the zip's path. Linux and macOS; Windows builds
+# come from CI (.github/workflows/addon.yml). Run from anywhere:
 #
 #     sh addon/package.sh
 #
-# The CLI is built only if build/app/autoremesher is missing or lacks
-# --stdin-control, with nice -n 10 make -j2 and no LTO (the laptop runs hot),
-# and not while another build is running.
+# The CLI is built with CMake in build/cli (Release, nice -n 10, two jobs:
+# the laptop runs hot), and not while another build is running. Rebuilds are
+# incremental.
 set -eu
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
-package_dir="$repo/addon/autoremesher_blender"
-build_dir="$repo/build"
-cli="$build_dir/app/autoremesher"
+build_dir="$repo/build/cli"
+prefix="$repo/build/cli-install"
 
-if ! QT_QPA_PLATFORM=offscreen "$cli" --help 2>/dev/null | grep -q -- --stdin-control; then
-    if pgrep -a 'cc1plus|lto1|make' >/dev/null; then
-        echo "Another build is running; not starting the CLI build now:" >&2
-        pgrep -a 'cc1plus|lto1|make' >&2
-        exit 1
-    fi
-    echo "Building the CLI in $build_dir/app (nice -n 10 make -j2, no LTO)..."
-    mkdir -p "$build_dir/app"
-    (cd "$build_dir/app" \
-        && qmake "$repo/autoremesher.pro" -after "QMAKE_CXXFLAGS_RELEASE-=-flto" "QMAKE_LFLAGS_RELEASE-=-flto" >/dev/null \
-        && nice -n 10 make -j2 >make.log 2>&1) || {
-        echo "CLI build failed; see $build_dir/app/make.log" >&2
-        exit 1
-    }
+if pgrep -a 'cc1plus|lto1|make|ninja' >/dev/null; then
+    echo "Another build is running; not starting the CLI build now:" >&2
+    pgrep -a 'cc1plus|lto1|make|ninja' >&2
+    exit 1
 fi
+echo "Building the CLI in $build_dir (nice -n 10, 2 jobs)..." >&2
+mkdir -p "$build_dir"
+{
+    cmake -S "$repo" -B "$build_dir" -DCMAKE_BUILD_TYPE=Release \
+        && nice -n 10 cmake --build "$build_dir" --parallel 2 \
+        && cmake --install "$build_dir" --prefix "$prefix"
+} >"$build_dir/build.log" 2>&1 || {
+    echo "CLI build failed; see $build_dir/build.log" >&2
+    exit 1
+}
 
-name=$(python3 -c "import tomllib, sys; m = tomllib.load(open(sys.argv[1], 'rb')); print(m['id'] + '-' + m['version'])" \
-    "$package_dir/blender_manifest.toml")
-zip_path="$build_dir/addon/$name.zip"
-mkdir -p "$build_dir/addon"
-rm -f "$zip_path"
-# Blender wants blender_manifest.toml at the root of the zip.
-(cd "$package_dir" && zip -q -X "$zip_path" blender_manifest.toml ./*.py)
-
-echo
-echo "Add-on zip:      $zip_path"
-echo "Remesher binary: $cli"
+python3 "$repo/addon/package.py" --cli-prefix "$prefix"
