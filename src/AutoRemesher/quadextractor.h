@@ -83,6 +83,28 @@ public:
 
     bool extract();
 
+    // The open boundary of a triangle mesh: the edges only one triangle uses,
+    // each with the boundary loop it belongs to.  It keeps its own copy of the
+    // boundary vertices.
+    struct Boundary {
+        std::vector<Vector3> vertices;
+        std::vector<std::pair<size_t, size_t>> edges;
+        std::vector<size_t> edgeLoops;
+        std::vector<std::vector<size_t>> loopVertices;
+    };
+
+    static Boundary findBoundary(const std::vector<Vector3>& vertices,
+        const std::vector<std::vector<size_t>>& triangles);
+
+    // The boundary of the input surface the triangle mesh was resampled from.
+    // fixHoles() leaves an output loop open when it follows one of its loops
+    // and fills every other hole.  The triangle mesh's own boundary is not
+    // used: decimation and resampling can open small holes in a closed input.
+    void setInputBoundary(const Boundary* inputBoundary)
+    {
+        m_inputBoundary = inputBoundary;
+    }
+
 private:
     // The isoline a connection was cut from: which uv coordinate is held constant,
     // which integer value it is held at, and which triangle produced the segment.
@@ -101,6 +123,7 @@ private:
     std::vector<uint8_t> m_extractedConnectionMoved;
     const std::vector<std::vector<Vector2>>* m_originalTriangleUvs = nullptr;
     const std::vector<size_t>* m_singularVertices = nullptr;
+    const Boundary* m_inputBoundary = nullptr;
     ProgressHandler m_progressHandler;
     std::map<std::pair<size_t, size_t>, ConnectionInfo> m_connectionInfos;
     std::set<std::pair<size_t, size_t>> m_addedConnections;
