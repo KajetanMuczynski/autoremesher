@@ -11,7 +11,6 @@ Notes for Claude working in this repository.
 - Vendored in `thirdparty/`: eigen, tbb (2017-era), isotropicremesher, meshoptimizer, QtAwesome,
   QtWaitingSpinner. Upstream README mentions Geogram/libigl, but the `.pro` uses neither.
 - `origin` = Kajetan's fork (github.com/KajetanMuczynski/autoremesher), `upstream` = huxingyi. Never push upstream.
-- Commit trailer: `Co-Authored-By: Claude <noreply@anthropic.com>` (short form, Kajetan's choice).
 
 ## License policy
 - The fork is **GPL-3.0-or-later**. Keep Jeremy Hu's MIT notices (`LICENSE-MIT-upstream`, file headers)
@@ -58,7 +57,8 @@ builds the extension zip with the CLI bundled; see `addon/README.md`.
 CI (`.github/workflows/`):
 - `ci.yml` (every PR, push to master, manual run): all checks in one workflow. Its last job,
   **CI passed**, is green only if every other job succeeded; it is the one check branch protection
-  requires. Branch pushes without a PR get no run (use Actions > ci > Run workflow).
+  requires. Branch pushes without a PR get no run (use Actions > ci > Run workflow);
+  a PR with merge conflicts gets no run either, so **CI passed** shows as missing.
   - `format`: `ci/lint.sh` (src/ and tests/) with clang-format pinned to 23.1.3 (pip); bump on purpose.
   - `core (linux|macos)`: CMake Release build with tests, `ctest --no-tests=error`, then
     `ci/output_gate.py` (procedural sphere, torus, box, open tube, two islands; fails on exit status,
@@ -74,6 +74,26 @@ CI (`.github/workflows/`):
 
 Running the binary with no args opens the GUI. The core needs `setTargetTriangleCount(n > 0)` or
 `remesh()` fails.
+
+## PRs, branches and commits (Kajetan's rules, 2026-10-15)
+- Every PR targets `master` of KajetanMuczynski/autoremesher. Never a feature branch, no stacked PRs
+  (PRs into other branches run no CI, and a late merge there never reaches master). GitHub defaults
+  a fork's PR to the parent repo: check the base repository is not huxingyi/autoremesher.
+- Title: `<type>(<area>): <what it does> [TODO x.y]`, e.g. `fix(islands): keep tiny islands closed [TODO 2.14]`.
+  Types: fix, perf, feat, ci, docs, refactor. Areas: islands, extraction, sizing, cross-field,
+  rounding, addon, ci, docs. Omit `[TODO x.y]` only when no TODO item applies.
+- Body starts with `Merge order / depends on: ...` (`none` if independent).
+- If the PR touches a conflict-prone file (`tests/CMakeLists.txt`, `src/AutoRemesher/remesh.cpp`,
+  `src/AutoRemesher/quadextractor.cpp`), say so in the body so parallel PRs can be ordered.
+- A PR stays **draft** until its thread has verified everything: **CI passed** green on the current
+  head, no conflicts with master, A/B or regression checks finished, description final. Then mark it
+  Ready for review and reply "ready to merge" with the head SHA. Kajetan merges only non-draft PRs;
+  to push more work to a ready PR, convert it back to draft first.
+- A thread pushes to its one `claude/project-thread-*` branch and has at most one open PR; the next
+  PR waits until that one is merged. Never delete branches.
+- Before claiming anything about a PR or CI (base, merged or not, which checks ran, their result),
+  check it on GitHub. Never report from memory.
+- Commit trailer: `Co-Authored-By: Claude <noreply@anthropic.com>` (short form, Kajetan's choice).
 
 ## Keep the machine cool
 Kajetan's laptop has 4 cores and runs hot. The heavy part is the release build: `-O3 -flto` with
