@@ -452,9 +452,13 @@ jobs:
           # deploy Qt frameworks into the app bundle
           macdeployqt "$app" -executable="$plugin"
           otool -L "$plugin"
-          # The plugin and every plain library deployed for it must link only the bundle or macOS.
-          for lib in "$plugin" "$app"/Contents/Frameworks/*.dylib; do
-            [ -e "$lib" ] || continue
+          # The plugin, and every plain library it pulls in, must link only the bundle or
+          # macOS (the Qt frameworks are the app's own, deployed and used the same way).
+          todo="$plugin"; seen=" "
+          while [ -n "$todo" ]; do
+            lib="${todo%% *}"; todo="${todo#"$lib"}"; todo="${todo# }"
+            case "$seen" in *" $lib "*) continue ;; esac
+            seen="$seen$lib "
             for dep in $(otool -L "$lib" | awk 'NR > 1 { print $1 }'); do
               case "$dep" in
                 /System/*|/usr/lib/*|*/"$(basename "$lib")") ;;  # macOS, or its own id
@@ -463,7 +467,8 @@ jobs:
                     @executable_path/*) target="$app/Contents/MacOS/${dep#@executable_path/}" ;;
                     *) target="$(dirname "$lib")/${dep#@loader_path/}" ;;
                   esac
-                  [ -e "$target" ] || { echo "ERROR: $lib needs $dep, which is not in the bundle"; exit 1; } ;;
+                  [ -e "$target" ] || { echo "ERROR: $lib needs $dep, which is not in the bundle"; exit 1; }
+                  case "$target" in *.dylib) todo="${todo:+$todo }$target" ;; esac ;;
                 *) echo "ERROR: $lib links $dep outside the bundle"; exit 1 ;;
               esac
             done
