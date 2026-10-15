@@ -11,7 +11,8 @@
 # Linux and macOS link the installed TBB (libtbb-dev, brew install tbb).
 # Windows builds oneTBB from source as a static library and links the C++
 # runtime statically, so autoremesher-cli.exe needs only DLLs that ship with
-# Windows.
+# Windows. The macOS add-on zip does the same for oneTBB
+# (-DAUTOREMESHER_BUNDLED_TBB=ON -DCMAKE_OSX_DEPLOYMENT_TARGET=11.2).
 cmake_minimum_required(VERSION 3.16)
 
 if(WIN32)
