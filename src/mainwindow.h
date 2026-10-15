@@ -128,7 +128,7 @@ private:
     float m_targetScaling = 1.0;
     float m_sharpEdgeDegrees = 90.0;
     float m_smoothNormalDegrees = 0.0;
-    float m_adaptivity = 1.0;
+    float m_adaptivity = 0.5;
     float m_anisotropy = 1.0;
     std::vector<AutoRemesher::Vector3> m_originalVertices;
     std::vector<std::vector<size_t>> m_originalTriangles;

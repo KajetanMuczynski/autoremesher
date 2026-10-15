@@ -9,7 +9,7 @@
 //
 // Usage: ar_bench --input in.obj --output out.obj --json run.json
 //          [--target-quads 50000] [--edge-scaling 1] [--sharp-edge 90]
-//          [--smooth-normal 0] [--adaptivity 1] [--anisotropy 1]
+//          [--smooth-normal 0] [--adaptivity 0.5] [--anisotropy 1]
 //          [--resolution fast|quality|<triangles per quad>]
 //          [--threads N] [--dump-param param.obj]
 #define TINYOBJLOADER_IMPLEMENTATION
@@ -314,7 +314,7 @@ int main(int argc, char** argv)
     const double edgeScaling = std::stod(arg("edge-scaling", "1.0"));
     const double sharpEdge = std::stod(arg("sharp-edge", "90.0"));
     const double smoothNormal = std::stod(arg("smooth-normal", "0.0"));
-    const double adaptivity = std::stod(arg("adaptivity", "1.0"));
+    const double adaptivity = std::stod(arg("adaptivity", "0.5"));
     const double anisotropy = std::stod(arg("anisotropy", "1.0"));
     // The remesh() resolutions by name, or any triangles-per-quad value for sweeps.
     const std::string resolution = arg("resolution", "quality");
