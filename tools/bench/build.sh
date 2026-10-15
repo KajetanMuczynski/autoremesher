@@ -28,7 +28,7 @@ jobs="${JOBS:-$(nproc)}"
 if [ "${SKIP_APT:-0}" != 1 ]; then
     sudo apt-get update
     sudo DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential cmake git \
-        qt5-qmake qtbase5-dev qttools5-dev-tools libqt5svg5-dev libtbb-dev libgl1-mesa-dev \
+        qt5-qmake qtbase5-dev libqt5opengl5-dev qttools5-dev-tools libqt5svg5-dev libtbb-dev libgl1-mesa-dev \
         libsuitesparse-dev libopenblas-dev linux-tools-generic python3-venv
 fi
 

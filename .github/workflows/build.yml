@@ -13,14 +13,14 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            build-essential cmake qt5-qmake qtbase5-dev qttools5-dev-tools libqt5svg5-dev \
-            libtbb-dev libgl1-mesa-dev
+            build-essential cmake qt5-qmake qtbase5-dev libqt5opengl5-dev qttools5-dev-tools \
+            libqt5svg5-dev libtbb-dev libgl1-mesa-dev
           g++ --version | head -n 1; qmake --version | tail -n 1; cmake --version | head -n 1
 
       - name: Build Qt app
@@ -43,7 +43,7 @@ jobs:
 
       - name: Upload smoke test output
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: smoke-output
           path: |

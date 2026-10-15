@@ -21,7 +21,8 @@ Notes for Claude working in this repository.
 - Check every new dependency against the plan's `LICENSES.md` before adding it.
 
 ## Build (checked 2026-10-15: Ubuntu 24.04, GCC 13.3, Qt 5.15.13, oneTBB 2021.11)
-Deps: `qt5-qmake qtbase5-dev qttools5-dev-tools libqt5svg5-dev libtbb-dev libgl1-mesa-dev`.
+Deps: `qt5-qmake qtbase5-dev libqt5opengl5-dev qttools5-dev-tools libqt5svg5-dev libtbb-dev libgl1-mesa-dev`
+(`libqt5opengl5-dev` comes only as a recommend of `qtbase5-dev`; without it qmake fails with "Unknown module(s) in QT: opengl").
 README's `libqt5multimedia5-dev` does not exist on 24.04 and is not needed.
 
 Qt app, out-of-tree (`build/` is gitignored), no extra flags (~2.5 min on 4 cores, 24 harmless warnings):
