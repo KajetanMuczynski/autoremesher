@@ -57,7 +57,8 @@ single-file job on top. For routine work:
   the GUI or any leftover `autoremesher` process after testing.
 
 ## Plan and context
-The plan lives outside the repo in `../docs/` (Kajetan's project folder):
-- `README.md` (index) and `TODO.md` ("Order at a glance", critical path) first.
-- `REFERENCE.md`: pipeline map with line numbers, known performance and math issues, baseline.
-- Log each working session in `SESSIONS.md`.
+`docs/` holds the plan, copied from Kajetan's `../docs/` on 2026-10-15. The research reports and
+`archive/` stay in `../docs/` only, so links to `research/` and `archive/` don't resolve in the repo.
+- `docs/README.md` (index) and `docs/TODO.md` ("Order at a glance", critical path) first.
+- `docs/REFERENCE.md`: pipeline map with line numbers, known performance and math issues, baseline.
+- Log each working session in `docs/SESSIONS.md`.
