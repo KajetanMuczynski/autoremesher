@@ -256,7 +256,8 @@ double AutoRemesher::calculateAverageEdgeLength(const std::vector<Vector3>& vert
 void AutoRemesher::initializeVoxelSize()
 {
     double area = calculateMeshArea(m_vertices, m_triangles);
-    double triangleArea = area / m_targetTriangleCount;
+    // m_targetTriangleCount is two per quad; T gets m_trianglesPerQuad.
+    double triangleArea = area / (0.5 * m_targetTriangleCount * m_trianglesPerQuad);
     m_voxelSize = std::sqrt(triangleArea / triangleAreaPerSquaredEdge);
 #if AUTO_REMESHER_DEBUG
     std::cerr << "Area: " << area << " voxelSize: " << m_voxelSize << std::endl;
@@ -684,6 +685,8 @@ bool AutoRemesher::remeshIslands()
         invalidInputReason = "input mesh has no triangles";
     else if (0 == m_targetTriangleCount)
         invalidInputReason = "target triangle count must be greater than zero";
+    else if (!(m_trianglesPerQuad > 0.0) || !std::isfinite(m_trianglesPerQuad))
+        invalidInputReason = "triangles per quad must be a positive number";
     if (nullptr != invalidInputReason) {
         std::cerr << "Invalid remesh input: " << invalidInputReason << std::endl;
         if (nullptr != m_progressHandler)
@@ -792,8 +795,10 @@ bool AutoRemesher::remeshIslands()
             context.targetQuadCount = 0.5 * shareTriangleCount;
             continue;
         }
+        // T keeps the resolution's triangles per quad, as on every other island.
         context.targetQuadCount = 0.5 * floorTriangleCount;
-        context.voxelSize = std::sqrt(context.area / (floorTriangleCount * triangleAreaPerSquaredEdge));
+        context.voxelSize = std::sqrt(context.area
+            / (context.targetQuadCount * m_trianglesPerQuad * triangleAreaPerSquaredEdge));
     }
     auto t_buildEnd = std::chrono::high_resolution_clock::now();
     throwIfCancelled();

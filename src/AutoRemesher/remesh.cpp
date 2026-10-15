@@ -59,6 +59,8 @@ namespace {
             || !std::isfinite(parameters.edgeScaling) || !std::isfinite(parameters.sharpEdgeDegrees)
             || !std::isfinite(parameters.smoothNormalDegrees))
             return "parameters must be finite numbers";
+        if (MeshResolution::Fast != parameters.resolution && MeshResolution::Quality != parameters.resolution)
+            return "resolution must be fast or quality";
         return nullptr;
     }
 
@@ -254,6 +256,22 @@ const char* toString(RemeshStatus status)
     return "failed";
 }
 
+const char* toString(MeshResolution resolution)
+{
+    return MeshResolution::Fast == resolution ? "fast" : "quality";
+}
+
+bool parseMeshResolution(const std::string& text, MeshResolution* resolution)
+{
+    if ("fast" == text)
+        *resolution = MeshResolution::Fast;
+    else if ("quality" == text)
+        *resolution = MeshResolution::Quality;
+    else
+        return false;
+    return true;
+}
+
 RemeshResult remeshWithPreview(const RemeshRequest& request,
     const RemeshCallbacks& callbacks,
     RemeshPreview* preview)
@@ -295,6 +313,9 @@ RemeshResult remeshWithPreview(const RemeshRequest& request,
     engine.setAnisotropy(parameters.anisotropy);
     engine.setSharpEdgeDegrees(parameters.sharpEdgeDegrees);
     engine.setSmoothNormalDegrees(parameters.smoothNormalDegrees);
+    engine.setTrianglesPerQuad(MeshResolution::Fast == parameters.resolution
+            ? ::AutoRemesher::FastTrianglesPerQuad
+            : ::AutoRemesher::QualityTrianglesPerQuad);
     if (callbacks.progress) {
         engine.setTag(const_cast<RemeshProgressHandler*>(&callbacks.progress));
         engine.setProgressHandler(forwardProgress);
@@ -391,6 +412,7 @@ std::string toJson(const RemeshResult& result)
         << ", \"edge_scaling\": " << jsonNumber(parameters.edgeScaling)
         << ", \"sharp_edge_degrees\": " << jsonNumber(parameters.sharpEdgeDegrees)
         << ", \"smooth_normal_degrees\": " << jsonNumber(parameters.smoothNormalDegrees)
+        << ", \"resolution\": " << jsonString(toString(parameters.resolution))
         << "},\n";
     out << "  \"input\": {"
         << "\"vertices\": " << jsonCount(report.inputVertexCount)

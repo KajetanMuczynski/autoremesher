@@ -36,7 +36,15 @@
 namespace AutoRemesher {
 
 const int InterfaceVersionMajor = 1;
-const int InterfaceVersionMinor = 1;
+const int InterfaceVersionMinor = 2;
+
+// How fine the triangle mesh is that the cross field and the
+// parametrization are solved on.  The quad count is the same either way.
+// Quality gives cleaner quads and takes about 1.5 times as long as Fast.
+enum class MeshResolution {
+    Fast,
+    Quality
+};
 
 // Defaults are those of the command line.
 struct RemeshParameters {
@@ -51,6 +59,8 @@ struct RemeshParameters {
     double sharpEdgeDegrees = 90.0;
     // > 0 projects onto a PN-triangle smoothed input instead of the facets.
     double smoothNormalDegrees = 0.0;
+    // Since 1.2.
+    MeshResolution resolution = MeshResolution::Quality;
 };
 
 struct RemeshRequest {
@@ -156,6 +166,10 @@ RemeshResult remesh(const RemeshRequest& request,
 std::string toJson(const RemeshResult& result);
 
 const char* toString(RemeshStatus status);
+
+// "fast" and "quality", as in the JSON report and on the command line.
+const char* toString(MeshResolution resolution);
+bool parseMeshResolution(const std::string& text, MeshResolution* resolution);
 
 }
 
