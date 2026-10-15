@@ -13,6 +13,10 @@ on:
 
 # Names the files: the branch or tag, or pr<number> on a PR (its ref name, "14/merge",
 # is not a file name). Called from ci.yml, the github context is the caller's.
+# Read-only token: the jobs build, test and upload artifacts; nothing writes to the repo.
+permissions:
+  contents: read
+
 env:
   BUILD_NAME: ${{ github.event_name == 'pull_request' && format('pr{0}', github.event.number) || github.ref_name }}
 
@@ -21,9 +25,11 @@ jobs:
     name: AppImage (linux)
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - name: Install Qt
-        uses: jurplel/install-qt-action@v3
+        uses: jurplel/install-qt-action@b7840a6733f49e2a39c4355260d2375063d39b61 # v3 branch head, after v3.3.0
         with:
           aqtversion: '==3.3.*'
           version: '5.15.2'
@@ -41,11 +47,21 @@ jobs:
       - name: Generate AppImage
         run: |
           set -e
-          # Download AppImage tools from official upstream releases
+          # Download AppImage tools from official upstream releases. Both are "continuous"
+          # releases that can be replaced in place, so each file is pinned by SHA-256: a rebuilt
+          # or tampered file fails here instead of going into the AppImage. The sums are
+          # trust-on-first-use (no upstream checksums exist), taken 2026-10-15 from the files
+          # then published: linuxdeployqt built 2025-10-21 (commit 5af5737), appimagetool
+          # (AppImageKit, unchanged since 2023-03-08). When a sum stops matching, check the new
+          # build is the project's own (its release commit and date) before updating the sum.
           LINUXDEPLOYQT_URL="https://github.com/probonopd/linuxdeployqt/releases/download/continuous/linuxdeployqt-continuous-x86_64.AppImage"
+          LINUXDEPLOYQT_SHA256=974a87457ed26241b793bed7841978fcdf84158d13220e53833a06515f173b0b
           APPIMAGETOOL_URL="https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage"
+          APPIMAGETOOL_SHA256=b90f4a8b18967545fda78a445b27680a1642f1ef9488ced28b65398f2be7add2
           wget --no-verbose -O ./ci/linuxdeployqt.AppImage "$LINUXDEPLOYQT_URL"
           wget --no-verbose -O ./ci/appimagetool.AppImage "$APPIMAGETOOL_URL"
+          printf '%s  %s\n' "$LINUXDEPLOYQT_SHA256" ./ci/linuxdeployqt.AppImage \
+            "$APPIMAGETOOL_SHA256" ./ci/appimagetool.AppImage | sha256sum -c -
 
           # Create directories
           mkdir -p appdir/usr/share/metainfo
@@ -144,11 +160,14 @@ jobs:
           echo "✓ AppImage created successfully"
           file AutoRemesher-x86_64.AppImage
 
-          mv AutoRemesher-x86_64.AppImage autoremesher-${{ env.BUILD_NAME }}.AppImage
+          mv AutoRemesher-x86_64.AppImage autoremesher-${BUILD_NAME}.AppImage
       - name: Checkout test models
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          persist-credentials: false
           repository: alecjacobson/common-3d-test-models
+          # Pinned: the armadillo the packages are tested on stays the same file.
+          ref: 8a4f8642acaf43f9cd7b67858a1502e1055ef202
           path: test-models
       - name: Install test dependencies
         run: |
@@ -157,7 +176,7 @@ jobs:
       - name: Run CLI test with armadillo.obj
         run: |
           set -e
-          chmod +x autoremesher-${{ env.BUILD_NAME }}.AppImage
+          chmod +x autoremesher-${BUILD_NAME}.AppImage
           export DISPLAY=:99
           export XDG_RUNTIME_DIR=/tmp/runtime-root
           mkdir -p "$XDG_RUNTIME_DIR"
@@ -168,10 +187,10 @@ jobs:
           sleep 2
 
           echo "Running CLI test..."
-          ./autoremesher-${{ env.BUILD_NAME }}.AppImage \
+          ./autoremesher-${BUILD_NAME}.AppImage \
             --input test-models/data/armadillo.obj \
-            --output autoremesher-${{ env.BUILD_NAME }}-ubuntu-22.04-remeshed.obj \
-            --report autoremesher-${{ env.BUILD_NAME }}-ubuntu-22.04-remeshed_report.txt \
+            --output autoremesher-${BUILD_NAME}-ubuntu-22.04-remeshed.obj \
+            --report autoremesher-${BUILD_NAME}-ubuntu-22.04-remeshed_report.txt \
             --target-quads 50000 \
             --edge-scaling 1.0 \
             --sharp-edge 90.0 \
@@ -189,29 +208,29 @@ jobs:
             exit 1
           fi
 
-          if [ ! -f autoremesher-${{ env.BUILD_NAME }}-ubuntu-22.04-remeshed.obj ]; then
-            echo "ERROR: Output file autoremesher-${{ env.BUILD_NAME }}-ubuntu-22.04-remeshed.obj was not created"
+          if [ ! -f autoremesher-${BUILD_NAME}-ubuntu-22.04-remeshed.obj ]; then
+            echo "ERROR: Output file autoremesher-${BUILD_NAME}-ubuntu-22.04-remeshed.obj was not created"
             exit 1
           fi
 
           echo "✓ CLI test passed: remeshed .obj created"
-          ls -lh autoremesher-${{ env.BUILD_NAME }}-ubuntu-22.04-remeshed.obj
+          ls -lh autoremesher-${BUILD_NAME}-ubuntu-22.04-remeshed.obj
 
           kill $XVFB_PID 2>/dev/null || true
       - name: Upload CLI test result
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: autoremesher-${{ env.BUILD_NAME }}-ubuntu-22.04-remeshed.obj
           path: autoremesher-${{ env.BUILD_NAME }}-ubuntu-22.04-remeshed.obj
       - name: Upload CLI test report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: autoremesher-${{ env.BUILD_NAME }}-ubuntu-22.04-remeshed_report.txt
           path: autoremesher-${{ env.BUILD_NAME }}-ubuntu-22.04-remeshed_report.txt
       - name: Run AppImage and capture screenshot
         run: |
           set +e
-          chmod +x autoremesher-${{ env.BUILD_NAME }}.AppImage
+          chmod +x autoremesher-${BUILD_NAME}.AppImage
           export DISPLAY=:99
           export XDG_RUNTIME_DIR=/tmp/runtime-root
           mkdir -p "$XDG_RUNTIME_DIR"
@@ -221,22 +240,22 @@ jobs:
           XVFB_PID=$!
           sleep 2
 
-          timeout 12s ./autoremesher-${{ env.BUILD_NAME }}.AppImage > app-run-ubuntu.log 2>&1 &
+          timeout 12s ./autoremesher-${BUILD_NAME}.AppImage > app-run-ubuntu.log 2>&1 &
           APP_PID=$!
           sleep 8
 
-          import -display :99 -window root autoremesher-${{ env.BUILD_NAME }}-ubuntu-22.04.png || true
+          import -display :99 -window root autoremesher-${BUILD_NAME}-ubuntu-22.04.png || true
 
           wait $APP_PID || true
           kill $APP_PID 2>/dev/null || true
           kill $XVFB_PID 2>/dev/null || true
       - name: Upload AppImage screenshot
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: autoremesher-${{ env.BUILD_NAME }}-ubuntu-22.04.png
           path: autoremesher-${{ env.BUILD_NAME }}-ubuntu-22.04.png
       - name: Upload Linux AppImage artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: autoremesher-${{ env.BUILD_NAME }}.AppImage
           path: autoremesher-${{ env.BUILD_NAME }}.AppImage
@@ -245,13 +264,15 @@ jobs:
     name: zip (windows)
     runs-on: windows-2022
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - name: Set up Visual Studio shell
-        uses: egor-tensin/vs-shell@v2
+        uses: egor-tensin/vs-shell@54e4148eac794e4580591c2e0b7750f14b7891fc # v2.2
         with:
           arch: x64
       - name: Install Qt
-        uses: jurplel/install-qt-action@v3
+        uses: jurplel/install-qt-action@b7840a6733f49e2a39c4355260d2375063d39b61 # v3 branch head, after v3.3.0
         with:
           aqtversion: '==2.1.*'
           version: '5.15.2'
@@ -291,39 +312,42 @@ jobs:
         run: |
           cd release
           # Main executable
-          7z a ../autoremesher-${{ env.BUILD_NAME }}-win32-x86_64.zip autoremesher.exe
+          7z a ../autoremesher-${BUILD_NAME}-win32-x86_64.zip autoremesher.exe
           # Plugin directories — pass the directory name (not dir\*) so structure is preserved
           for dir in platforms imageformats styles translations; do
             if [ -d "$dir" ]; then
-              7z a ../autoremesher-${{ env.BUILD_NAME }}-win32-x86_64.zip "$dir"
+              7z a ../autoremesher-${BUILD_NAME}-win32-x86_64.zip "$dir"
             fi
           done
           # All root-level DLLs (Qt + TBB + opengl32sw + ANGLE)
           for f in *.dll; do
             if [ -f "$f" ]; then
-              7z a ../autoremesher-${{ env.BUILD_NAME }}-win32-x86_64.zip "$f"
+              7z a ../autoremesher-${BUILD_NAME}-win32-x86_64.zip "$f"
             fi
           done
           cd ..
           # VC++ runtime DLLs (required on systems without the redistributable installed)
           CRT_DIR=$(ls -d "${VCToolsRedistDir}x64"/Microsoft.VC*.CRT 2>/dev/null | head -1)
           if [ -n "$CRT_DIR" ]; then
-            7z a autoremesher-${{ env.BUILD_NAME }}-win32-x86_64.zip "${CRT_DIR}/msvcp140.dll"
-            7z a autoremesher-${{ env.BUILD_NAME }}-win32-x86_64.zip "${CRT_DIR}/vcruntime140.dll"
+            7z a autoremesher-${BUILD_NAME}-win32-x86_64.zip "${CRT_DIR}/msvcp140.dll"
+            7z a autoremesher-${BUILD_NAME}-win32-x86_64.zip "${CRT_DIR}/vcruntime140.dll"
             # msvcp140_1.dll and vcruntime140_1.dll may not exist in all toolset versions
-            [ -f "${CRT_DIR}/msvcp140_1.dll" ] && 7z a autoremesher-${{ env.BUILD_NAME }}-win32-x86_64.zip "${CRT_DIR}/msvcp140_1.dll" || true
-            [ -f "${CRT_DIR}/vcruntime140_1.dll" ] && 7z a autoremesher-${{ env.BUILD_NAME }}-win32-x86_64.zip "${CRT_DIR}/vcruntime140_1.dll" || true
+            [ -f "${CRT_DIR}/msvcp140_1.dll" ] && 7z a autoremesher-${BUILD_NAME}-win32-x86_64.zip "${CRT_DIR}/msvcp140_1.dll" || true
+            [ -f "${CRT_DIR}/vcruntime140_1.dll" ] && 7z a autoremesher-${BUILD_NAME}-win32-x86_64.zip "${CRT_DIR}/vcruntime140_1.dll" || true
           fi
-          7z l autoremesher-${{ env.BUILD_NAME }}-win32-x86_64.zip
+          7z l autoremesher-${BUILD_NAME}-win32-x86_64.zip
       - name: Checkout test models
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          persist-credentials: false
           repository: alecjacobson/common-3d-test-models
+          # Pinned: the armadillo the packages are tested on stays the same file.
+          ref: 8a4f8642acaf43f9cd7b67858a1502e1055ef202
           path: test-models
       - name: Extract release zip to test directory
         shell: bash
         run: |
-          ZIP_FILE="autoremesher-${{ env.BUILD_NAME }}-win32-x86_64.zip"
+          ZIP_FILE="autoremesher-${BUILD_NAME}-win32-x86_64.zip"
           TEST_DIR="$GITHUB_WORKSPACE/test_release"
           mkdir -p "$TEST_DIR"
           7z x "$GITHUB_WORKSPACE/$ZIP_FILE" -o"$TEST_DIR" -y
@@ -336,8 +360,8 @@ jobs:
           export QT_OPENGL=software
           export QT_QPA_PLATFORM=offscreen
 
-          outputFile="autoremesher-${{ env.BUILD_NAME }}-windows-2022-remeshed.obj"
-          reportFile="autoremesher-${{ env.BUILD_NAME }}-windows-2022-remeshed_report.txt"
+          outputFile="autoremesher-${BUILD_NAME}-windows-2022-remeshed.obj"
+          reportFile="autoremesher-${BUILD_NAME}-windows-2022-remeshed_report.txt"
           logFile="$GITHUB_WORKSPACE/cli-test-output.txt"
           TEST_EXE="$GITHUB_WORKSPACE/test_release/autoremesher.exe"
 
@@ -372,12 +396,12 @@ jobs:
           echo "OK. CLI test passed: $outputFile created"
         shell: bash
       - name: Upload CLI test result
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: autoremesher-${{ env.BUILD_NAME }}-windows-2022-remeshed.obj
           path: autoremesher-${{ env.BUILD_NAME }}-windows-2022-remeshed.obj
       - name: Upload CLI test report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: autoremesher-${{ env.BUILD_NAME }}-windows-2022-remeshed_report.txt
           path: autoremesher-${{ env.BUILD_NAME }}-windows-2022-remeshed_report.txt
@@ -399,16 +423,16 @@ jobs:
           $bitmap = [System.Drawing.Bitmap]::new([System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Width, [System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Height)
           $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
           $graphics.CopyFromScreen(0, 0, 0, 0, $bitmap.Size)
-          $bitmap.Save("$env:GITHUB_WORKSPACE\autoremesher-${{ env.BUILD_NAME }}-windows-2022.png")
+          $bitmap.Save("$env:GITHUB_WORKSPACE\autoremesher-$($env:BUILD_NAME)-windows-2022.png")
           Stop-Process -Name autoremesher -Force -ErrorAction SilentlyContinue
         shell: powershell
       - name: Upload Windows screenshot
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: autoremesher-${{ env.BUILD_NAME }}-windows-2022.png
           path: autoremesher-${{ env.BUILD_NAME }}-windows-2022.png
       - name: Upload Windows zip artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: autoremesher-${{ env.BUILD_NAME }}
           path: autoremesher-${{ env.BUILD_NAME }}-win32-x86_64.zip
@@ -417,7 +441,9 @@ jobs:
     name: DMG (macos)
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - name: Install Qt
         run: |
           HOMEBREW_VERBOSE_USING_DOTS=1 brew reinstall --verbose qt@5
@@ -515,12 +541,12 @@ jobs:
             --window-size 660 300 \
             --icon "autoremesher.app" 140 145 \
             --icon "Applications" 520 145 \
-            "${GITHUB_WORKSPACE}/autoremesher-${{ env.BUILD_NAME }}.dmg" \
+            "${GITHUB_WORKSPACE}/autoremesher-${BUILD_NAME}.dmg" \
             "${STAGING_DIR}"
           rm -rf "${STAGING_DIR}"
       - name: Mount DMG for testing
         run: |
-          DMG_PATH="${GITHUB_WORKSPACE}/autoremesher-${{ env.BUILD_NAME }}.dmg"
+          DMG_PATH="${GITHUB_WORKSPACE}/autoremesher-${BUILD_NAME}.dmg"
           if [ ! -f "$DMG_PATH" ]; then
             echo "ERROR: DMG not found at $DMG_PATH"
             ls -la "${GITHUB_WORKSPACE}/"
@@ -531,9 +557,12 @@ jobs:
           echo "DMG mounted at /Volumes/AutoRemesher"
           ls -la /Volumes/AutoRemesher/
       - name: Checkout test models
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          persist-credentials: false
           repository: alecjacobson/common-3d-test-models
+          # Pinned: the armadillo the packages are tested on stays the same file.
+          ref: 8a4f8642acaf43f9cd7b67858a1502e1055ef202
           path: test-models
       - name: Run CLI test with armadillo.obj (from DMG)
         run: |
@@ -550,28 +579,28 @@ jobs:
 
           QT_QPA_PLATFORM=offscreen "$DMG_APP/Contents/MacOS/autoremesher" \
             --input test-models/data/armadillo.obj \
-            --output autoremesher-${{ env.BUILD_NAME }}-macos-latest-remeshed.obj \
-            --report autoremesher-${{ env.BUILD_NAME }}-macos-latest-remeshed_report.txt \
+            --output autoremesher-${BUILD_NAME}-macos-latest-remeshed.obj \
+            --report autoremesher-${BUILD_NAME}-macos-latest-remeshed_report.txt \
             --target-quads 50000 \
             --edge-scaling 1.0 \
             --sharp-edge 90.0 \
             --smooth-normal 0.0 \
             --adaptivity 1.0
 
-          if [ ! -f autoremesher-${{ env.BUILD_NAME }}-macos-latest-remeshed.obj ]; then
+          if [ ! -f autoremesher-${BUILD_NAME}-macos-latest-remeshed.obj ]; then
             echo "ERROR: Output file was not created"
             hdiutil detach /Volumes/AutoRemesher -force || true
             exit 1
           fi
           echo "✓ CLI test passed: remeshed .obj created"
-          ls -lh autoremesher-${{ env.BUILD_NAME }}-macos-latest-remeshed.obj
+          ls -lh autoremesher-${BUILD_NAME}-macos-latest-remeshed.obj
       - name: Upload CLI test result
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: autoremesher-${{ env.BUILD_NAME }}-macos-latest-remeshed.obj
           path: autoremesher-${{ env.BUILD_NAME }}-macos-latest-remeshed.obj
       - name: Upload CLI test report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: autoremesher-${{ env.BUILD_NAME }}-macos-latest-remeshed_report.txt
           path: autoremesher-${{ env.BUILD_NAME }}-macos-latest-remeshed_report.txt
@@ -586,19 +615,19 @@ jobs:
 
           open "$DMG_APP"
           sleep 12
-          screencapture autoremesher-${{ env.BUILD_NAME }}-macos-latest.png || true
+          screencapture autoremesher-${BUILD_NAME}-macos-latest.png || true
           killall autoremesher || true
       - name: Detach DMG
         if: always()
         run: |
           hdiutil detach /Volumes/AutoRemesher -force || echo "Note: DMG detach completed (or was not mounted)"
       - name: Upload macOS screenshot
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: autoremesher-${{ env.BUILD_NAME }}-macos-latest.png
           path: autoremesher-${{ env.BUILD_NAME }}-macos-latest.png
       - name: Upload macOS DMG artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: autoremesher-${{ env.BUILD_NAME }}.dmg
           path: autoremesher-${{ env.BUILD_NAME }}.dmg

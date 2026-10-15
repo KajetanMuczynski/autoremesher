@@ -128,8 +128,15 @@ Template:
 - Measured: Suzanne 5k on master: Fast 5091 quads / 4 non-quads / 5 folded, Quality 4769 / 3 / 2 (4763 / 3 / 2 with the fix), eye loops open, head UV flips 141 / 9624 (Fast) and 127 / 19 990 (Quality). A/B: 63/90 byte-identical; 26 runs with non-manifold edges (316 in all) → 0; quads −0.1 to −1.7 %, boundary edges unchanged.
 - Next: holes in closed inputs (rest of 2.13); remaining non-quads/folds are 4.1/4.5 + 3.3.
 
+## 2026-10-15 · Claude (cloud thread "Supply-chain audit") · CI and dependency supply-chain audit
+- Repos/commits: fork master `6f68495` → PR #24 (ci(ci), draft).
+- Did: audited both workflows, every fetched or bundled library and tool, and the add-on zip; checked recent advisories (actions-cool tag hijack May/Sep 2026, Megalodon, PyPI Shai-Hulud copycat, Qt 5.15 CVEs, Homebrew qt@5 deprecation). PR #24 pins all actions to commit SHAs, sets a read-only token, drops persisted checkout credentials, pins the test-model repo, checks the Blender archive's SHA-256 and adds Dependabot for actions. Report: project files `research/supply-chain-audit-2026-10-15.md`.
+- Found: no compromise; no secrets or `pull_request_target`. Open risks: AppImage built with unverified "continuous" linuxdeployqt/appimagetool; AppImage and Windows zip ship Qt 5.15.2; install-qt-action v3 still runs a mutable inner ref (v4.4.1 fixes it); Homebrew qt@5 disabled 2027-05-19.
+- Measured: zizmor 1.31 offline 31 high + 19 medium → 0; vendored Eigen byte-identical to 5.0.1, meshoptimizer `.cpp` identical to v1.2.
+- Next: pin and checksum the AppImage tools; install-qt-action v4.4.1; hashed CI requirements; Kajetan's repo settings list in the report.
+
 ## 2026-10-15 · Claude (cloud thread "Holes in closed inputs") · TODO 2.13 holes and pinches fixed
-- Repos/commits: fork master `6f68495` → PR (fix(extraction), TODO 2.13).
+- Repos/commits: fork master `6f68495` → PR #25 (fix(extraction), TODO 2.13).
 - Did: per-step probe of the extractor (topology after each step, the isoline graph, cycles the side test rejects) on csg_bracket, sword, boat and plane; fixed the two repair defects below; added the corner-hole and pinch cases to `tests/hole_filling_test.cpp` (both fail without the fix); A/B on 72 corpus runs (18 meshes, 2k/10k, Fast and Quality) and 78 closed procedural runs (thin ellipsoids, tori; 150/500/2000 quads).
 - Found: the map folds on these inputs (5–8 % of T flipped), so `extractMesh` leaves 40–80 holes and pinched pieces per island. `fixHoleWithQuads` gave up on loops bent around a fold or corner (sword 2k Fast kept an 8-, later 6-edge hole), and `removeNonManifoldFaces` missed pinches between closed fans. The cleanup passes never change χ. The remaining genus errors are extra handles already in the extracted faces, one per fold (csg_bracket: bolt-hole rims), from `extractMesh` taking short cycles as faces.
 - Measured: master: 1 closed run with a hole, 10 with pinched vertices, 19 with wrong χ. Fix: 61/72 corpus and 75/78 closed runs byte-identical; holes 1 → 0, pinches 10 → 0, wrong χ 19 → 14; thin torus 150 keeps its handle (Hausdorff 61 → 3.9 % diag). Changed runs: quads within ±1 %, SJ ≤ 0 quads lower in 9 of 11, equal in 1, higher on sword 2k Fast (63 → 68).
