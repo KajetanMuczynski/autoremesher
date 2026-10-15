@@ -19,6 +19,7 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
+#include "cli/stdincontrol.h"
 #include "mainwindow.h"
 #include "preferences.h"
 #include "theme.h"
@@ -39,14 +40,6 @@
 #include <QTranslator>
 #include <QtGlobal>
 #include <iostream>
-#include <string>
-#include <thread>
-#ifdef _WIN32
-#include <windows.h>
-#else
-#include <cerrno>
-#include <unistd.h>
-#endif
 
 struct HeadlessParams {
     QString inputPath;
@@ -64,54 +57,6 @@ struct HeadlessParams {
 
 // Lives until exit, so the detached stdin reader never outlives it.
 static AutoRemesher::CancelToken g_stdinCancelToken;
-
-// Reads stdin with the system call, not std::cin: glibc's exit() takes the
-// lock of every stdio stream, and a reader blocked inside std::getline holds
-// stdin's lock, so the process would hang on exit.
-static bool readStdinChunk(std::string& chunk)
-{
-    char buffer[256];
-#ifdef _WIN32
-    DWORD count = 0;
-    if (!ReadFile(GetStdHandle(STD_INPUT_HANDLE), buffer, sizeof(buffer), &count, nullptr) || 0 == count)
-        return false;
-#else
-    ssize_t count;
-    do {
-        count = read(STDIN_FILENO, buffer, sizeof(buffer));
-    } while (count < 0 && EINTR == errno);
-    if (count <= 0)
-        return false;
-#endif
-    chunk.assign(buffer, (size_t)count);
-    return true;
-}
-
-// A host that started this process (the Blender add-on) cancels the run by
-// writing "cancel" to stdin; closing stdin, e.g. because the host died,
-// cancels as well.
-static void startStdinCancelReader()
-{
-    std::thread([] {
-        std::string pending;
-        std::string chunk;
-        while (readStdinChunk(chunk)) {
-            pending += chunk;
-            size_t newline;
-            while (std::string::npos != (newline = pending.find('\n'))) {
-                std::string line = pending.substr(0, newline);
-                pending.erase(0, newline + 1);
-                if (!line.empty() && '\r' == line.back())
-                    line.pop_back();
-                if ("cancel" == line) {
-                    g_stdinCancelToken.requestCancel();
-                    return;
-                }
-            }
-        }
-        g_stdinCancelToken.requestCancel();
-    }).detach();
-}
 
 static HeadlessParams parseHeadlessArgs(QCommandLineParser& parser)
 {
@@ -298,7 +243,7 @@ int main(int argc, char** argv)
         mainWindow->setHeadlessReportJsonPath(params.reportJsonPath);
         if (params.stdinControl) {
             mainWindow->setHeadlessCancelToken(&g_stdinCancelToken);
-            startStdinCancelReader();
+            AutoRemesher::Cli::startStdinCancelReader(&g_stdinCancelToken);
         }
         mainWindow->runHeadless();
 
