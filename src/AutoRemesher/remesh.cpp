@@ -98,7 +98,6 @@ namespace {
         };
         std::vector<EdgeUse> uses;
         uses.reserve(mesh.faceIndices.size());
-        std::vector<Vector3> faceNormals(faceCount);
         std::vector<size_t> parents(vertexCount);
         std::iota(parents.begin(), parents.end(), (size_t)0);
         std::vector<uint8_t> used(vertexCount, 0);
@@ -136,9 +135,21 @@ namespace {
                 if (i > 0 && i + 1 < size)
                     normal += Vector3::crossProduct(from - origin, to - origin);
             }
-            faceNormals[face] = normal;
-            if (repeated || 0.5 * normal.length() <= 1e-12 * longestEdgeSquared)
+            if (repeated || 0.5 * normal.length() <= 1e-12 * longestEdgeSquared) {
                 ++report->degenerateFaceCount;
+            } else {
+                // Folded: some corner turns against the area vector, i.e. its
+                // scaled Jacobian is <= 0, so the face is non-convex or twisted.
+                for (size_t i = 0; i < size; ++i) {
+                    const Vector3 corner = position(corners[i]);
+                    const Vector3 next = position(corners[(i + 1) % size]);
+                    const Vector3 previous = position(corners[(i + size - 1) % size]);
+                    if (Vector3::dotProduct(Vector3::crossProduct(next - corner, previous - corner), normal) <= 0.0) {
+                        ++report->foldedFaceCount;
+                        break;
+                    }
+                }
+            }
 
             for (size_t i = 0; i < size; ++i) {
                 const uint32_t first = corners[i];
@@ -159,7 +170,6 @@ namespace {
         std::sort(uses.begin(), uses.end(), [](const EdgeUse& a, const EdgeUse& b) {
             return a.key != b.key ? a.key < b.key : a.face < b.face;
         });
-        std::vector<Vector3> neighborNormals(faceCount);
         for (size_t begin = 0; begin < uses.size();) {
             size_t end = begin + 1;
             while (end < uses.size() && uses[end].key == uses[begin].key)
@@ -172,17 +182,10 @@ namespace {
                 const EdgeUse& b = uses[begin + 1];
                 if (a.forward == b.forward)
                     ++report->orientationFlipCount;
-                neighborNormals[a.face] += faceNormals[b.face];
-                neighborNormals[b.face] += faceNormals[a.face];
             } else {
                 ++report->nonManifoldEdgeCount;
             }
             begin = end;
-        }
-
-        for (size_t face = 0; face < faceCount; ++face) {
-            if (Vector3::dotProduct(faceNormals[face], neighborNormals[face]) < 0.0)
-                ++report->foldedFaceCount;
         }
 
         for (size_t vertex = 0; vertex < vertexCount; ++vertex) {
