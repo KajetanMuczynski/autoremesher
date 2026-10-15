@@ -458,9 +458,12 @@ jobs:
             for dep in $(otool -L "$lib" | awk 'NR > 1 { print $1 }'); do
               case "$dep" in
                 /System/*|/usr/lib/*|*/"$(basename "$lib")") ;;  # macOS, or its own id
-                @executable_path/../Frameworks/*)
-                  [ -e "$app/Contents/Frameworks/${dep#@executable_path/../Frameworks/}" ] || {
-                    echo "ERROR: $lib needs $dep, which is not in the bundle"; exit 1; } ;;
+                @executable_path/*|@loader_path/*)
+                  case "$dep" in
+                    @executable_path/*) target="$app/Contents/MacOS/${dep#@executable_path/}" ;;
+                    *) target="$(dirname "$lib")/${dep#@loader_path/}" ;;
+                  esac
+                  [ -e "$target" ] || { echo "ERROR: $lib needs $dep, which is not in the bundle"; exit 1; } ;;
                 *) echo "ERROR: $lib links $dep outside the bundle"; exit 1 ;;
               esac
             done
