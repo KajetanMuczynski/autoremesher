@@ -139,6 +139,9 @@ INCLUDEPATH += include
 
 SOURCES += src/main.cpp
 
+SOURCES += src/cli/stdincontrol.cpp
+HEADERS += src/cli/stdincontrol.h
+
 SOURCES += src/logbrowser.cpp
 HEADERS += src/logbrowser.h
 
