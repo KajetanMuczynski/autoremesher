@@ -17,7 +17,7 @@
 
 # Build the remesher CLI and the installable add-on zip with the CLI bundled
 # for this machine, then print the zip's path. Linux and macOS; Windows builds
-# come from CI (.github/workflows/addon.yml). Run from anywhere:
+# come from CI (the addon jobs of .github/workflows/ci.yml). Run from anywhere:
 #
 #     sh addon/package.sh
 #

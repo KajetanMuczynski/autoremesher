@@ -56,12 +56,19 @@ Blender add-on (`addon/`, working name Quadami): `python addon/package.py --cli-
 builds the extension zip with the CLI bundled; see `addon/README.md`.
 
 CI (`.github/workflows/`):
-- `development.yml` (PRs, push to master): clang-format check (`ci/lint.sh`, latest brew clang-format
-  on macOS) and `core-tests` (the `tests/` targets above).
-- `build.yml` (push and PR, Ubuntu 24.04): builds the qmake app and `ar_bench`, then runs
-  `ci/smoke_test.sh <binary>` on both (UV sphere from `ci/make_sphere.py`, accepts 1,200-2,400 quads).
-- `addon.yml` (push only): CLI on Linux and Windows, worker tests, packages the zip and installs it
-  into a real Blender (4.2 LTS on Linux, 5.2 on Windows).
+- `ci.yml` (every PR, push to master, manual run): all checks in one workflow. Its last job,
+  **CI passed**, is green only if every other job succeeded; it is the one check branch protection
+  requires. Branch pushes without a PR get no run (use Actions > ci > Run workflow).
+  - `format`: `ci/lint.sh` (src/ and tests/) with clang-format pinned to 23.1.3 (pip); bump on purpose.
+  - `core (linux|macos)`: CMake Release build with tests, `ctest --no-tests=error`, then
+    `ci/output_gate.py` (procedural sphere, torus, box, open tube, two islands; fails on exit status,
+    quads outside 0.6-1.5x target, >2 % non-quads, any non-manifold edge, report/OBJ mismatch;
+    folded faces and empty islands are reported in the job summary, not gated yet).
+  - `qt-app (linux)`: qmake app and `ar_bench`, `ci/smoke_test.sh` on both (1,200-2,400 quads).
+  - `addon (linux-x64|windows-x64)`: CLI, worker tests, zip installed into a real Blender
+    (4.2 LTS on Linux, 5.2 on Windows).
+- `release.yml` (upstream's packaging: AppImage, Windows zip, macOS DMG, armadillo at 50k quads):
+  push to master and tags only, not on PRs.
 
 Running the binary with no args opens the GUI. The core needs `setTargetTriangleCount(n > 0)` or
 `remesh()` fails.

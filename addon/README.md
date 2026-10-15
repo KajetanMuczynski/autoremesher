@@ -193,7 +193,7 @@ add-on, runs the worker and builds the result object, then checks counts and
 transform. Background mode has no window, so the modal operator, the panel,
 Esc and the progress display can only be checked by hand in the UI.
 
-CI (`.github/workflows/addon.yml`) runs all of it on Ubuntu 24.04 (Blender
+CI (the `addon` jobs of `.github/workflows/ci.yml`) runs all of it on Ubuntu 24.04 (Blender
 4.2 LTS, the oldest supported) and Windows (MSVC, Blender 5.2): CMake build,
 DLL check (Windows), CLI argument checks, the worker tests, packaging,
 `blender --command extension validate` and `install-file` on the zip, then
