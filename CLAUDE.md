@@ -68,7 +68,9 @@ CI (`.github/workflows/`):
   - `addon (linux-x64|windows-x64)`: CLI, worker tests, zip installed into a real Blender
     (4.2 LTS on Linux, 5.2 on Windows).
 - `release.yml` (upstream's packaging: AppImage, Windows zip, macOS DMG, armadillo at 50k quads):
-  push to master and tags only, not on PRs.
+  push to master and tags, and PRs that change release.yml (files named `pr<N>` there). Not part of
+  **CI passed**. The macOS DMG bundles the offscreen Qt platform plugin, so its headless CLI check
+  runs with `QT_QPA_PLATFORM=offscreen`.
 
 Running the binary with no args opens the GUI. The core needs `setTargetTriangleCount(n > 0)` or
 `remesh()` fails.
