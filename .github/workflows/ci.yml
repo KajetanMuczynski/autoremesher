@@ -1,0 +1,274 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Every check a change to master must pass, in one workflow, so one job ("CI passed") can
+# stand for all of them in branch protection. It runs on every pull request (any base
+# branch), on pushes to master, and by hand (Actions > ci > Run workflow) for a branch
+# without a PR. release.yml (packaging) is separate and runs on master and tags only.
+#
+# GitHub starts no pull_request run while a PR has merge conflicts, so a conflicted PR
+# shows "CI passed" as missing, never as green.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  format:
+    name: format (clang-format 23)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      # Pinned: clang-format releases disagree on some layouts, so "latest" can turn a
+      # formatted tree red. Bump deliberately, together with any reformat it needs.
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install clang-format
+        run: python -m pip install clang-format==23.1.3
+      - name: Run clang-format
+        run: sh ci/lint.sh
+      - name: Check for changes
+        run: git diff --ignore-space-at-eol --exit-code
+
+  # The core tests and the output gate, on the same Release build of autoremesher_core.
+  # macOS runs it because the shipped DMG builds there with Apple clang and nothing else
+  # on a PR does; Windows builds the core in the addon job.
+  core:
+    name: core (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            os: ubuntu-24.04
+          - name: macos
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            sudo apt-get update
+            sudo apt-get install -y cmake libtbb-dev
+          else
+            brew install tbb
+          fi
+      - name: Build the core, CLI and tests
+        run: |
+          cmake -S . -B build/core -DCMAKE_BUILD_TYPE=Release -DAUTOREMESHER_BUILD_TESTS=ON
+          cmake --build build/core --parallel 4
+      # --no-tests=error: a configuration that registers no tests fails instead of passing.
+      # A registered test whose executable is missing fails as "Not Run".
+      - name: Core tests
+        run: ctest --test-dir build/core --output-on-failure --no-tests=error
+      - name: Output gate
+        run: python3 ci/output_gate.py build/core/autoremesher-cli build/gate
+      - name: Upload gate output
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: gate-output-${{ matrix.name }}
+          path: build/gate/
+          if-no-files-found: ignore
+
+  # The Qt app (qmake) and the ar_bench driver, each smoke-tested on a sphere.
+  qt-app:
+    name: qt-app (linux)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            build-essential cmake qt5-qmake qtbase5-dev libqt5opengl5-dev qttools5-dev-tools \
+            libqt5svg5-dev libtbb-dev libgl1-mesa-dev
+          g++ --version | head -n 1; qmake --version | tail -n 1; cmake --version | head -n 1
+
+      - name: Build Qt app
+        run: |
+          mkdir -p build/app
+          cd build/app
+          qmake ../../autoremesher.pro
+          make -j"$(nproc)"
+
+      - name: Build Qt-free core (ar_bench)
+        run: |
+          cmake -S tools/bench/bench -B build/core -DAR_SOURCE_DIR="$GITHUB_WORKSPACE"
+          cmake --build build/core -j"$(nproc)"
+
+      - name: Smoke test, Qt app headless
+        run: ci/smoke_test.sh build/app/autoremesher build/smoke-app
+
+      - name: Smoke test, core
+        run: ci/smoke_test.sh build/core/ar_bench build/smoke-core
+
+      - name: Upload smoke test output
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: smoke-output
+          path: |
+            build/smoke-app/
+            build/smoke-core/
+          if-no-files-found: ignore
+
+  # The Qt-free CLI (autoremesher-cli) and the Blender add-on on Linux and Windows:
+  # build the CLI with CMake, run the add-on's worker tests against it, package
+  # the extension zip with the CLI bundled, install that zip into a real Blender
+  # and remesh a sphere through it in background mode.
+  # The Windows zip is uploaded as the artifact addon-windows-x64.
+  addon:
+    name: addon (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux checks the oldest Blender the manifest allows, Windows a
+          # current release (what a new install gets).
+          - os: ubuntu-24.04
+            platform: linux-x64
+            blender: 4.2.23
+            blender_file: blender-4.2.23-linux-x64.tar.xz
+          - os: windows-latest
+            platform: windows-x64
+            blender: 5.2.2
+            blender_file: blender-5.2.2-windows-x64.zip
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    env:
+      SOURCE_COMMIT: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install numpy pefile
+          if [ "$RUNNER_OS" = Linux ]; then
+            sudo apt-get update
+            # libtbb-dev for the build; the X and GL libraries Blender links even in background mode.
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libtbb-dev \
+              libx11-6 libxi6 libxxf86vm1 libxfixes3 libxrender1 libxkbcommon0 libsm6 libgl1 libegl1
+          fi
+          cmake --version | head -n 1
+
+      # Windows: oneTBB is built from source and linked statically, with the
+      # static C++ runtime (/MT); see CMakeLists.txt.
+      - name: Build autoremesher-cli
+        run: |
+          cmake -S . -B build/cli -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/cli --config Release --parallel 4
+          cmake --install build/cli --config Release --prefix build/cli-install
+          ls -l build/cli-install/bin build/cli-install/licenses
+          cli=build/cli-install/bin/autoremesher-cli
+          if [ "$RUNNER_OS" = Windows ]; then cli="$cli.exe"; fi
+          echo "CLI=$cli" >> "$GITHUB_ENV"
+
+      - name: Check the DLLs it needs
+        if: runner.os == 'Windows'
+        run: python ci/check_dll_imports.py "$CLI"
+
+      - name: CLI arguments
+        run: |
+          "$CLI" --version
+          "$CLI" --help
+          status=0; "$CLI" --target-quads 10 || status=$?
+          [ "$status" = 1 ] || { echo "expected exit status 1 without --input, got $status"; exit 1; }
+
+      # Includes the 16k-triangle sphere remesh (1,200-2,400 quads for a target
+      # of 2,000), cancel through stdin and a temporary folder with non-ASCII
+      # characters in its path.
+      - name: Worker tests
+        run: |
+          export AUTOREMESHER_EXECUTABLE="$CLI"
+          python -m unittest discover -s addon/tests -v
+
+      - name: Package the extension
+        id: package
+        run: |
+          zip=$(python addon/package.py --cli-prefix build/cli-install --platform ${{ matrix.platform }})
+          python -c "import sys, zipfile; [print(i.filename, i.file_size) for i in zipfile.ZipFile(sys.argv[1]).infolist()]" "$zip"
+          echo "zip=$zip" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Blender ${{ matrix.blender }}
+        id: blender-cache
+        uses: actions/cache@v5
+        with:
+          path: blender-download/${{ matrix.blender_file }}
+          key: ${{ matrix.blender_file }}
+
+      - name: Download Blender ${{ matrix.blender }}
+        if: steps.blender-cache.outputs.cache-hit != 'true'
+        run: |
+          series=$(echo "${{ matrix.blender }}" | cut -d. -f1-2)
+          mkdir -p blender-download
+          curl -fsSL --retry 3 -o "blender-download/${{ matrix.blender_file }}" \
+            "https://download.blender.org/release/Blender$series/${{ matrix.blender_file }}"
+
+      - name: Unpack Blender
+        run: |
+          mkdir -p blender
+          case "${{ matrix.blender_file }}" in
+            *.zip) 7z x -y -oblender "blender-download/${{ matrix.blender_file }}" > /dev/null ;;
+            *) tar -xJf "blender-download/${{ matrix.blender_file }}" -C blender ;;
+          esac
+          exe=$(find blender -maxdepth 2 -type f \( -name blender.exe -o -name blender \) | head -n 1)
+          echo "BLENDER=$PWD/$exe" >> "$GITHUB_ENV"
+
+      # Installs the zip the way "Install from Disk..." does, then runs the
+      # installed copy with its bundled remesher (no AUTOREMESHER_EXECUTABLE).
+      - name: Install the zip in Blender and remesh
+        run: |
+          "$BLENDER" --version | head -n 1
+          "$BLENDER" --command extension validate "${{ steps.package.outputs.zip }}"
+          "$BLENDER" --command extension install-file -r user_default -e "${{ steps.package.outputs.zip }}"
+          "$BLENDER" -b --factory-startup --python-exit-code 1 \
+            --python addon/tests/blender_smoke.py -- --installed
+
+      - name: Upload the Windows extension zip
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v7
+        with:
+          name: addon-windows-x64
+          path: ${{ steps.package.outputs.zip }}
+          if-no-files-found: error
+
+  # The one check branch protection requires. Green only when every job above
+  # succeeded: a failed, cancelled or skipped job turns it red.
+  ci-passed:
+    name: CI passed
+    if: always()
+    needs: [format, core, qt-app, addon]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check every job
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS" | python3 -c '
+          import json, sys
+          bad = {job: r["result"] for job, r in json.load(sys.stdin).items() if r["result"] != "success"}
+          for job, result in sorted(bad.items()):
+              print("%s: %s" % (job, result))
+          sys.exit(1 if bad else 0)'
