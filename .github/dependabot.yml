@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Weekly PRs that bump the pinned GitHub Actions (commit SHA and the version comment).
+# One grouped PR per week, so the queue stays short; each runs the full CI like any PR.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "ci(ci)"
