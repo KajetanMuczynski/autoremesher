@@ -434,29 +434,31 @@ jobs:
       - name: Generate DMG
         run: |
           export PATH="/usr/local/opt/qt@5/bin:$PATH"
-          # deploy Qt frameworks into the app bundle
-          macdeployqt ${GITHUB_WORKSPACE}/autoremesher.app
           # macdeployqt bundles only the cocoa platform plugin. The CLI check below runs
           # with the offscreen one (cocoa can fail to load on a runner without a window
-          # session), so bundle it too and point its Qt references into the bundle.
+          # session, and a headless run shouldn't need one), so the offscreen plugin is
+          # bundled too: -executable makes macdeployqt copy its libraries (QtGui, glib,
+          # freetype, ...) and point it at them, like the app itself.
           app="${GITHUB_WORKSPACE}/autoremesher.app"
           plugin="$app/Contents/PlugIns/platforms/libqoffscreen.dylib"
+          mkdir -p "$(dirname "$plugin")"
           cp "$(brew --prefix qt@5)/plugins/platforms/libqoffscreen.dylib" "$plugin"
           chmod u+w "$plugin"
-          for dep in $(otool -L "$plugin" | awk 'NR > 1 && $1 ~ /\/Qt[A-Za-z]*\.framework\// { print $1 }'); do
-            tail=$(echo "$dep" | sed -E 's#.*/(Qt[A-Za-z]*\.framework/)#\1#')
-            install_name_tool -change "$dep" "@executable_path/../Frameworks/$tail" "$plugin"
-          done
+          # deploy Qt frameworks into the app bundle
+          macdeployqt "$app" -executable="$plugin"
           otool -L "$plugin"
-          # Everything it links must now be in the bundle or part of macOS.
-          for dep in $(otool -L "$plugin" | awk 'NR > 1 { print $1 }'); do
-            case "$dep" in
-              /System/*|/usr/lib/*|*libqoffscreen.dylib) ;;  # macOS, or the plugin's own id
-              @executable_path/../Frameworks/*)
-                [ -e "$app/Contents/Frameworks/${dep#@executable_path/../Frameworks/}" ] || {
-                  echo "ERROR: $dep is not in the bundle"; exit 1; } ;;
-              *) echo "ERROR: libqoffscreen.dylib links $dep outside the bundle"; exit 1 ;;
-            esac
+          # The plugin and every plain library deployed for it must link only the bundle or macOS.
+          for lib in "$plugin" "$app"/Contents/Frameworks/*.dylib; do
+            [ -e "$lib" ] || continue
+            for dep in $(otool -L "$lib" | awk 'NR > 1 { print $1 }'); do
+              case "$dep" in
+                /System/*|/usr/lib/*|*/"$(basename "$lib")") ;;  # macOS, or its own id
+                @executable_path/../Frameworks/*)
+                  [ -e "$app/Contents/Frameworks/${dep#@executable_path/../Frameworks/}" ] || {
+                    echo "ERROR: $lib needs $dep, which is not in the bundle"; exit 1; } ;;
+                *) echo "ERROR: $lib links $dep outside the bundle"; exit 1 ;;
+              esac
+            done
           done
           # ad-hoc sign so Gatekeeper doesn't report the app as damaged
           codesign --force --deep --sign - ${GITHUB_WORKSPACE}/autoremesher.app
