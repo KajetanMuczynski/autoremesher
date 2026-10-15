@@ -30,7 +30,7 @@ Qt app, out-of-tree (`build/` is gitignored), no extra flags (~2.5 min on 4 core
     mkdir -p build/app && cd build/app && qmake ../../autoremesher.pro && make -j4
     # -> build/app/autoremesher (links system libtbb.so.12; the vendored thirdparty/tbb is Windows-only)
 
-Headless CLI (what the Blender bridge calls); `offscreen` avoids needing a display:
+Headless mode of the Qt app (what the old autoremesher-blender-bridge calls; our add-on uses `autoremesher-cli` below); `offscreen` avoids needing a display:
 
     QT_QPA_PLATFORM=offscreen build/app/autoremesher -i in.obj -o out.obj --target-quads 2000
     # 16k-tri UV sphere -> 1624 quads, 0 non-quads, 0.55 s. Other flags: --report, --edge-scaling,
@@ -39,8 +39,24 @@ Headless CLI (what the Blender bridge calls); `offscreen` avoids needing a displ
 Qt-free core and benchmarks: `tools/bench/` (`ar_bench` driver, corpus, metrics; see its README).
 `tools/bench/build.sh <work-dir>` builds the app and the bench drivers out of tree.
 
-CI (`.github/workflows/build.yml`, Ubuntu 24.04): builds the app and `ar_bench`, then runs
-`ci/smoke_test.sh <binary>` on both (UV sphere from `ci/make_sphere.py`, accepts 1,200-2,400 quads).
+Qt-free core and CLI with CMake (top-level `CMakeLists.txt`, target `autoremesher_core` + `autoremesher-cli`,
+the Blender add-on's worker; Windows builds static oneTBB and /MT, so no DLLs):
+
+    cmake -S . -B build/cli -DCMAKE_BUILD_TYPE=Release && nice -n 10 cmake --build build/cli --parallel 2
+
+The core source list exists three times: `autoremesher.pro` (app), top-level `CMakeLists.txt`
+(explicit list) and `tools/bench/bench/CMakeLists.txt` (glob, kept separate on purpose so the
+bench can build other checkouts for A/B). A new core `.cpp` goes into the first two.
+
+Blender add-on (`addon/`, working name Quadami): `python addon/package.py --cli-prefix <install-prefix>`
+builds the extension zip with the CLI bundled; see `addon/README.md`.
+
+CI (`.github/workflows/`):
+- `development.yml`: clang-format check (`ci/lint.sh`, latest brew clang-format on macOS) on every PR.
+- `build.yml` (push and PR, Ubuntu 24.04): builds the qmake app and `ar_bench`, then runs
+  `ci/smoke_test.sh <binary>` on both (UV sphere from `ci/make_sphere.py`, accepts 1,200-2,400 quads).
+- `addon.yml` (push only): CLI on Linux and Windows, worker tests, packages the zip and installs it
+  into a real Blender (4.2 LTS on Linux, 5.2 on Windows).
 
 Running the binary with no args opens the GUI. The core needs `setTargetTriangleCount(n > 0)` or
 `remesh()` fails.

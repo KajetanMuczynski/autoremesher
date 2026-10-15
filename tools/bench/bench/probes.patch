@@ -1,5 +1,5 @@
 diff --git a/src/AutoRemesher/autoremesher.cpp b/src/AutoRemesher/autoremesher.cpp
-index 51ff308a..3955b50e 100644
+index c2099fd6..e20a7fe2 100644
 --- a/src/AutoRemesher/autoremesher.cpp
 +++ b/src/AutoRemesher/autoremesher.cpp
 @@ -24,6 +24,7 @@
@@ -10,14 +10,14 @@ index 51ff308a..3955b50e 100644
  #include <algorithm>
  #include <atomic>
  #include <chrono>
-@@ -519,6 +520,7 @@ ProgressHandler AutoRemesher::makeStageProgress(size_t islandIndex, float begin,
+@@ -531,6 +532,7 @@ ProgressHandler AutoRemesher::makeStageProgress(size_t islandIndex, float begin,
                 lastTime = std::chrono::high_resolution_clock::now(),
                 lastName = (const char*)nullptr,
                 lastOrder = 0.0f](float fraction, const char* name) mutable {
 +        AR_PROBE_SET_STEP(name);
-         const auto now = std::chrono::high_resolution_clock::now();
-         if (nullptr != lastName) {
-             accumulateStageTime(lastName, lastOrder,
+         // Every stage reports between its steps, so this is where a running
+         // island notices a cancellation.  The stages only hold memory through
+         // RAII here, which the unwinding frees.
 diff --git a/src/AutoRemesher/constrainedleastsquares.cpp b/src/AutoRemesher/constrainedleastsquares.cpp
 index 1617e1bc..162ce370 100644
 --- a/src/AutoRemesher/constrainedleastsquares.cpp
