@@ -109,6 +109,11 @@ Running the binary with no args opens the GUI. The core needs `setTargetTriangle
   check it on GitHub. Never report from memory.
 - Commit trailer: `Co-Authored-By: Claude <noreply@anthropic.com>` (short form, Kajetan's choice).
 
+## Design critique (Kajetan, 2026-10-19)
+- When designing something new (plan, workflow, architecture, CI, feature), don't just agree with a good idea.
+  Say what Kajetan may have missed or should weigh, whether the idea is good enough, and what would do it better.
+- Put it in the reply, next to the work, not as a separate question. Raise real gaps only, not filler objections.
+
 ## Keep the machine cool
 Kajetan's laptop has 4 cores and runs hot. The heavy part is the release build: `-O3 -flto` with
 `make -j4` (or `-j$(nproc)`) holds all cores at 100 % for minutes, and the LTO link is one long
