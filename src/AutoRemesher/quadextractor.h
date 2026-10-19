@@ -107,8 +107,16 @@ public:
 
     // The hole-filling step of extract() on its own: fills the holes of a
     // polygon mesh as extract() does, leaving open the loops that follow
-    // inputBoundary (nullptr fills every hole up to 65 edges).
-    static void fillHoles(const std::vector<Vector3>& vertices,
+    // inputBoundary (nullptr fills every hole up to 65 edges).  A hole the
+    // quads can't close gets a vertex at its center, appended to vertices.
+    static void fillHoles(std::vector<Vector3>* vertices,
+        std::vector<std::vector<size_t>>* polygons,
+        const Boundary* inputBoundary = nullptr);
+
+    // The whole repair step of extract() on its own: fills the holes, then
+    // drops the faces at non-manifold vertices and every piece but the
+    // largest, and fills the holes that leaves.
+    static void repairSurface(std::vector<Vector3>* vertices,
         std::vector<std::vector<size_t>>* polygons,
         const Boundary* inputBoundary = nullptr);
 
@@ -164,10 +172,17 @@ private:
     // returns true when it closed it.  Each quad it adds takes two vertices
     // off hole, so on false hole is what is still open.
     bool fixHoleWithQuads(std::vector<size_t>& hole, bool checkScore = true);
+    // Closes the hole with a fan of quads (and a triangle on an odd loop)
+    // around a new vertex at its center.  Always succeeds, so a hole the
+    // quads above can't close is not left open.
+    void fixHoleAroundCenter(const std::vector<size_t>& hole);
     bool testPointInTriangle(const std::vector<Vector3>& points,
         const std::vector<size_t>& triangle,
         const std::vector<size_t>& testPoints);
     bool removeIsolatedFaces();
+    // Vertices whose faces form more than one fan: two pieces of surface
+    // touching at a point.
+    static std::unordered_set<size_t> findPinchedVertices(const std::vector<std::vector<size_t>>& polygons);
     void smoothAndProject(size_t iterations,
         const std::unordered_set<size_t>* movableVertices = nullptr);
     void smoothAroundVertices(const std::unordered_set<size_t>& seedVertices,
@@ -187,6 +202,9 @@ private:
     // inside its round loop instead of running silently to completion.
     void mergeSharedFiveEdgeFaces(const ProgressHandler* progressHandler = nullptr);
     bool removeNonManifoldFaces();
+    // Drops the faces at non-manifold vertices and every piece but the
+    // largest, then fills the holes that leaves.
+    void repairTopology();
     void rebuildHalfEdges();
     void fixHoles();
 };

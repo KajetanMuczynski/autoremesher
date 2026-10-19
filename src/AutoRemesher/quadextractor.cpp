@@ -191,18 +191,7 @@ bool QuadExtractor::extract()
 #endif
 
     report(0.30f, "Removing non-manifold faces");
-    bool changed = false;
-    if (removeIsolatedFaces())
-        changed = true;
-    while (removeNonManifoldFaces()) {
-        changed = true;
-        removeIsolatedFaces();
-    }
-
-    if (changed) {
-        rebuildHalfEdges();
-        fixHoles();
-    }
+    repairTopology();
 
     {
         std::set<size_t> usedVertices;
@@ -1292,16 +1281,48 @@ void QuadExtractor::rebuildHalfEdges()
     }
 }
 
-void QuadExtractor::fillHoles(const std::vector<Vector3>& vertices,
+void QuadExtractor::repairTopology()
+{
+    bool changed = false;
+    if (removeIsolatedFaces())
+        changed = true;
+    while (removeNonManifoldFaces()) {
+        changed = true;
+        removeIsolatedFaces();
+    }
+
+    if (changed) {
+        rebuildHalfEdges();
+        fixHoles();
+    }
+}
+
+void QuadExtractor::fillHoles(std::vector<Vector3>* vertices,
     std::vector<std::vector<size_t>>* polygons,
     const Boundary* inputBoundary)
 {
     QuadExtractor extractor(nullptr, nullptr, nullptr);
-    extractor.m_remeshedVertices = vertices;
+    extractor.m_remeshedVertices = std::move(*vertices);
     extractor.m_remeshedPolygons = std::move(*polygons);
     extractor.m_inputBoundary = inputBoundary;
     extractor.rebuildHalfEdges();
     extractor.fixHoles();
+    *vertices = std::move(extractor.m_remeshedVertices);
+    *polygons = std::move(extractor.m_remeshedPolygons);
+}
+
+void QuadExtractor::repairSurface(std::vector<Vector3>* vertices,
+    std::vector<std::vector<size_t>>* polygons,
+    const Boundary* inputBoundary)
+{
+    QuadExtractor extractor(nullptr, nullptr, nullptr);
+    extractor.m_remeshedVertices = std::move(*vertices);
+    extractor.m_remeshedPolygons = std::move(*polygons);
+    extractor.m_inputBoundary = inputBoundary;
+    extractor.rebuildHalfEdges();
+    extractor.fixHoles();
+    extractor.repairTopology();
+    *vertices = std::move(extractor.m_remeshedVertices);
     *polygons = std::move(extractor.m_remeshedPolygons);
 }
 
@@ -1492,9 +1513,35 @@ void QuadExtractor::fixHoles()
         std::cerr << "Fixing hole at length:" << loop.size() << "..." << std::endl;
         // The second pass only takes over a hole the scored pass left open:
         // run on a closed one it would add the closing face again.
-        if (!fixHoleWithQuads(loop, true) && loop.size() >= 4)
-            fixHoleWithQuads(loop, false);
+        if (fixHoleWithQuads(loop, true))
+            continue;
+        if (loop.size() >= 4 && fixHoleWithQuads(loop, false))
+            continue;
+        fixHoleAroundCenter(loop);
     }
+}
+
+void QuadExtractor::fixHoleAroundCenter(const std::vector<size_t>& hole)
+{
+    std::cerr << "Fixing hole around its center at length:" << hole.size() << std::endl;
+    Vector3 center;
+    for (const auto& v : hole)
+        center += m_remeshedVertices[v];
+    center /= hole.size();
+    const size_t centerIndex = m_remeshedVertices.size();
+    m_remeshedVertices.push_back(center);
+    auto addFace = [&](std::vector<size_t> face) {
+        for (size_t i = 0; i < face.size(); ++i)
+            m_halfEdges.insert({ face[i], face[(i + 1) % face.size()] });
+        m_remeshedPolygons.push_back(std::move(face));
+    };
+    // The loop runs along the existing faces' half-edges, so the new faces
+    // take it backwards, as fixHoleWithQuads() does.
+    const size_t n = hole.size();
+    for (size_t i = 0; i + 1 < n; i += 2)
+        addFace({ centerIndex, hole[(i + 2) % n], hole[i + 1], hole[i] });
+    if (1 == n % 2)
+        addFace({ centerIndex, hole[0], hole[n - 1] });
 }
 
 bool QuadExtractor::fixHoleWithQuads(std::vector<size_t>& hole, bool checkScore)
@@ -1638,6 +1685,58 @@ bool QuadExtractor::removeIsolatedFaces()
     return true;
 }
 
+std::unordered_set<size_t> QuadExtractor::findPinchedVertices(const std::vector<std::vector<size_t>>& polygons)
+{
+    // Corner c of a face is where it passes through a vertex.  Two corners at
+    // the same vertex lie in the same fan when their faces share an edge there:
+    // the edge from the vertex to the previous corner of one face is the edge
+    // to the next corner of the other, in the opposite direction.
+    std::vector<size_t> cornerOffsets(polygons.size() + 1, 0);
+    for (size_t f = 0; f < polygons.size(); ++f)
+        cornerOffsets[f + 1] = cornerOffsets[f] + polygons[f].size();
+    std::map<std::pair<size_t, size_t>, size_t> cornerOfHalfEdge;
+    for (size_t f = 0; f < polygons.size(); ++f) {
+        const auto& face = polygons[f];
+        for (size_t i = 0; i < face.size(); ++i)
+            cornerOfHalfEdge[{ face[i], face[(i + 1) % face.size()] }] = cornerOffsets[f] + i;
+    }
+    std::vector<size_t> parents(cornerOffsets.back());
+    for (size_t c = 0; c < parents.size(); ++c)
+        parents[c] = c;
+    const auto findRoot = [&](size_t corner) {
+        while (parents[corner] != corner) {
+            parents[corner] = parents[parents[corner]];
+            corner = parents[corner];
+        }
+        return corner;
+    };
+    for (size_t f = 0; f < polygons.size(); ++f) {
+        const auto& face = polygons[f];
+        for (size_t i = 0; i < face.size(); ++i) {
+            const size_t previous = face[(i + face.size() - 1) % face.size()];
+            auto findTwin = cornerOfHalfEdge.find({ face[i], previous });
+            if (findTwin == cornerOfHalfEdge.end())
+                continue;
+            const size_t first = findRoot(cornerOffsets[f] + i);
+            const size_t second = findRoot(findTwin->second);
+            if (first != second)
+                parents[std::max(first, second)] = std::min(first, second);
+        }
+    }
+    std::unordered_map<size_t, size_t> fanOfVertex;
+    std::unordered_set<size_t> pinchedVertices;
+    for (size_t f = 0; f < polygons.size(); ++f) {
+        const auto& face = polygons[f];
+        for (size_t i = 0; i < face.size(); ++i) {
+            const size_t fan = findRoot(cornerOffsets[f] + i);
+            auto inserted = fanOfVertex.insert({ face[i], fan });
+            if (!inserted.second && inserted.first->second != fan)
+                pinchedVertices.insert(face[i]);
+        }
+    }
+    return pinchedVertices;
+}
+
 bool QuadExtractor::removeNonManifoldFaces()
 {
     bool changed = false;
@@ -1650,10 +1749,15 @@ bool QuadExtractor::removeNonManifoldFaces()
         vertexOpenBoundaryCountMap[it.first.first]++;
         vertexOpenBoundaryCountMap[it.first.second]++;
     }
+    const std::unordered_set<size_t> pinchedVertices = findPinchedVertices(m_remeshedPolygons);
     std::vector<std::vector<size_t>> manifoldFaces;
     for (const auto& it : m_remeshedPolygons) {
         bool isNonManifold = false;
         for (size_t i = 0; i < it.size(); ++i) {
+            if (pinchedVertices.end() != pinchedVertices.find(it[i])) {
+                isNonManifold = true;
+                break;
+            }
             auto findCount = vertexOpenBoundaryCountMap.find(it[i]);
             if (findCount == vertexOpenBoundaryCountMap.end())
                 continue;
