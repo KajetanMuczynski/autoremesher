@@ -1,0 +1,6 @@
+# 2026-10-19 · Claude (cloud thread "TODO status pass") · Plan statuses matched to master
+- Repos/commits: fork master `7ccee8a` → docs PR (TODO.md status lines only).
+- Did: checked every TODO item against master's 67 non-merge commits since `4a49f82` and the merged PRs #1–#33. Changed status markers and added done-notes (date, commit or PR, what is left); no scope, priority or dependency changed.
+- Found: done but shown open: 1.2, 1.3 (CMake core + CLI, not ported from jakeblakeley), 2.1, 2.2, 2.12, 2.14, 8.7. Partly done but shown open: 0.3, 2.3, G1 (CMake yes, nanobind no), G2 (CLI worker, OBJ + JSON, no `.npz`), G3 (zips for three platforms, no wheels, no portable Linux zip), G4, G5. 1.6 gained its core part (PR #9). Still open after checking: 8.0 (tbbmalloc only in upstream's qmake macOS link, not the CLI), 2.4 (cleanup counters only in the bench probes), 1.7 as a CI check. *Unconfirmed*: whether the nanobind binding (G1) is still wanted; whether README's credits satisfy 0.3.
+- Measured: nothing measured.
+- Next: after PR #35 merges, re-sync and check its Parked rows against the new statuses (its 0.3 row says "not started", it is partly done; its 0.9 row waits on #29, which is merged).
