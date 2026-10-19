@@ -171,8 +171,7 @@ Everything we know about and deliberately left undone, with the reason and what 
 | **0.8** Specialist questions | He prefers asking in person, in Polish, from the printed handout (`handouts/pytania-analiza-pl.pdf` in project files), starting with his analysis professor. The handout's p. 2 derivation (a joint (θ, φ) solve splits into two independent ones for fixed cones) is unverified and decides whether 4.5's joint solve is worth building | His meeting; report back what was confirmed | K | 2026-10-15 |
 | First add-on run on Windows 10/11 | Not run yet (Kajetan, 2026-10-19); CI covers only the `bpy` side and the install | The run, using the CI zip `addon-windows-x64` | K | 2026-10-15 |
 | Gatekeeper check of the macOS zip on a real Mac | CI cannot show what Gatekeeper does with an unsigned zip from a download | A run on a real Apple-silicon Mac | K | 2026-10-15 |
-| **0.9** Master branch ruleset (require PR + **CI passed**); "require branches up to date" | His repository setting. Up-to-date only makes sense once the shared session log is gone | #29 merged, then his setting | K | 2026-10-15 |
-| Repository security settings (supply-chain audit, "Repo settings for Kajetan": token permissions, SHA-pinned actions only, fork approval, Dependabot alerts, secret scanning, CodeQL, tag ruleset) | None switched on yet (Kajetan, 2026-10-19: should be done) | His settings pass | K | 2026-10-15 |
+| Repository security settings (supply-chain audit, "Repo settings for Kajetan": token permissions, SHA-pinned actions only, fork approval, Dependabot alerts, secret scanning, CodeQL, tag ruleset) | In progress: none were on; Kajetan is switching them on now with the coordinator (2026-10-19) | His settings pass | K | 2026-10-15 |
 | **1.12** Runs on his machine: own 1–10M sculpts, macOS probe build (does P2 matter with Accelerate), E1 on 8–16 cores | The cloud has no sculpts and no macOS; his laptop overheats, so one heavy run at a time | His time and a cool machine | K | 2026-10-14 |
 | **1.8** rest: quadwild-bimdf comparison | The cloud can't reach its submodule host or GitHub release downloads | A build on his machine | K | 2026-10-15 |
 | **1.8** rest: ZRemesher and Quad Remesher comparison | He has no ZBrush; Quad Remesher is paid | A license, or drop these two rows | K | 2026-10-15 |
@@ -195,7 +194,7 @@ Everything we know about and deliberately left undone, with the reason and what 
 
 | Item | Why not done | Unblocked by | Owner | Since |
 |---|---|---|---|---|
-| **0.3** `COPYING`, SPDX headers, credits | Not picked up (`THIRD_PARTY_NOTICES` exists). Doing it after the rename avoids touching every header twice (*inferred*) | The rename decision, or just do it | C | 2026-10-14 |
+| **0.3** SPDX headers, credits, name (rest of 0.3) | Partly done: GPL `LICENSE`, `LICENSE-MIT-upstream` (`ea03fc1`), `THIRD_PARTY_NOTICES` (`1666940`), SPDX on new files. Left: SPDX on the upstream files, credits, the final name. Doing it after the rename avoids touching every header twice (*inferred*) | The rename decision, or just do it | C | 2026-10-15 |
 | Portable Linux add-on zip | The CI zip links the runner's libtbb and glibc; needs static oneTBB and libstdc++ and a glibc 2.28 floor | Its own PR | C | 2026-10-15 |
 | Re-run the remesher comparison at the default adaptivity 0.5 | Our rows (1.8) are adaptivity 1, the default before #26 | `run_compare.py --tools ours_quality` | C | 2026-10-19 |
 | **8.0** tbbmalloc build option | Report recommends it (`research/tbbmalloc-8.0.md` in project files). Master links it only in the qmake app's macOS build (`autoremesher.pro`), not in `autoremesher-cli`, which the add-on ships (checked 2026-10-19) | Its own PR | C | 2026-10-15 |
