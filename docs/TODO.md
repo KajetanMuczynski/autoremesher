@@ -152,7 +152,7 @@ Order from perf §10, now checked against the baseline profile (REFERENCE §4, �
 
 ## Track G: Blender layer (parallel to everything)
 
-- [~] **G1** = 1.3: CMake + nanobind module of the Qt-free core (port jakeblakeley). S–M · `OK-MIT`. CMake part done (1.3). No nanobind module: the add-on runs `autoremesher-cli` instead (`addon/README.md`); the binding would remove the OBJ round trip (P4, P6). *Unconfirmed* whether it is still wanted.
+- [-] **G1** = 1.3: CMake + nanobind module of the Qt-free core (port jakeblakeley). **Dropped** (Kajetan, 2026-10-19): CMake part done (1.3); the add-on runs `autoremesher-cli` as a subprocess (`addon/README.md`) instead of a binding. Reason and revisit condition: Parked table.
 - [~] **G2** Subprocess worker of Blender's Python + modal operator (Esc cancels) + `.npz` protocol that carries per-vertex/edge/face attributes (port jakeblakeley's add-on). M · add-on GPL-3.0-or-later. Partly done 2026-10-15 (`154294c`, `4140751`, PR #5): subprocess worker, modal operator, Esc and panel cancel, progress, kill after a 5 s grace. Its process is `autoremesher-cli`, not Blender's Python, and data goes as OBJ + JSON report, not `.npz` with attributes. Left: the attribute protocol (needed by 5.4, 5.8).
 - [~] **G3** cibuildwheel CI and per-OS extension packaging; static oneTBB, because Blender bundles oneTBB 2022.3.0. M · `OK-MIT`. Partly done 2026-10-15 to 2026-10-19 (PRs #5, #27): `ci.yml` builds the add-on zip with the CLI on Linux, Windows x64 and macOS arm64 and installs it into Blender; Windows and macOS link static oneTBB. No wheels (no binding, G1). Left: a portable Linux zip (the CI one links the runner's libtbb and glibc).
 - [~] **G4** Port from jakeblakeley: scale normalisation (= 2.7), result health check (= 2.3), island detail floor, weld-shells option, retries + triangle fallback. Thin features via the SDF cap in 4.1, not Geogram's LFS. S–M. Done: island detail floor and retries (2.14), result health check in the report and panel (PR #5, partly 2.3). Left: scale normalisation (2.7), weld shells, triangle fallback.
@@ -217,6 +217,7 @@ Everything we know about and deliberately left undone, with the reason and what 
 | Tag ruleset (`v*`) | Nothing publishes from tags since only the add-on ships from CI artifacts; the other security settings were switched on 2026-10-19 | A release workflow that runs on tags | K | 2026-10-19 |
 | CodeQL default setup | Left off by choice when the security settings were switched on | A reason to scan (e.g. a public release) | K | 2026-10-19 |
 | "Require branches up to date before merging" on the master ruleset | Left off by choice: every merge would force an update and a new CI run on every other open PR | Two PRs that pass alone break master together | K | 2026-10-19 |
+| **G1** nanobind binding of the core for the add-on | The subprocess worker is what ships: a crash can't take Blender down, and there is no rebuild per Blender Python version | The OBJ round trip proves slow on large meshes (P4, P6; measure with G8) | K | 2026-10-19 |
 
 ### Accepted risks and known gaps
 
