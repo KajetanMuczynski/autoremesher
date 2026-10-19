@@ -133,8 +133,10 @@ jobs:
 
   # A job of its own so that the job, not a step, is skipped and no macOS runner is
   # requested on documentation-only PRs (see "changes").
+  # Literal names: a skipped job never expands its matrix, so an expression here
+  # would show unexpanded as the check name.
   core-macos:
-    name: core (${{ matrix.name }})
+    name: core (macos)
     needs: changes
     if: needs.changes.outputs.macos == 'true'
     strategy:
@@ -362,7 +364,7 @@ jobs:
   # The add-on on macOS: the addon job's steps, in a job of its own for the same
   # reason as core-macos.
   addon-macos:
-    name: addon (${{ matrix.platform }})
+    name: addon (macos-arm64)
     needs: changes
     if: needs.changes.outputs.macos == 'true'
     strategy:
