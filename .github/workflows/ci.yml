@@ -28,6 +28,46 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Whether the macOS jobs run. GitHub's macOS runners are the scarce ones (a job can
+  # wait in the queue for many minutes), so a pull request that changes only
+  # documentation skips them; everything else runs them. Fail-closed: documentation is
+  # docs/ and the Markdown files at the top level or directly in addon/, nothing else
+  # (Markdown in thirdparty/ or addon/autoremesher_blender/ can end up in the zip).
+  # Pushes, tags and manual runs always run the macOS jobs.
+  changes:
+    name: changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      macos: ${{ steps.diff.outputs.macos }}
+    steps:
+      # The PR's merge commit and its first parent, the base it is tested against.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        if: github.event_name == 'pull_request'
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Changed files
+        id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" != pull_request ]; then
+            echo "$EVENT: run everything"
+            echo "macos=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git rev-parse --verify HEAD^2 > /dev/null  # a merge commit, or fail
+          git diff --name-only HEAD^1 HEAD > changed.txt
+          cat changed.txt
+          if grep -v -E '^docs/|^[^/]+\.md$|^addon/[^/]+\.md$' changed.txt; then
+            echo "^ not documentation: the macOS jobs run"
+            echo "macos=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "documentation only: the macOS jobs are skipped"
+            echo "macos=false" >> "$GITHUB_OUTPUT"
+          fi
+
   format:
     name: format (clang-format 23)
     runs-on: ubuntu-24.04
@@ -49,8 +89,8 @@ jobs:
         run: git diff --ignore-space-at-eol --exit-code
 
   # The core tests and the output gate, on the same Release build of autoremesher_core.
-  # macOS runs it because the shipped DMG builds there with Apple clang and nothing else
-  # on a PR does; Windows builds the core in the addon job.
+  # macOS runs it (core-macos, same steps) because the shipped macOS zip builds there
+  # with Apple clang; Windows builds the core in the addon job.
   core:
     name: core (${{ matrix.name }})
     strategy:
@@ -59,11 +99,9 @@ jobs:
         include:
           - name: linux
             os: ubuntu-24.04
-          - name: macos
-            os: macos-latest
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
-    steps:
+    steps: &core-steps
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
@@ -92,6 +130,23 @@ jobs:
           name: gate-output-${{ matrix.name }}
           path: build/gate/
           if-no-files-found: ignore
+
+  # A job of its own so that the job, not a step, is skipped and no macOS runner is
+  # requested on documentation-only PRs (see "changes").
+  # Literal names: a skipped job never expands its matrix, so an expression here
+  # would show unexpanded as the check name.
+  core-macos:
+    name: core (macos)
+    needs: changes
+    if: needs.changes.outputs.macos == 'true'
+    strategy:
+      matrix:
+        include:
+          - name: macos
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps: *core-steps
 
   # The Qt app (qmake) and the ar_bench driver, each smoke-tested on a sphere.
   qt-app:
@@ -159,30 +214,22 @@ jobs:
             blender: 4.2.23
             blender_file: blender-4.2.23-linux-x64.tar.xz
             blender_sha256: bea0eb3146be13eae6225409a117b215184f41b7f79e799f97cb3abb8f6dc404
+            cmake_args: ''  # as addon-macos, which sets it
           - os: windows-latest
             platform: windows-x64
             blender: 5.2.2
             blender_file: blender-5.2.2-windows-x64.zip
             blender_sha256: 3849d17a682cba006075aaa3f3597ecb5c9c30ec31035b2e092c53e40679b535
             ship: true
-          # Apple silicon only (GitHub's Intel macOS runners are being retired). Static
-          # oneTBB, and macOS 11.2 as the oldest target, the minimum of Blender 4.2.
-          - os: macos-latest
-            platform: macos-arm64
-            blender: 5.2.2
-            blender_file: blender-5.2.2-macos-arm64.dmg
-            blender_sha256: dc4125399b8bfefe283cc1624d6cfc7809d1cac20ace51072127eb371f31f210
-            cmake_args: -DAUTOREMESHER_BUNDLED_TBB=ON -DCMAKE_OSX_DEPLOYMENT_TARGET=11.2
-            ship: true
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
-    defaults:
+    defaults: &addon-defaults
       run:
         shell: bash
-    env:
+    env: &addon-env
       SOURCE_COMMIT: ${{ github.sha }}
       CMAKE_ARGS: ${{ matrix.cmake_args }}
-    steps:
+    steps: &addon-steps
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -314,22 +361,51 @@ jobs:
           path: ${{ steps.package.outputs.zip }}
           if-no-files-found: error
 
+  # The add-on on macOS: the addon job's steps, in a job of its own for the same
+  # reason as core-macos.
+  addon-macos:
+    name: addon (macos-arm64)
+    needs: changes
+    if: needs.changes.outputs.macos == 'true'
+    strategy:
+      matrix:
+        include:
+          # Apple silicon only (GitHub's Intel macOS runners are being retired). Static
+          # oneTBB, and macOS 11.2 as the oldest target, the minimum of Blender 4.2.
+          - os: macos-latest
+            platform: macos-arm64
+            blender: 5.2.2
+            blender_file: blender-5.2.2-macos-arm64.dmg
+            blender_sha256: dc4125399b8bfefe283cc1624d6cfc7809d1cac20ace51072127eb371f31f210
+            cmake_args: -DAUTOREMESHER_BUNDLED_TBB=ON -DCMAKE_OSX_DEPLOYMENT_TARGET=11.2
+            ship: true
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults: *addon-defaults
+    env: *addon-env
+    steps: *addon-steps
+
   # The one check branch protection requires. Green only when every job above
-  # succeeded: a failed, cancelled or skipped job turns it red.
+  # succeeded: a failed, cancelled or skipped job turns it red. The one exception is
+  # the macOS jobs skipped on purpose because "changes" found only documentation.
   ci-passed:
     name: CI passed
     if: always()
-    needs: [format, core, qt-app, addon]
+    needs: [changes, format, core, core-macos, qt-app, addon, addon-macos]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Check every job
         env:
           RESULTS: ${{ toJSON(needs) }}
+          MACOS: ${{ needs.changes.outputs.macos }}
         run: |
           echo "$RESULTS" | python3 -c '
-          import json, sys
-          bad = {job: r["result"] for job, r in json.load(sys.stdin).items() if r["result"] != "success"}
-          for job, result in sorted(bad.items()):
-              print("%s: %s" % (job, result))
+          import json, os, sys
+          results = {job: r["result"] for job, r in json.load(sys.stdin).items()}
+          skippable = {"core-macos", "addon-macos"} if os.environ["MACOS"] == "false" else set()
+          bad = {job: result for job, result in results.items()
+                 if result != "success" and not (job in skippable and result == "skipped")}
+          for job, result in sorted(results.items()):
+              print("%s: %s%s" % (job, result, "  <- not allowed" if job in bad else ""))
           sys.exit(1 if bad else 0)'
