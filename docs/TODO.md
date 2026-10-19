@@ -205,7 +205,7 @@ Everything we know about and deliberately left undone, with the reason and what 
 | Item | Why | Revisit if | Owner | Since |
 |---|---|---|---|---|
 | **0.5** Contact upstream (Jeremy Hu) | Not now; blocks nothing. Cost: later upstream fixes are cherry-picked by hand | He wants to upstream the `OK-MIT` fixes | K | 2026-10-14 |
-| **0.6** Author code requests | Re-implement from the papers instead | A method has no paper detail to re-implement from | K | *unconfirmed* |
+| **0.6** Author code requests | Left open, not sent: a reply could take forever, so we re-implement from the papers by default and see whether that is hard | Re-implementing a method turns out too costly | K | 2026-10-14 |
 | **6.4** quadwild-bimdf backend | 0.2: no GPL-3.0-only code (CoMISo) | 0.2 reversed | K | 2026-10-14 |
 | Intrinsic symmetry | No licensed code (`ASK`); no commercial tool offers it | Licensed code appears | C | 2026-10-14 |
 | GPU solvers, MKL/Panua PARDISO, cuDSS, Gurobi | ≤ 2×, CUDA-only, or license `NO` | Never for Gurobi; otherwise new numbers | C | 2026-10-14 |
