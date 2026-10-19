@@ -199,7 +199,7 @@ Everything we know about and deliberately left undone, with the reason and what 
 | **0.3** `COPYING`, SPDX headers, credits | Not picked up (`THIRD_PARTY_NOTICES` exists). Doing it after the rename avoids touching every header twice (*inferred*) | The rename decision, or just do it | C | 2026-10-14 |
 | Portable Linux add-on zip | The CI zip links the runner's libtbb and glibc; needs static oneTBB and libstdc++ and a glibc 2.28 floor | Its own PR | C | 2026-10-15 |
 | Re-run the remesher comparison at the default adaptivity 0.5 | Our rows (1.8) are adaptivity 1, the default before #26 | `run_compare.py --tools ours_quality` | C | 2026-10-19 |
-| **8.0** tbbmalloc build option | Report recommends it (`research/tbbmalloc-8.0.md` in project files); state in master *unconfirmed* (the qmake `.pro` links it on macOS only) | Its own PR | C | 2026-10-15 (*unconfirmed*) |
+| **8.0** tbbmalloc build option | Report recommends it (`research/tbbmalloc-8.0.md` in project files). Master links it only in the qmake app's macOS build (`autoremesher.pro`), not in `autoremesher-cli`, which the add-on ships (checked 2026-10-19) | Its own PR | C | 2026-10-15 |
 
 ### Dropped or deferred by decision
 
