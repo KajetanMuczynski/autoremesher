@@ -102,6 +102,7 @@ Running the binary with no args opens the GUI. The core needs `setTargetTriangle
   to push more work to a ready PR, convert it back to draft first.
 - A thread pushes to its one `claude/project-thread-*` branch and has at most one open PR; the next
   PR waits until that one is merged. Never delete branches.
+- Branch protection for `master` (ruleset, up-to-date setting, why no merge queue) is planned in `docs/TODO.md` item 0.9.
 - Before claiming anything about a PR or CI (base, merged or not, which checks ran, their result),
   check it on GitHub. Never report from memory.
 - Commit trailer: `Co-Authored-By: Claude <noreply@anthropic.com>` (short form, Kajetan's choice).
@@ -123,4 +124,4 @@ single-file job on top. For routine work:
 `archive/` stay in `../docs/` only, so links to `research/` and `archive/` don't resolve in the repo.
 - `docs/README.md` (index) and `docs/TODO.md` ("Order at a glance", critical path) first.
 - `docs/REFERENCE.md`: pipeline map with line numbers, known performance and math issues, baseline.
-- Log each working session in `docs/SESSIONS.md`.
+- Log each working session as a new file in `docs/sessions/` (format in its README). Never append to a shared log: one shared file made every merge conflict with every other open PR.

@@ -1,0 +1,6 @@
+# 2026-10-15 · Claude (cloud thread "Suzanne check on master") · Suzanne re-check, TODO 2.13 non-manifold part fixed
+- Repos/commits: fork master `12be408` → PR (fix(extraction), TODO 2.13).
+- Did: re-ran Kajetan's first Blender case (Suzanne + Subdivision 2, 5000 quads) through the add-on zip installed into `bpy` 4.5; the pre-fix CLI (`bd84f73`) reproduces his 1730 / 6 / 5. Traced Quality's 4 non-manifold edges to `fixHoles`, fixed it, added `tests/hole_filling_test.cpp`, ran a master/fix A/B on 90 corpus runs.
+- Found: `fixHoles` ran its unscored pass on holes the scored pass had already closed at 4 vertices and added the closing quad again. This was the source of M16's non-manifold edges; it also made small islands look unhealthy and get retried at a raised count (spot_x8 2k).
+- Measured: Suzanne 5k on master: Fast 5091 quads / 4 non-quads / 5 folded, Quality 4769 / 3 / 2 (4763 / 3 / 2 with the fix), eye loops open, head UV flips 141 / 9624 (Fast) and 127 / 19 990 (Quality). A/B: 63/90 byte-identical; 26 runs with non-manifold edges (316 in all) → 0; quads −0.1 to −1.7 %, boundary edges unchanged.
+- Next: holes in closed inputs (rest of 2.13); remaining non-quads/folds are 4.1/4.5 + 3.3.
