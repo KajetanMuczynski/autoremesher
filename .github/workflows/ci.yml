@@ -28,12 +28,12 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Whether the macOS jobs run. GitHub's macOS runners are the scarce ones (a job can
+  # Whether the macOS job runs. GitHub's macOS runners are the scarce ones (a job can
   # wait in the queue for many minutes), so a pull request that changes only
-  # documentation skips them; everything else runs them. Fail-closed: documentation is
+  # documentation skips it; everything else runs it. Fail-closed: documentation is
   # docs/ and the Markdown files at the top level or directly in addon/, nothing else
   # (Markdown in thirdparty/ or addon/autoremesher_blender/ can end up in the zip).
-  # Pushes, tags and manual runs always run the macOS jobs.
+  # Pushes, tags and manual runs always run the macOS job.
   changes:
     name: changes
     runs-on: ubuntu-24.04
@@ -61,10 +61,10 @@ jobs:
           git diff --name-only HEAD^1 HEAD > changed.txt
           cat changed.txt
           if grep -v -E '^docs/|^[^/]+\.md$|^addon/[^/]+\.md$' changed.txt; then
-            echo "^ not documentation: the macOS jobs run"
+            echo "^ not documentation: the macOS job runs"
             echo "macos=true" >> "$GITHUB_OUTPUT"
           else
-            echo "documentation only: the macOS jobs are skipped"
+            echo "documentation only: the macOS job is skipped"
             echo "macos=false" >> "$GITHUB_OUTPUT"
           fi
 
@@ -87,66 +87,6 @@ jobs:
         run: sh ci/lint.sh
       - name: Check for changes
         run: git diff --ignore-space-at-eol --exit-code
-
-  # The core tests and the output gate, on the same Release build of autoremesher_core.
-  # macOS runs it (core-macos, same steps) because the shipped macOS zip builds there
-  # with Apple clang; Windows builds the core in the addon job.
-  core:
-    name: core (${{ matrix.name }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: linux
-            os: ubuntu-24.04
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
-    steps: &core-steps
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-      - name: Install dependencies
-        run: |
-          if [ "$RUNNER_OS" = Linux ]; then
-            sudo apt-get update
-            sudo apt-get install -y cmake libtbb-dev
-          else
-            brew install tbb
-          fi
-      - name: Build the core, CLI and tests
-        run: |
-          cmake -S . -B build/core -DCMAKE_BUILD_TYPE=Release -DAUTOREMESHER_BUILD_TESTS=ON
-          cmake --build build/core --parallel 4
-      # --no-tests=error: a configuration that registers no tests fails instead of passing.
-      # A registered test whose executable is missing fails as "Not Run".
-      - name: Core tests
-        run: ctest --test-dir build/core --output-on-failure --no-tests=error
-      - name: Output gate
-        run: python3 ci/output_gate.py build/core/autoremesher-cli build/gate
-      - name: Upload gate output
-        if: failure()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: gate-output-${{ matrix.name }}
-          path: build/gate/
-          if-no-files-found: ignore
-
-  # A job of its own so that the job, not a step, is skipped and no macOS runner is
-  # requested on documentation-only PRs (see "changes").
-  # Literal names: a skipped job never expands its matrix, so an expression here
-  # would show unexpanded as the check name.
-  core-macos:
-    name: core (macos)
-    needs: changes
-    if: needs.changes.outputs.macos == 'true'
-    strategy:
-      matrix:
-        include:
-          - name: macos
-            os: macos-latest
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
-    steps: *core-steps
 
   # The Qt app (qmake) and the ar_bench driver, each smoke-tested on a sphere.
   qt-app:
@@ -194,10 +134,12 @@ jobs:
             build/smoke-core/
           if-no-files-found: ignore
 
-  # The Qt-free CLI (autoremesher-cli) and the Blender add-on on Linux, Windows and
-  # macOS: build the CLI with CMake, run the add-on's worker tests against it, package
-  # the extension zip with the CLI bundled, install that zip into a real Blender
-  # and remesh a sphere through it in background mode.
+  # The core, the Qt-free CLI (autoremesher-cli) and the Blender add-on on Linux,
+  # Windows and macOS, all on one build per platform, the one that ships: build the
+  # core, CLI and core tests with CMake, run the core tests and the output gate, run
+  # the add-on's worker tests against the CLI, package the extension zip with the CLI
+  # bundled, install that zip into a real Blender and remesh a sphere through it in
+  # background mode. One job per platform, so a PR needs one macOS runner, not two.
   # The Windows and macOS zips are self-contained (static oneTBB, no DLLs or dylibs
   # outside the OS) and uploaded as the artifacts addon-windows-x64 and addon-macos-arm64.
   # The Linux one links the runner's libtbb and glibc, so it is tested, not shipped.
@@ -253,16 +195,34 @@ jobs:
       # Windows: oneTBB is built from source and linked statically, with the
       # static C++ runtime (/MT); see CMakeLists.txt. macOS: static oneTBB too
       # (CMAKE_ARGS from the matrix).
-      - name: Build autoremesher-cli
+      - name: Build the core, CLI and tests
         run: |
           # shellcheck disable=SC2086  # CMAKE_ARGS holds several arguments
-          cmake -S . -B build/cli -DCMAKE_BUILD_TYPE=Release $CMAKE_ARGS
+          cmake -S . -B build/cli -DCMAKE_BUILD_TYPE=Release -DAUTOREMESHER_BUILD_TESTS=ON $CMAKE_ARGS
           cmake --build build/cli --config Release --parallel 4
           cmake --install build/cli --config Release --prefix build/cli-install
           ls -l build/cli-install/bin build/cli-install/licenses
           cli=build/cli-install/bin/autoremesher-cli
           if [ "$RUNNER_OS" = Windows ]; then cli="$cli.exe"; fi
           echo "CLI=$cli" >> "$GITHUB_ENV"
+
+      # --no-tests=error: a configuration that registers no tests fails instead of passing.
+      # A registered test whose executable is missing fails as "Not Run". -C: Windows
+      # builds are multi-config.
+      - name: Core tests
+        run: ctest --test-dir build/cli -C Release --output-on-failure --no-tests=error
+
+      # On the installed CLI, the one that goes into the zip.
+      - name: Output gate
+        run: python ci/output_gate.py "$CLI" build/gate
+
+      - name: Upload gate output
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: gate-output-${{ matrix.platform }}
+          path: build/gate/
+          if-no-files-found: ignore
 
       - name: Check the DLLs it needs
         if: runner.os == 'Windows'
@@ -361,8 +321,10 @@ jobs:
           path: ${{ steps.package.outputs.zip }}
           if-no-files-found: error
 
-  # The add-on on macOS: the addon job's steps, in a job of its own for the same
-  # reason as core-macos.
+  # The add-on on macOS: the addon job's steps, in a job of its own so that the job,
+  # not a step, is skipped and no macOS runner is requested on documentation-only
+  # PRs (see "changes"). Literal name: a skipped job never expands its matrix, so an
+  # expression here would show unexpanded as the check name.
   addon-macos:
     name: addon (macos-arm64)
     needs: changes
@@ -387,11 +349,11 @@ jobs:
 
   # The one check branch protection requires. Green only when every job above
   # succeeded: a failed, cancelled or skipped job turns it red. The one exception is
-  # the macOS jobs skipped on purpose because "changes" found only documentation.
+  # the macOS job skipped on purpose because "changes" found only documentation.
   ci-passed:
     name: CI passed
     if: always()
-    needs: [changes, format, core, core-macos, qt-app, addon, addon-macos]
+    needs: [changes, format, qt-app, addon, addon-macos]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -403,7 +365,7 @@ jobs:
           echo "$RESULTS" | python3 -c '
           import json, os, sys
           results = {job: r["result"] for job, r in json.load(sys.stdin).items()}
-          skippable = {"core-macos", "addon-macos"} if os.environ["MACOS"] == "false" else set()
+          skippable = {"addon-macos"} if os.environ["MACOS"] == "false" else set()
           bad = {job: result for job, result in results.items()
                  if result != "success" and not (job in skippable and result == "skipped")}
           for job, result in sorted(results.items()):
