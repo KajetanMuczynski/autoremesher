@@ -215,6 +215,7 @@ class CliTest(unittest.TestCase):
             cancelled_at = time.monotonic()
             how(job)
             while not job.done:
+                self.assertLess(time.monotonic() - cancelled_at, 30.0, "the run did not end after the cancel")
                 job.poll()
                 time.sleep(0.05)
             outcome = job.outcome()
@@ -237,16 +238,24 @@ class CliTest(unittest.TestCase):
         print("\n  stdin-closed latency %.2f s" % latency)
 
     def test_kill_after_grace(self):
+        # The cancel is recorded but never reaches the worker's stdin, so the worker
+        # keeps solving and only the kill after the grace can end it. The bound only
+        # catches a hang: process teardown on a loaded runner takes up to ~1.5 s.
+        def cancel_unheard(job):
+            job.cancel_requested = True
+            job._cancel_time = time.monotonic()
+
         grace = worker.CANCEL_GRACE_SECONDS
         worker.CANCEL_GRACE_SECONDS = 0.0
         try:
-            outcome, latency, job = self._cancel_after(1.5, lambda job: job.cancel())
+            outcome, latency, job = self._cancel_after(1.5, cancel_unheard)
         finally:
             worker.CANCEL_GRACE_SECONDS = grace
         self.assertEqual(outcome.status, "cancelled")
-        if job.killed:
-            self.assertIn("killed", outcome.message)
-        self.assertLess(latency, 1.0)
+        self.assertTrue(job.killed, "the worker should have been killed")
+        self.assertIn("killed", outcome.message)
+        self.assertLess(latency, 10.0)
+        print("\n  kill latency %.2f s" % latency)
 
     def test_invalid_input(self):
         triangles = self.triangles.copy()
