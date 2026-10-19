@@ -154,3 +154,8 @@ Template:
 - Found: the projection brings the continuous rescale factor to ≈1 and continuous flips to ×0.18, but on the output it is no better than lowering adaptivity and costs mean distance; integrability adds little over smoothing. Stage 5 at a = 1 is the 1/κ law; a = 0.5 is the chord-error law. The curl correction is still needed. With sizing fixed, rounding (3.3) makes most of the remaining flips.
 - Measured: a = 0.5 against a = 1 over 72 runs: final UV flips ×0.48, non-quads ×0.72, folded ×0.72, irregular ×0.86, angle p95 ×0.76, mean distance ×0.98, Hausdorff ×1.11, time ×0.97, count unchanged. Projection (c = 1): flips ×0.42, non-quads ×0.70, mean distance ×1.13.
 - Next: 3.3 (rounding) is now the larger flip source; the rest of 4.1 (one estimator, tensor curvature, gradation); revisit 4.5 after both.
+
+## 2026-10-19 · Claude (cloud thread "Design critique rule") · Design-critique rule in CLAUDE.md
+- Repos/commits: fork master `b673428` → PR (docs(docs), draft).
+- Did: added Kajetan's design-critique rule to CLAUDE.md and a pointer in docs/README.md conventions.
+- Next: none.

@@ -46,3 +46,4 @@ All written 2026-10-14. Only the baseline report measured anything; the others a
 - Evidence tags: **[V]** checked in the AutoRemesher code at `4a49f82`; **[M]** measured by the baseline; **[P]** checked against a primary external source (paper, LICENSE file, official doc); **[E]** external claim not checked at the source; **[I]** inferred. The research reports use their own variants ([K], [S], [U], [ours]); each defines them at the top.
 - IDs: P* performance and M* math issues and F* features are in REFERENCE.md; TODO items are numbered wave.item (e.g. 3.3); SQ-* questions are in SPECIALIST-QUESTIONS.md; C*/D*/L* conflicts are in RECONCILIATION.md.
 - Several threads edit these files: re-read before editing, keep edits small, read back after writing.
+- Threads review designs critically, not by agreement: see "Design critique" in the repo's CLAUDE.md.
