@@ -66,9 +66,9 @@ QtWaitingSpinner     not stated       MIT                  thirdparty/QtWaitingS
     GPL-3.0-or-later binary has not been checked; left for review rather than guessed.
     Attribution as given there: "Font Awesome by Dave Gandy - http://fortawesome.github.com/Font-Awesome".
 
-Not bundled (linked from the system at build time): Qt 5.15 / Qt 6, oneTBB, zlib, OpenGL.
-Release builds that bundle these libraries (the AppImage in .github/workflows/release.yml)
-must ship their notices too; that is not covered by this file.
+Not bundled in the Qt app (linked from the system at build time): Qt 5.15 / Qt 6, oneTBB,
+zlib, OpenGL. The Blender add-on zips for Windows and macOS link oneTBB statically; its
+LICENSE.txt and third-party-programs.txt go into the zip's licenses/ (CMakeLists.txt).
 
 Note: ACKNOWLEDGEMENTS.html (shown in the app's About box) is inherited from upstream and
 lists libraries that are not in this tree (CoMISo, libQEx, libigl, OpenMesh, CGAL, Geogram,

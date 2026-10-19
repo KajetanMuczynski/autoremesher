@@ -24,7 +24,7 @@ Notes for Claude working in this repository.
   (actions by SHA, FetchContent by commit, downloads by SHA-256), never by a movable tag or "latest".
   Exception: a release that fixes a known CVE affecting us goes in at once.
 - Dependabot does this for GitHub Actions (`.github/dependabot.yml`, `cooldown: 7 days`); by hand for
-  oneTBB, vendored Eigen/meshoptimizer, Qt, Homebrew formulae, Blender and the AppImage tools.
+  oneTBB, vendored Eigen/meshoptimizer, Qt, Homebrew formulae and Blender.
 
 ## Build (checked 2026-10-15: Ubuntu 24.04, GCC 13.3, Qt 5.15.13, oneTBB 2021.11)
 Deps: `qt5-qmake qtbase5-dev libqt5opengl5-dev qttools5-dev-tools libqt5svg5-dev libtbb-dev libgl1-mesa-dev`
@@ -62,7 +62,7 @@ Blender add-on (`addon/`, working name Quadami): `python addon/package.py --cli-
 builds the extension zip with the CLI bundled; see `addon/README.md`.
 
 CI (`.github/workflows/`):
-- `ci.yml` (every PR, push to master, manual run): all checks in one workflow. Its last job,
+- `ci.yml` (every PR, push to master or a tag, manual run): all checks in one workflow. Its last job,
   **CI passed**, is green only if every other job succeeded; it is the one check branch protection
   requires. Branch pushes without a PR get no run (use Actions > ci > Run workflow);
   a PR with merge conflicts gets no run either, so **CI passed** shows as missing.
@@ -72,13 +72,13 @@ CI (`.github/workflows/`):
     quads outside 0.6-1.5x target, >2 % non-quads, any non-manifold edge, report/OBJ mismatch;
     folded faces and empty islands are reported in the job summary, not gated yet).
   - `qt-app (linux)`: qmake app and `ar_bench`, `ci/smoke_test.sh` on both (1,200-2,400 quads).
-  - `addon (linux-x64|windows-x64)`: CLI, worker tests, zip installed into a real Blender
-    (4.2 LTS on Linux, 5.2 on Windows).
-  - `package / AppImage (linux)`, `package / zip (windows)`, `package / DMG (macos)`: `release.yml`
-    (upstream's packaging, each tested on the armadillo at 50k quads), called from ci.yml, so it is
-    part of **CI passed** (~5 min, the slowest job). Files are named `pr<N>` on PRs.
-- `release.yml` also runs on its own for tags. The macOS DMG bundles the offscreen Qt platform
-  plugin, so its headless CLI check runs with `QT_QPA_PLATFORM=offscreen`.
+  - `addon (linux-x64|windows-x64|macos-arm64)`: CLI, worker tests, zip installed into a real Blender
+    (4.2 LTS on Linux, 5.2 on Windows and macOS). The Windows and macOS zips (static oneTBB; macOS
+    11.2+, Apple silicon) are uploaded as artifacts `addon-<platform>`.
+- What ships is only the Blender add-on (Kajetan, 2026-10-15). The standalone Qt app (AppImage,
+  Windows zip, DMG: upstream's `release.yml`) is no longer packaged; it is still built and
+  smoke-tested on Linux by `qt-app`. A portable Linux add-on zip doesn't exist yet (the CI one links
+  the runner's libtbb and glibc).
 
 Running the binary with no args opens the GUI. The core needs `setTargetTriangleCount(n > 0)` or
 `remesh()` fails.

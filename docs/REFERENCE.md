@@ -37,7 +37,7 @@ From README **[E/V-readme]**:
 - Windows MSVC: build TBB from `thirdparty/tbb` with CMake, then `qmake -spec win32-msvc && nmake -f Makefile.Release`.
 - macOS: `brew install qt@5 tbb cmake`, `qmake CONFIG+=sdk_no_version_check && make`. Uses Accelerate for sparse Cholesky (`AUTO_REMESHER_USE_ACCELERATE`).
 - Debug build defines `AUTO_REMESHER_DEBUG`; `AUTO_REMESHER_DEV` dumps intermediate OBJs (`debug-input-for-parameterization.obj`, `debug-quadextractor-*.obj`). Useful for diagnosis.
-- CI: `.github/workflows/ci.yml` (fork; see CLAUDE.md), `release.yml` (ubuntu-22.04, aqt Qt install, linuxdeployqt AppImage).
+- CI: `.github/workflows/ci.yml` (fork; see CLAUDE.md). Only the Blender add-on ships; upstream's `release.yml` (AppImage, Windows zip, DMG) was removed on 2026-10-15.
 
 **Measured build [M] (baseline §1):** `4a49f82` on Ubuntu 24.04, GCC 13.3, Qt 5.15.13, oneTBB 2021.11; `qmake && make -j4` ≈ 70 s, 24 warnings, no errors. Bundled **Eigen 5.0.1** and meshoptimizer 1020. The headless CLI aborts (exit 134) unless `QT_QPA_PLATFORM=offscreen` is set. The baseline thread also built `ar_bench`, a Qt-free driver over the same core and release flags (`-O3 -flto -funroll-loops -march=x86-64-v2`), checked equal to the CLI, plus a counters-only probe build: [research/baseline-scripts/](research/baseline-scripts/).
 
