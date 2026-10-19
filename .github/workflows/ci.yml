@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Every check a change to master must pass, in one workflow, so one job ("CI passed") can
 # stand for all of them in branch protection. It runs on every pull request (any base
-# branch), on pushes to master, and by hand (Actions > ci > Run workflow) for a branch
-# without a PR. The packaging (release.yml) runs inside it as the job "package".
+# branch), on pushes to master and tags, and by hand (Actions > ci > Run workflow) for a
+# branch without a PR. What ships is the Blender add-on: the job "addon" builds, tests and
+# uploads its zips (Windows and macOS; Linux users build their own, see addon/README.md).
 #
 # GitHub starts no pull_request run while a PR has merge conflicts, so a conflicted PR
 # shows "CI passed" as missing, never as green.
@@ -13,10 +14,12 @@ on:
   push:
     branches:
       - master
+    tags:
+      - '*'
   workflow_dispatch:
 
-# Read-only token for every job, including the called release.yml; nothing here
-# writes to the repo (artifacts and caches don't need token scopes).
+# Read-only token for every job; nothing here writes to the repo (artifacts and caches
+# don't need token scopes).
 permissions:
   contents: read
 
@@ -136,18 +139,20 @@ jobs:
             build/smoke-core/
           if-no-files-found: ignore
 
-  # The Qt-free CLI (autoremesher-cli) and the Blender add-on on Linux and Windows:
-  # build the CLI with CMake, run the add-on's worker tests against it, package
+  # The Qt-free CLI (autoremesher-cli) and the Blender add-on on Linux, Windows and
+  # macOS: build the CLI with CMake, run the add-on's worker tests against it, package
   # the extension zip with the CLI bundled, install that zip into a real Blender
   # and remesh a sphere through it in background mode.
-  # The Windows zip is uploaded as the artifact addon-windows-x64.
+  # The Windows and macOS zips are self-contained (static oneTBB, no DLLs or dylibs
+  # outside the OS) and uploaded as the artifacts addon-windows-x64 and addon-macos-arm64.
+  # The Linux one links the runner's libtbb and glibc, so it is tested, not shipped.
   addon:
     name: addon (${{ matrix.platform }})
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Linux checks the oldest Blender the manifest allows, Windows a
+          # Linux checks the oldest Blender the manifest allows, Windows and macOS a
           # current release (what a new install gets).
           - os: ubuntu-24.04
             platform: linux-x64
@@ -159,6 +164,16 @@ jobs:
             blender: 5.2.2
             blender_file: blender-5.2.2-windows-x64.zip
             blender_sha256: 3849d17a682cba006075aaa3f3597ecb5c9c30ec31035b2e092c53e40679b535
+            ship: true
+          # Apple silicon only (GitHub's Intel macOS runners are being retired). Static
+          # oneTBB, and macOS 11.2 as the oldest target, the minimum of Blender 4.2.
+          - os: macos-latest
+            platform: macos-arm64
+            blender: 5.2.2
+            blender_file: blender-5.2.2-macos-arm64.dmg
+            blender_sha256: dc4125399b8bfefe283cc1624d6cfc7809d1cac20ace51072127eb371f31f210
+            cmake_args: -DAUTOREMESHER_BUNDLED_TBB=ON -DCMAKE_OSX_DEPLOYMENT_TARGET=11.2
+            ship: true
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     defaults:
@@ -166,6 +181,7 @@ jobs:
         shell: bash
     env:
       SOURCE_COMMIT: ${{ github.sha }}
+      CMAKE_ARGS: ${{ matrix.cmake_args }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -188,10 +204,12 @@ jobs:
           cmake --version | head -n 1
 
       # Windows: oneTBB is built from source and linked statically, with the
-      # static C++ runtime (/MT); see CMakeLists.txt.
+      # static C++ runtime (/MT); see CMakeLists.txt. macOS: static oneTBB too
+      # (CMAKE_ARGS from the matrix).
       - name: Build autoremesher-cli
         run: |
-          cmake -S . -B build/cli -DCMAKE_BUILD_TYPE=Release
+          # shellcheck disable=SC2086  # CMAKE_ARGS holds several arguments
+          cmake -S . -B build/cli -DCMAKE_BUILD_TYPE=Release $CMAKE_ARGS
           cmake --build build/cli --config Release --parallel 4
           cmake --install build/cli --config Release --prefix build/cli-install
           ls -l build/cli-install/bin build/cli-install/licenses
@@ -202,6 +220,18 @@ jobs:
       - name: Check the DLLs it needs
         if: runner.os == 'Windows'
         run: python ci/check_dll_imports.py "$CLI"
+
+      # Only macOS's own libraries, and the deployment target the matrix asks for.
+      - name: Check the libraries it needs
+        if: runner.os == 'macOS'
+        run: |
+          otool -L "$CLI"
+          if otool -L "$CLI" | awk 'NR > 1 { print $1 }' | grep -v -E '^(/usr/lib/|/System/)'; then
+            echo "ERROR: $CLI links libraries outside macOS"; exit 1
+          fi
+          minos=$(otool -l "$CLI" | awk '$1 == "minos" { print $2; exit }')
+          echo "minimum macOS: $minos"
+          [ "$minos" = 11.2 ] || { echo "ERROR: expected minimum macOS 11.2"; exit 1; }
 
       - name: CLI arguments
         run: |
@@ -227,7 +257,9 @@ jobs:
 
       - name: Cache Blender ${{ matrix.blender }}
         id: blender-cache
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        # Safe on tag runs too: only the test Blender is cached, and it is checked by
+        # SHA-256 below before use; nothing from the cache goes into the zip.
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0 # zizmor: ignore[cache-poisoning]
         with:
           path: blender-download/${{ matrix.blender_file }}
           key: ${{ matrix.blender_file }}
@@ -244,16 +276,24 @@ jobs:
       # next to the download (copied into the matrix when the version is bumped).
       - name: Verify Blender ${{ matrix.blender }}
         run: |
-          echo "${{ matrix.blender_sha256 }}  blender-download/${{ matrix.blender_file }}" | sha256sum -c -
+          sum="${{ matrix.blender_sha256 }}  blender-download/${{ matrix.blender_file }}"
+          if command -v sha256sum > /dev/null; then echo "$sum" | sha256sum -c -
+          else echo "$sum" | shasum -a 256 -c -; fi
 
       - name: Unpack Blender
         run: |
           mkdir -p blender
           case "${{ matrix.blender_file }}" in
             *.zip) 7z x -y -oblender "blender-download/${{ matrix.blender_file }}" > /dev/null ;;
+            *.dmg)
+              hdiutil attach -nobrowse -readonly -mountpoint "$PWD/blender-dmg" \
+                "blender-download/${{ matrix.blender_file }}" > /dev/null
+              cp -R blender-dmg/Blender.app blender/
+              hdiutil detach "$PWD/blender-dmg" > /dev/null ;;
             *) tar -xJf "blender-download/${{ matrix.blender_file }}" -C blender ;;
           esac
-          exe=$(find blender -maxdepth 2 -type f \( -name blender.exe -o -name blender \) | head -n 1)
+          if [ "$RUNNER_OS" = macOS ]; then exe=blender/Blender.app/Contents/MacOS/Blender
+          else exe=$(find blender -maxdepth 2 -type f \( -name blender.exe -o -name blender \) | head -n 1); fi
           echo "BLENDER=$PWD/$exe" >> "$GITHUB_ENV"
 
       # Installs the zip the way "Install from Disk..." does, then runs the
@@ -266,25 +306,20 @@ jobs:
           "$BLENDER" -b --factory-startup --python-exit-code 1 \
             --python addon/tests/blender_smoke.py -- --installed
 
-      - name: Upload the Windows extension zip
-        if: runner.os == 'Windows'
+      - name: Upload the extension zip
+        if: matrix.ship
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: addon-windows-x64
+          name: addon-${{ matrix.platform }}
           path: ${{ steps.package.outputs.zip }}
           if-no-files-found: error
-
-  # AppImage, Windows zip and macOS DMG, each remeshing the armadillo at 50k quads from
-  # the packaged app. The longest job here (about 5 min), but it runs in parallel.
-  package:
-    uses: ./.github/workflows/release.yml
 
   # The one check branch protection requires. Green only when every job above
   # succeeded: a failed, cancelled or skipped job turns it red.
   ci-passed:
     name: CI passed
     if: always()
-    needs: [format, core, qt-app, addon, package]
+    needs: [format, core, qt-app, addon]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

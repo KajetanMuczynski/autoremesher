@@ -174,6 +174,8 @@ std::vector<std::pair<std::string, double>> summarizeDiagnostics(
     double roundingShift = 0, roundingPasses = 0;
     double solves = 0, factorizations = 0, fallbacks = 0, nonFinite = 0;
     double peakRss = 0, cpuSeconds = 0;
+    // Area-weighted over islands; the rescale is the island's farthest from 1.
+    double sizeArea = 0, sizeSlope = 0, sizeErrorSquared = 0, rescale = 0;
     // A solver object reports running totals, so only its last record counts
     // towards solves and factorisations: per island the frame field, the curl
     // correction and the last rounding pass.
@@ -191,6 +193,16 @@ std::vector<std::pair<std::string, double>> summarizeDiagnostics(
             integralityResidual = std::max(integralityResidual, valueOf(record, "integrality_residual", 0));
             constraintResidual = std::max(constraintResidual, valueOf(record, "constraint_residual", 0));
             roundingPasses = std::max(roundingPasses, valueOf(record, "iterations", 0));
+            const double area = valueOf(record, "size_measured_area", 0);
+            if (area > 0) {
+                sizeArea += area;
+                sizeSlope += area * valueOf(record, "continuous_size_slope", 0);
+                const double error = valueOf(record, "continuous_size_error_rms", 0);
+                sizeErrorSquared += area * error * error;
+            }
+            const double islandRescale = valueOf(record, "continuous_rescale", 0);
+            if (islandRescale > 0 && (!(rescale > 0) || std::fabs(std::log(islandRescale)) > std::fabs(std::log(rescale))))
+                rescale = islandRescale;
         } else if (record.stage == "cover_system") {
             droppedConstraints += valueOf(record, "dropped_constraints", 0);
         } else if (record.stage == "rounding_iteration") {
@@ -225,6 +237,9 @@ std::vector<std::pair<std::string, double>> summarizeDiagnostics(
         { "constraint_residual", constraintResidual },
         { "dropped_constraints", droppedConstraints },
         { "max_rounding_shift", roundingShift },
+        { "continuous_rescale", rescale },
+        { "continuous_size_slope", sizeArea > 0 ? sizeSlope / sizeArea : 0 },
+        { "continuous_size_error_rms", sizeArea > 0 ? std::sqrt(sizeErrorSquared / sizeArea) : 0 },
         { "rounding_passes", roundingPasses },
         { "solves", solves },
         { "factorizations", factorizations },

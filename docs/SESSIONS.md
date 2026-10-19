@@ -142,6 +142,19 @@ Template:
 - Measured: master: 1 closed run with a hole, 10 with pinched vertices, 19 with wrong χ. Fix: 61/72 corpus and 75/78 closed runs byte-identical; holes 1 → 0, pinches 10 → 0, wrong χ 19 → 14; thin torus 150 keeps its handle (Hausdorff 61 → 3.9 % diag). Changed runs: quads within ±1 %, SJ ≤ 0 quads lower in 9 of 11, equal in 1, higher on sword 2k Fast (63 → 68).
 - Next: face tracing in the extractor or an injective map (4.1/4.5, 3.3) for the handles; Kajetan to choose whether to prototype tracing.
 
+## 2026-10-15 · Claude (cloud thread "Supply-chain audit") · Ship only the Blender add-on
+- Repos/commits: fork master after PR #24 → PR (ci(ci): ship only the Blender add-on in releases, draft).
+- Did: on Kajetan's decision, removed upstream's `release.yml` (AppImage, Windows Qt zip, DMG) and its AppImage metadata in `ci/`; tags now run `ci.yml`. Added a macOS (Apple silicon) add-on build: static oneTBB, macOS 11.2 target, `otool` check, installed into Blender 5.2.2 from its DMG. The Windows and macOS zips are uploaded as `addon-<platform>`.
+- Found: removes the audit's AppImage-tool, Qt 5.15.2 and Homebrew `qt@5` findings. Static oneTBB also builds on Linux (checked locally).
+- Next: portable Linux add-on zip (static oneTBB and libstdc++, glibc 2.28 floor); try the macOS zip on a real Mac (Gatekeeper).
+
+## 2026-10-15 · Claude (cloud thread "Sizing and curl consistency") · TODO 4.5 projection measured, default adaptivity 0.5
+- Repos/commits: fork master `6f68495` → PR #26 (feat(sizing), TODO 4.1).
+- Did: prototyped the 4.5 projection (L + λM)φ = β + λMφ* with β the field's circulation (= K − K̂, checked), swept λ, compared it with plain smoothing of log h, with lower adaptivity, and with the curl correction off or more regularised; ran the 18-mesh corpus at 2k / 10k, Fast and Quality, with output metrics. Added `continuous_rescale` and the realised-vs-requested size slope to the diagnostics, set the default adaptivity to 0.5 and deleted the disabled conformal solve. Report: research/sizing-projection-2026-10-15.md (scripts and the experiment patch next to it).
+- Found: the projection brings the continuous rescale factor to ≈1 and continuous flips to ×0.18, but on the output it is no better than lowering adaptivity and costs mean distance; integrability adds little over smoothing. Stage 5 at a = 1 is the 1/κ law; a = 0.5 is the chord-error law. The curl correction is still needed. With sizing fixed, rounding (3.3) makes most of the remaining flips.
+- Measured: a = 0.5 against a = 1 over 72 runs: final UV flips ×0.48, non-quads ×0.72, folded ×0.72, irregular ×0.86, angle p95 ×0.76, mean distance ×0.98, Hausdorff ×1.11, time ×0.97, count unchanged. Projection (c = 1): flips ×0.42, non-quads ×0.70, mean distance ×1.13.
+- Next: 3.3 (rounding) is now the larger flip source; the rest of 4.1 (one estimator, tensor curvature, gradation); revisit 4.5 after both.
+
 ## 2026-10-15 · Claude (cloud thread "Compare with other remeshers") · TODO 1.8 partly done
 - Repos/commits: fork master `6f68495` (tested build) → docs PR (TODO 1.8, 1.4 status).
 - Did: built Instant Meshes (`7b31608`) and QuadriFlow (`810b7a0`) from source, ran Blender 5.2.2's QuadriFlow through the `bpy` wheel, and ran them with our Quality, Fast and adaptivity-0 modes on the 18-mesh corpus at 2k/10k/50k, each calibrated to the same face count (±5 %). Metrics per extr §5.2 families with the §5.3 pass gates; report and figures in `research/remesher-comparison.md`.

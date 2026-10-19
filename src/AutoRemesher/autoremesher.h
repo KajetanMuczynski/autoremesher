@@ -298,7 +298,8 @@ private:
     size_t m_targetTriangleCount = 0;
     double m_trianglesPerQuad = QualityTrianglesPerQuad;
     double m_voxelSize = 0.0;
-    double m_adaptivity = 1.0;
+    // As RemeshParameters::adaptivity.
+    double m_adaptivity = 0.5;
     double m_anisotropy = 1.0;
     double m_sharpEdgeDegrees = m_defaultSharpEdgeDegrees;
     double m_smoothNormalDegrees = 0.0;

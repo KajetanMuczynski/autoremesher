@@ -475,18 +475,66 @@ namespace {
     // hard-surface parts. The continuous solution is linear in 1 / size, so
     // the rescale is exact there; rounding afterwards moves the count by a
     // few percent.
-    void matchCellCount(const SurfaceMesh& mesh, double expectedCells, MixedIntegerLeastSquares* s)
+    // Returns expected / actual cells, the factor the cover's area was (or,
+    // beyond the limit, would have been) scaled by; 0 if either is empty.
+    // How far it is from 1 measures how much of the requested sizing was not
+    // integrable (REFERENCE M3).
+    double matchCellCount(const SurfaceMesh& mesh, double expectedCells, MixedIntegerLeastSquares* s)
     {
         const double cells = coverCellArea(mesh, *s);
         if (!(expectedCells > 0.0) || !(cells > 0.0))
-            return;
+            return 0.0;
         const double ratio = expectedCells / cells;
         // Beyond this the map is broken rather than shrunk, and growing it
         // would only multiply the extraction work on a bad map.
         const double maximumRatio = 4.0;
         if (ratio > maximumRatio || ratio < 1.0 / maximumRatio)
-            return;
+            return ratio;
         s->scaleSolution(std::sqrt(ratio));
+        return ratio;
+    }
+
+    // How closely the map follows the requested quad sizes. Per face,
+    // a = log of the edge the map gives it (sqrt of 3D area over uv area) and
+    // r = log of the requested edge, both area weighted and centred. Records
+    // the RMS of a - r and the slope of a against r: 1 when every requested
+    // size change is realised, 0 for uniform quads. Flipped faces count with
+    // their absolute uv area; degenerate ones are skipped.
+    void appendSizeFidelity(DiagnosticRecord* record, const std::string& prefix, const SurfaceMesh& mesh,
+        const MixedIntegerLeastSquares& s, const std::vector<double>* faceScaling, double scale)
+    {
+        const bool hasFaceScaling = faceScaling && faceScaling->size() == mesh.faceCount();
+        std::vector<double> realised(mesh.faceCount(), 0.0), requested(mesh.faceCount(), 0.0), weight(mesh.faceCount(), 0.0);
+        double totalWeight = 0.0, meanRealised = 0.0, meanRequested = 0.0;
+        for (size_t f = 0; f < mesh.faceCount(); ++f) {
+            const size_t a = 3 * f, b = 3 * f + 1, c = 3 * f + 2;
+            const double ax = s.value(2 * a), ay = s.value(2 * a + 1);
+            const double uvArea = .5 * std::fabs((s.value(2 * b) - ax) * (s.value(2 * c + 1) - ay) - (s.value(2 * c) - ax) * (s.value(2 * b + 1) - ay));
+            const double area = .5 * Vector3::crossProduct(mesh.edgeVector(a), -mesh.edgeVector(c)).length();
+            if (!(uvArea > 0.0) || !(area > 0.0))
+                continue;
+            weight[f] = area;
+            realised[f] = .5 * std::log(area / uvArea);
+            requested[f] = std::log(scale * (hasFaceScaling ? std::max(1e-12, (*faceScaling)[f]) : 1.0));
+            totalWeight += area;
+            meanRealised += area * realised[f];
+            meanRequested += area * requested[f];
+        }
+        if (!(totalWeight > 0.0))
+            return;
+        meanRealised /= totalWeight;
+        meanRequested /= totalWeight;
+        double error = 0.0, covariance = 0.0, variance = 0.0;
+        for (size_t f = 0; f < mesh.faceCount(); ++f) {
+            const double da = realised[f] - meanRealised, dr = requested[f] - meanRequested;
+            error += weight[f] * (da - dr) * (da - dr);
+            covariance += weight[f] * da * dr;
+            variance += weight[f] * dr * dr;
+        }
+        record->set(prefix + "_size_error_rms", std::sqrt(error / totalWeight));
+        record->set(prefix + "_size_slope", variance > 0.0 ? covariance / variance : 0.0);
+        record->set("requested_size_spread", std::sqrt(variance / totalWeight));
+        record->set("size_measured_area", totalWeight);
     }
 
     // The corner uvs of the current solution, laid out as measureUvOrientation
@@ -684,7 +732,8 @@ namespace {
             if (!solved)
                 return false;
             if (0 == iteration) {
-                matchCellCount(mesh, expectedCells, &s);
+                result->set("continuous_rescale", matchCellCount(mesh, expectedCells, &s));
+                appendSizeFidelity(result, "continuous", mesh, s, faceScaling, scale);
                 // Nothing is fixed in the first pass, so its solution is the
                 // continuous relaxation: flips there are not caused by
                 // rounding.

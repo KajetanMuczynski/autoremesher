@@ -50,7 +50,7 @@ const char* const usage = "Usage: autoremesher-cli -i input.obj -o output.obj [o
                           "  --stage-diagnostics <file>  per-stage solver, rounding and timing records as\n"
                           "                              JSON lines (schema autoremesher.stage-diagnostics)\n"
                           "  --target-quads <count>      target quad count (default 50000)\n"
-                          "  --adaptivity <0..1>         curvature-adaptive density (default 1)\n"
+                          "  --adaptivity <0..1>         curvature-adaptive density (default 0.5)\n"
                           "  --anisotropy <0..1>         curvature-adaptive elongation (default 1)\n"
                           "  --edge-scaling <factor>     quad edge length factor (default 1)\n"
                           "  --sharp-edge <degrees>      dihedral angle of sharp edges (default 90)\n"
