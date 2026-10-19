@@ -49,8 +49,12 @@ enum class MeshResolution {
 // Defaults are those of the command line.
 struct RemeshParameters {
     uint32_t targetQuadCount = 50000;
-    // Curvature-adaptive density, 0 = uniform quads.
-    double adaptivity = 1.0;
+    // Curvature-adaptive density, 0 = uniform quads.  The quad edge goes as
+    // curvature^-adaptivity, so the default 0.5 is the chord-error law.  1 is
+    // twice as steep; on the corpus it has about twice the UV flips and 1.4
+    // times the non-quads at the same mean distance to the input (REFERENCE
+    // M7, TODO 4.1).
+    double adaptivity = 0.5;
     // Curvature-adaptive elongation, 0 = square quads.
     double anisotropy = 1.0;
     // Multiplies the quad edge length; <= 0 leaves the core default.

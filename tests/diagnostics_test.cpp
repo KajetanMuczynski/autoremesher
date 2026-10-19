@@ -209,6 +209,16 @@ void testRemeshRecords()
         // also pins the orientation convention.
         check(flipped < 0.25 * triangles, prefix + " map is mostly positively oriented");
     }
+    // Sizing (REFERENCE M3): the continuous map is rescaled to the requested
+    // number of cells, by a factor that is 1 when the requested sizes are
+    // integrable, and it should follow the requested size changes (the
+    // engine's default adaptivity makes them non-uniform here).
+    const double rescale = value(cover, "continuous_rescale");
+    check(rescale > 0.25 && rescale < 4.0, "continuous rescale factor is reported and bounded");
+    const double slope = value(cover, "continuous_size_slope");
+    check(slope > 0.0 && slope < 1.5, "continuous map follows the requested sizes");
+    check(value(cover, "continuous_size_error_rms") >= 0, "size error is reported");
+    check(value(cover, "requested_size_spread") > 0, "requested sizes vary");
     check(value(cover, "converged") == 1, "rounding converged");
     check(value(cover, "iterations") == (double)byStage["rounding_iteration"].size(),
         "cover result counts the rounding passes");
@@ -238,6 +248,8 @@ void testRemeshRecords()
     std::printf("continuous flips %g, rounded flips %g, snapped flips %g of %g; integrality residual %g; constraint residual %g\n",
         value(cover, "continuous_flipped"), value(cover, "rounded_flipped"), value(cover, "snapped_flipped"),
         islandTriangles, residual, value(cover, "constraint_residual"));
+    std::printf("continuous rescale %g, size slope %g, size error %g (requested spread %g)\n",
+        rescale, slope, value(cover, "continuous_size_error_rms"), value(cover, "requested_size_spread"));
 }
 
 // The interface carries the records and their summary (interface 1.1).
@@ -257,11 +269,13 @@ void testInterface()
     const AutoRemesher::RemeshResult result = AutoRemesher::remesh(request);
     check(AutoRemesher::RemeshStatus::Ok == result.status, "interface remesh succeeds");
     check(!result.stageDiagnostics.empty(), "interface carries the stage records");
-    bool found = false;
-    for (const auto& item : result.report.diagnostics)
-        if (item.first == "uv_flipped_triangles")
-            found = true;
-    check(found, "report diagnostics summarise the flips");
+    for (const char* key : { "uv_flipped_triangles", "continuous_rescale", "continuous_size_slope" }) {
+        bool found = false;
+        for (const auto& item : result.report.diagnostics)
+            if (item.first == key)
+                found = true;
+        check(found, std::string("report diagnostics summarise ") + key);
+    }
     check(AutoRemesher::toJson(result).find("\"uv_flipped_triangles\"") != std::string::npos,
         "JSON report has the summary");
 }
