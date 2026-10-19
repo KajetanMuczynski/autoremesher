@@ -175,7 +175,6 @@ Everything we know about and deliberately left undone, with the reason and what 
 | **0.8** Specialist questions | He prefers asking in person, in Polish, from the printed handout (`handouts/pytania-analiza-pl.pdf` in project files), starting with his analysis professor. The handout's p. 2 derivation (a joint (θ, φ) solve splits into two independent ones for fixed cones) is unverified and decides whether 4.5's joint solve is worth building | His meeting; report back what was confirmed | K | 2026-10-15 |
 | First add-on run on Windows 10/11 | Not run yet (Kajetan, 2026-10-19); CI covers only the `bpy` side and the install | The run, using the CI zip `addon-windows-x64` | K | 2026-10-15 |
 | Gatekeeper check of the macOS zip on a real Mac | CI cannot show what Gatekeeper does with an unsigned zip from a download | A run on a real Apple-silicon Mac | K | 2026-10-15 |
-| Repository security settings (supply-chain audit, "Repo settings for Kajetan": token permissions, SHA-pinned actions only, fork approval, Dependabot alerts, secret scanning, CodeQL, tag ruleset) | In progress: none were on; Kajetan is switching them on now with the coordinator (2026-10-19) | His settings pass | K | 2026-10-15 |
 | **1.12** Runs on his machine: own 1–10M sculpts, macOS probe build (does P2 matter with Accelerate), E1 on 8–16 cores | The cloud has no sculpts and no macOS; his laptop overheats, so one heavy run at a time | His time and a cool machine | K | 2026-10-14 |
 | **1.8** rest: quadwild-bimdf comparison | The cloud can't reach its submodule host or GitHub release downloads | A build on his machine | K | 2026-10-15 |
 | **1.8** rest: ZRemesher and Quad Remesher comparison | He has no ZBrush; Quad Remesher is paid | A license, or drop these two rows | K | 2026-10-15 |
@@ -215,6 +214,9 @@ Everything we know about and deliberately left undone, with the reason and what 
 | Standalone Qt app packages (AppImage, Windows zip, DMG) | Only the add-on ships; the app is still built and smoke-tested on Linux | He wants the app shipped again | K | 2026-10-15 |
 | Composite quality score | Pareto comparisons per metric family until SQ-M1 is answered (0.7) | SQ-M1 answered | K | 2026-10-14 |
 | Third-party Claude plugins (devil-advocate, token-usage, Headroom) | Audited, install none (`research/plugin-audit-2026-10-19.md` in project files) | A new plugin, after its own audit | K | 2026-10-19 |
+| Tag ruleset (`v*`) | Nothing publishes from tags since only the add-on ships from CI artifacts; the other security settings were switched on 2026-10-19 | A release workflow that runs on tags | K | 2026-10-19 |
+| CodeQL default setup | Left off by choice when the security settings were switched on | A reason to scan (e.g. a public release) | K | 2026-10-19 |
+| "Require branches up to date before merging" on the master ruleset | Left off by choice: every merge would force an update and a new CI run on every other open PR | Two PRs that pass alone break master together | K | 2026-10-19 |
 
 ### Accepted risks and known gaps
 
