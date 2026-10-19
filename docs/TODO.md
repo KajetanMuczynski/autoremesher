@@ -3,7 +3,7 @@
 One prioritized, dependency-ordered plan, merged on 2026-10-14 from the earlier TODO ([archive/TODO-2026-10-14-pre-merge.md](archive/TODO-2026-10-14-pre-merge.md)) and every research report in [research/](research/).
 Update this file and log in [SESSIONS.md](SESSIONS.md) every session.
 
-**Keys.** Status `[ ]` open, `[~]` in progress / partly done, `[x]` done, `[-]` deferred or dropped by a decision (reason given). Item IDs (e.g. **3.3**) are wave.number; "needs" lists hard dependencies. Issue IDs P*, M*, F* are in [REFERENCE.md](REFERENCE.md); SQ-* in [SPECIALIST-QUESTIONS.md](SPECIALIST-QUESTIONS.md). Effort: S days, M 1–3 weeks, L 1–3 months. **License flags** ([LICENSES.md](LICENSES.md) §2): `OK-MIT` own or permissive code, can also go upstream; `OK-GPL3` needs a GPL-compatible dependency; `GPL3-ONLY` pulls in GPL-3.0-only code (CoMISo), **excluded by 0.2**; `ASK` no license, needs author permission or a re-implementation; `NO` never ship.
+**Keys.** Status `[ ]` open, `[~]` in progress / partly done, `[x]` done, `[-]` deferred or dropped by a decision (reason given). Everything known but deliberately not done, with why and what unblocks it: [Parked](#parked-known-but-not-done). Item IDs (e.g. **3.3**) are wave.number; "needs" lists hard dependencies. Issue IDs P*, M*, F* are in [REFERENCE.md](REFERENCE.md); SQ-* in [SPECIALIST-QUESTIONS.md](SPECIALIST-QUESTIONS.md). Effort: S days, M 1–3 weeks, L 1–3 months. **License flags** ([LICENSES.md](LICENSES.md) §2): `OK-MIT` own or permissive code, can also go upstream; `OK-GPL3` needs a GPL-compatible dependency; `GPL3-ONLY` pulls in GPL-3.0-only code (CoMISo), **excluded by 0.2**; `ASK` no license, needs author permission or a re-implementation; `NO` never ship.
 
 **Rules.** Upgrade, don't rewrite, unless gate 7.1 says otherwise. Change one stage at a time behind its interface (FrameField, SingularitySimplifier, QuadParameterizer, MixedIntegerLeastSquares, QuadExtractor), and A/B every change on the corpus with the Wave 1 metrics. Keep `OK-MIT` fixes in separate commits free of GPL code, so they can still go upstream if 0.5 is ever picked up.
 
@@ -156,6 +156,78 @@ Order from perf §10, now checked against the baseline profile (REFERENCE §4, �
 - [ ] **G6** Wire the core inputs as they land: features (5.4), density paint (5.8), mirror (5.5), guides (4.4, 5.7).
 - [ ] **G7** Later: half/double (F7), partial remesh (F10), cached field (F13), attribute transfer (F14).
 - [ ] **G8** End-to-end Blender timing with headless Blender around the worker, to separate IO from core time (P6; perf §9.3). S.
+
+---
+
+## Parked: known but not done
+
+Everything we know about and deliberately left undone, with the reason and what would unblock it. Plan items keep their full text above; a row here only says why the item is not moving. Whoever unparks, finishes or drops an item deletes or updates its row in the same PR, so this list stays the one place to look. Owner: **K** Kajetan, **C** a Claude thread. Dates are when the item was parked; *unconfirmed* marks what the docs and project memory don't settle.
+
+### Waiting on Kajetan
+
+| Item | Why not done | Unblocked by | Owner | Since |
+|---|---|---|---|---|
+| Trademark check for the working name **Quadami** | Rename deferred until before the first public release; the name is kept in one place so it is cheap to change | His check, before a public release | K | 2026-10-15 (*unconfirmed*) |
+| **0.8** Specialist questions | He prefers asking in person, in Polish, from the printed handout (`handouts/pytania-analiza-pl.pdf` in project files), starting with his analysis professor. The handout's p. 2 derivation (a joint (θ, φ) solve splits into two independent ones for fixed cones) is unverified and decides whether 4.5's joint solve is worth building | His meeting; report back what was confirmed | K | 2026-10-15 |
+| First add-on run on Windows 10/11 | Tester (not Kajetan) has not run it yet; CI covers only the `bpy` side and the install | The run, using the CI zip `addon-windows-x64` | K | 2026-10-15 (*unconfirmed*) |
+| Gatekeeper check of the macOS zip on a real Mac | CI cannot show what Gatekeeper does with an unsigned zip from a download | A run on a real Apple-silicon Mac | K | 2026-10-15 |
+| **0.9** Master branch ruleset (require PR + **CI passed**); "require branches up to date" | His repository setting. Up-to-date only makes sense once the shared session log is gone | #29 merged, then his setting | K | 2026-10-15 |
+| Repository security settings (supply-chain audit, "Repo settings for Kajetan": token permissions, SHA-pinned actions only, fork approval, Dependabot alerts, secret scanning, CodeQL, tag ruleset) | Settings aren't readable from a cloud session; current state *unconfirmed* | His settings pass | K | 2026-10-15 |
+| Token-saving rules for project instructions and thread effort (`research/token-usage-2026-10-19.md` in project files) | Proposed, his call; partly answered 2026-10-19 (drop text that CLAUDE.md already holds), the rest *unconfirmed* | His decision; Project settings → General for effort | K | 2026-10-19 |
+| **1.12** Runs on his machine: own 1–10M sculpts, macOS probe build (does P2 matter with Accelerate), E1 on 8–16 cores | The cloud has no sculpts and no macOS; his laptop overheats, so one heavy run at a time | His time and a cool machine | K | 2026-10-14 |
+| **1.8** rest: quadwild-bimdf comparison | The cloud can't reach its submodule host or GitHub release downloads | A build on his machine | K | 2026-10-15 |
+| **1.8** rest: ZRemesher and Quad Remesher comparison | He has no ZBrush; Quad Remesher is paid | A license, or drop these two rows | K | 2026-10-15 |
+
+### Waiting on another change
+
+| Item | Why not done | Unblocked by | Owner | Since |
+|---|---|---|---|---|
+| Face tracing in the extractor (**2.13** open part; prototype `0c98a87`, never to be merged) | Tracing fixes the extra handles but exposes the folds: SJ ≤ 0 faces 327 → 517 on the corpus. Decision: fix the map first | 3.3 and 4.1/4.5; then re-run the 7 corpus + 3 closed wrong-genus runs | C | 2026-10-19 |
+| Non-quads and folded faces (M2) | Decision: no cleanup-pass patches; they come from folds in the map | 4.1/4.5 and 3.3 | C | 2026-10-15 |
+| **4.5** Size into the parametrization | Projection measured and not adopted: on the output no better than lower adaptivity, mean distance ×1.13 | The 4.1 field and cone placement, after 3.3; the handout derivation (0.8) | C | 2026-10-15 |
+| **6.1** libQEx A/B | Needs a valid map to compare on | 3.3, 2.1 | C | 2026-10-14 |
+| **6.3** Ray 2025 extractor | Only worth it if Stage A still folds | 3.7 numbers | C | 2026-10-14 |
+| **7.2** Stage B quantization | Only if Stage A misses the target | Gate 7.1 | C | 2026-10-14 |
+| **8.1** CHOLMOD backend | Solves are 14–27 % of a run, under the ≈20 % bar at small sizes; whole run −1 % to +13 % | Re-measure after 3.3 and 7.4 | C | 2026-10-14 |
+| Notches on kept boundary loops (M15 follow-up) | Filling only the notch needs loop splitting | 6.2 worklist rewrite | C | 2026-10-15 |
+| CI capacity PR (one macOS job per PR; core tests and output gate on every shipped OS, incl. Windows for the first time) | Was waiting on #30 and #33; both are merged now (checked 2026-10-19), so it is **unblocked** | Its thread | C | 2026-10-19 |
+
+### Not started, no blocker known
+
+| Item | Why not done | Unblocked by | Owner | Since |
+|---|---|---|---|---|
+| **0.3** `COPYING`, SPDX headers, credits | Not picked up (`THIRD_PARTY_NOTICES` exists). Doing it after the rename avoids touching every header twice (*inferred*) | The rename decision, or just do it | C | 2026-10-14 |
+| Portable Linux add-on zip | The CI zip links the runner's libtbb and glibc; needs static oneTBB and libstdc++ and a glibc 2.28 floor | Its own PR | C | 2026-10-15 |
+| Re-run the remesher comparison at the default adaptivity 0.5 | Our rows (1.8) are adaptivity 1, the default before #26 | `run_compare.py --tools ours_quality` | C | 2026-10-19 |
+| **8.0** tbbmalloc build option | Report recommends it (`research/tbbmalloc-8.0.md` in project files); state in master *unconfirmed* (the qmake `.pro` links it on macOS only) | Its own PR | C | 2026-10-15 (*unconfirmed*) |
+
+### Dropped or deferred by decision
+
+| Item | Why | Revisit if | Owner | Since |
+|---|---|---|---|---|
+| **0.5** Contact upstream (Jeremy Hu) | Not now; blocks nothing. Cost: later upstream fixes are cherry-picked by hand | He wants to upstream the `OK-MIT` fixes | K | 2026-10-14 |
+| **0.6** Author code requests | Re-implement from the papers instead | A method has no paper detail to re-implement from | K | *unconfirmed* |
+| **6.4** quadwild-bimdf backend | 0.2: no GPL-3.0-only code (CoMISo) | 0.2 reversed | K | 2026-10-14 |
+| Intrinsic symmetry | No licensed code (`ASK`); no commercial tool offers it | Licensed code appears | C | 2026-10-14 |
+| GPU solvers, MKL/Panua PARDISO, cuDSS, Gurobi | ≤ 2×, CUDA-only, or license `NO` | Never for Gurobi; otherwise new numbers | C | 2026-10-14 |
+| Standalone Qt app packages (AppImage, Windows zip, DMG) | Only the add-on ships; the app is still built and smoke-tested on Linux | He wants the app shipped again | K | 2026-10-15 |
+| Composite quality score | Pareto comparisons per metric family until SQ-M1 is answered (0.7) | SQ-M1 answered | K | *unconfirmed* |
+| Third-party Claude plugins (devil-advocate, token-usage, Headroom) | Audited, install none (`research/plugin-audit-2026-10-19.md` in project files) | A new plugin, after its own audit | K | 2026-10-19 |
+
+### Accepted risks and known gaps
+
+| Gap | Why accepted for now | Closed by | Owner | Since |
+|---|---|---|---|---|
+| Add-on UI untested: panel, modal operator, Esc and progress in a real Blender window; Windows on ARM | CI runs Blender headless only (`addon/README.md` "Status"; its "macOS is untested" predates the macOS CI job) | Manual runs (Windows run, Mac check above) | K | 2026-10-15 |
+| Output gate reports folded faces and empty islands but does not fail on them | Master still has folds on the corpus; gating now would keep CI red | The map fixes (3.3, 4.1/4.5), then gate | C | 2026-10-15 |
+| 14 runs with the wrong genus (extra handles in UV folds, M16) | Same root cause as the folds | The map fixes; face tracing after | C | 2026-10-15 |
+| Determinism checked on Linux/GCC only | libc++ (macOS) and MSVC iterate unordered containers differently | 2.9, and 1.7 as a CI check (8.6) | C | 2026-10-14 |
+| Core tests and the output gate have never run on Windows | Only the add-on jobs run there | CI capacity PR above | C | 2026-10-19 |
+| Corpus lacks his sculpts, 1M+ inputs and pathology meshes | Cloud network policy blocked the large sources | 1.5, 1.12 | K, C | 2026-10-14 |
+| CI pip installs unpinned and unhashed (`numpy`, `pefile`, `pip`; clang-format pinned without a hash) | No secrets in CI today (audit finding 7) | Hashed requirements files | C | 2026-10-15 |
+| Vendored TBB 2017 still in `thirdparty/tbb` | Was used only for the Windows Qt zip, which no longer ships | Delete it once the Qt app builds against oneTBB on Windows (audit finding 14) | C | 2026-10-15 |
+| No signing or build attestations on the zips | Not needed before a public release | Attestations on tag builds before the first public release (audit finding 15) | K, C | 2026-10-15 |
+| A queued macOS job dropped after ~15 min turns **CI passed** red | GitHub runner capacity, not our code | "Re-run failed jobs" on the PR run; fewer macOS jobs (CI capacity PR) | C | 2026-10-19 |
 
 ---
 
