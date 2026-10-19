@@ -135,6 +135,13 @@ Template:
 - Measured: zizmor 1.31 offline 31 high + 19 medium → 0; vendored Eigen byte-identical to 5.0.1, meshoptimizer `.cpp` identical to v1.2.
 - Next: pin and checksum the AppImage tools; install-qt-action v4.4.1; hashed CI requirements; Kajetan's repo settings list in the report.
 
+## 2026-10-15 · Claude (cloud thread "Holes in closed inputs") · TODO 2.13 holes and pinches fixed
+- Repos/commits: fork master `6f68495` → PR #25 (fix(extraction), TODO 2.13).
+- Did: per-step probe of the extractor (topology after each step, the isoline graph, cycles the side test rejects) on csg_bracket, sword, boat and plane; fixed the two repair defects below; added the corner-hole and pinch cases to `tests/hole_filling_test.cpp` (both fail without the fix); A/B on 72 corpus runs (18 meshes, 2k/10k, Fast and Quality) and 78 closed procedural runs (thin ellipsoids, tori; 150/500/2000 quads).
+- Found: the map folds on these inputs (5–8 % of T flipped), so `extractMesh` leaves 40–80 holes and pinched pieces per island. `fixHoleWithQuads` gave up on loops bent around a fold or corner (sword 2k Fast kept an 8-, later 6-edge hole), and `removeNonManifoldFaces` missed pinches between closed fans. The cleanup passes never change χ. The remaining genus errors are extra handles already in the extracted faces, one per fold (csg_bracket: bolt-hole rims), from `extractMesh` taking short cycles as faces.
+- Measured: master: 1 closed run with a hole, 10 with pinched vertices, 19 with wrong χ. Fix: 61/72 corpus and 75/78 closed runs byte-identical; holes 1 → 0, pinches 10 → 0, wrong χ 19 → 14; thin torus 150 keeps its handle (Hausdorff 61 → 3.9 % diag). Changed runs: quads within ±1 %, SJ ≤ 0 quads lower in 9 of 11, equal in 1, higher on sword 2k Fast (63 → 68).
+- Next: face tracing in the extractor or an injective map (4.1/4.5, 3.3) for the handles; Kajetan to choose whether to prototype tracing.
+
 ## 2026-10-15 · Claude (cloud thread "Compare with other remeshers") · TODO 1.8 partly done
 - Repos/commits: fork master `6f68495` (tested build) → docs PR (TODO 1.8, 1.4 status).
 - Did: built Instant Meshes (`7b31608`) and QuadriFlow (`810b7a0`) from source, ran Blender 5.2.2's QuadriFlow through the `bpy` wheel, and ran them with our Quality, Fast and adaptivity-0 modes on the 18-mesh corpus at 2k/10k/50k, each calibrated to the same face count (±5 %). Metrics per extr §5.2 families with the §5.3 pass gates; report and figures in `research/remesher-comparison.md`.
