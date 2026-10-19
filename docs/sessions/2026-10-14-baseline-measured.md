@@ -1,0 +1,5 @@
+# 2026-10-14 · Claude (thread "Reproducible baseline and profiling", 19:15–20:25 UTC) · Baseline measured
+- (Entry written by the consolidation thread from the finished report; the baseline thread did not edit shared files.)
+- Did: built upstream `4a49f82` on Ubuntu 24.04 (GCC 13.3, Qt 5.15.13, oneTBB 2021.11, bundled Eigen 5.0.1). Wrote the Qt-free `ar_bench` driver and a counters-only probe patch. Ran 18 meshes × 2k/10k/50k quads (54 runs, 0 failures) plus experiments: threads, input ladder to 6.4M triangles, CHOLMOD, tbbmalloc, adaptivity, `perf`. Report: [research/baseline-and-profiling.md](../research/baseline-and-profiling.md); scripts and per-run tables: [research/baseline-scripts/](../research/baseline-scripts/).
+- Measured: median run 0.7/3.1/20.4 s; quads 0.37–0.51 × target by default; UV flips in 54/54 runs (median 0.75 %); non-manifold output in 20/54; open boundaries capped by `fixHoles`; no symmetric layout; tbbmalloc 1.22–1.54× with identical output; `cancelPair` up to 42 % of a run; CHOLMOD −1 % to +13 % end to end; deterministic on Linux.
+- Next: the same scripts on Kajetan's machine (TODO 1.12).
