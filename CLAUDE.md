@@ -66,6 +66,9 @@ CI (`.github/workflows/`):
   **CI passed**, is green only if every other job succeeded; it is the one check branch protection
   requires. Branch pushes without a PR get no run (use Actions > ci > Run workflow);
   a PR with merge conflicts gets no run either, so **CI passed** shows as missing.
+  A PR that changes only documentation (`docs/`, Markdown at the top level or directly in `addon/`)
+  skips the macOS jobs (`changes` job decides; GitHub's macOS runners can queue for many minutes);
+  **CI passed** accepts that skip and nothing else.
   - `format`: `ci/lint.sh` (src/ and tests/) with clang-format pinned to 23.1.3 (pip); bump on purpose.
   - `core (linux|macos)`: CMake Release build with tests, `ctest --no-tests=error`, then
     `ci/output_gate.py` (procedural sphere, torus, box, open tube, two islands; fails on exit status,
