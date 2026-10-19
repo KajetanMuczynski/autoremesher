@@ -18,5 +18,11 @@
   - integrality residual 0;
   - rounded / continuous energy 1.37 → 1.20.
 
-  The gains hold over 1-ulp replicates (flips ×0.80, 28 of 36 runs fully separated) and at adaptivity 0 and 1. Closed set and timing: see [research/rounding-greedy-2026-10-19.md](../research/rounding-greedy-2026-10-19.md).
+  The gains hold over 1-ulp replicates (flips ×0.80, 28 of 36 runs fully separated) and at adaptivity 0 and 1.
+
+  Genus is about neutral:
+  - boat Q2k and sword Q10k fixed, thin_leaf Q10k broken, each in 6 of 6 replicates;
+  - closed thin-shell set 75 → 74/78.
+
+  Time: ×1.06 geo-mean; the rounding step is 1.4–3.5× master's, +16–26 % of the run at 50k quads. Details: [research/rounding-greedy-2026-10-19.md](../research/rounding-greedy-2026-10-19.md).
 - Next: untangling with the integers fixed (new 3.8), or MIQ stiffening (3.6), now cheap. Then 3.5 → 3.4, and the 2.1 cone-collision count before any separation rule. 3.1: decision open, deferral recommended.
