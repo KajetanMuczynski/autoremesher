@@ -77,10 +77,10 @@ class RemeshSettings(bpy.types.PropertyGroup):
         name="Target Quads", default=5000, min=1, soft_min=100, soft_max=1000000,
         description="Number of quads to aim for")
     adaptivity: FloatProperty(
-        name="Adaptivity", default=1.0, min=0.0, max=1.0,
+        name="Adaptivity", default=0.5, min=0.0, max=1.0,
         description="Smaller quads where the surface curves strongly, larger where it is "
                     "flat. 0: even quad size and the fewest flipped quads. "
-                    "1: strongest variation")
+                    "1: strongest variation, about twice the flipped quads of the default")
     sharp_edge_degrees: FloatProperty(
         name="Sharp Edge", default=90.0, min=30.0, max=180.0,
         description="Edges where the surface bends by more than this angle (degrees) "
