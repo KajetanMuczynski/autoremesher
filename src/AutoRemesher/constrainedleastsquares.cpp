@@ -80,6 +80,14 @@ struct ConstrainedLeastSquares::Cache {
     Eigen::SparseMatrix<double> normalMatrix;
     Eigen::VectorXd rowShift;
     Eigen::VectorXd rowWeightRoot;
+    // Held free unknowns (fixVariables): flag and value per column, and the
+    // normal matrix with their rows and columns reduced to the diagonal.
+    // Same pattern as normalMatrix, explicit zeros included, so the symbolic
+    // analysis carries over.
+    std::vector<char> fixedColumn;
+    Eigen::VectorXd fixedValue;
+    std::vector<size_t> fixedColumns;
+    Eigen::SparseMatrix<double> fixedMatrix;
     Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> solver;
 #if AUTO_REMESHER_USE_ACCELERATE
     Eigen::AccelerateLLT<Eigen::SparseMatrix<double>, Eigen::Lower> acceleratedSolver;
@@ -90,13 +98,41 @@ struct ConstrainedLeastSquares::Cache {
     size_t factorNonZeros = 0;
     size_t nonFiniteValues = 0;
 
-    bool factorize()
+    // The matrix the solver factorises: normalMatrix unless unknowns are held.
+    const Eigen::SparseMatrix<double>& systemMatrix()
+    {
+        if (fixedColumns.empty())
+            return normalMatrix;
+        fixedMatrix = normalMatrix;
+        for (Eigen::Index column = 0; column < fixedMatrix.outerSize(); ++column)
+            for (Eigen::SparseMatrix<double>::InnerIterator it(fixedMatrix, column); it; ++it)
+                if (fixedColumn[(size_t)it.row()] || fixedColumn[(size_t)column])
+                    it.valueRef() = it.row() == column ? it.value() : 0.0;
+        return fixedMatrix;
+    }
+
+    // Moves the held unknowns to the right-hand side: their equations become
+    // diagonal * value = diagonal * value.
+    void applyFixedColumns(Eigen::VectorXd* rightHandSide) const
+    {
+        for (size_t column : fixedColumns) {
+            const double value = fixedValue[(Eigen::Index)column];
+            for (Eigen::SparseMatrix<double>::InnerIterator it(normalMatrix, (Eigen::Index)column); it; ++it) {
+                if (it.row() == (Eigen::Index)column)
+                    (*rightHandSide)[it.row()] = it.value() * value;
+                else if (!fixedColumn[(size_t)it.row()])
+                    (*rightHandSide)[it.row()] -= it.value() * value;
+            }
+        }
+    }
+
+    bool factorize(const Eigen::SparseMatrix<double>& matrix)
     {
 #if AUTO_REMESHER_USE_ACCELERATE
         if (useAccelerated) {
             if (!patternAnalyzed)
-                acceleratedSolver.analyzePattern(normalMatrix);
-            acceleratedSolver.factorize(normalMatrix);
+                acceleratedSolver.analyzePattern(matrix);
+            acceleratedSolver.factorize(matrix);
             if (acceleratedSolver.info() == Eigen::Success) {
                 patternAnalyzed = true;
                 factorNonZeros = 0;
@@ -107,8 +143,8 @@ struct ConstrainedLeastSquares::Cache {
         }
 #endif
         if (!patternAnalyzed)
-            solver.analyzePattern(normalMatrix);
-        solver.factorize(normalMatrix);
+            solver.analyzePattern(matrix);
+        solver.factorize(matrix);
         if (solver.info() != Eigen::Success)
             return false;
         patternAnalyzed = true;
@@ -173,6 +209,14 @@ void ConstrainedLeastSquares::clearConstraints()
         return;
     m_constraintEquations.clear();
     m_matrixDirty = true;
+}
+
+void ConstrainedLeastSquares::fixVariables(const std::vector<std::pair<size_t, double>>& values)
+{
+    if (values.empty() && m_fixedVariables.empty())
+        return;
+    m_fixedVariables = values;
+    m_fixedDirty = true;
 }
 
 ConstrainedLeastSquares::Substitution ConstrainedLeastSquares::resolve(size_t variable)
@@ -318,21 +362,17 @@ bool ConstrainedLeastSquares::solveReduced(std::vector<double>* solution)
         if (!buildReducedSystem())
             return false;
         m_lastSolveStats.buildSeconds = secondsSince(buildStart);
-        m_lastSolveStats.refactorized = true;
-        m_lastSolveStats.normalNonZeros = (size_t)cache.normalMatrix.nonZeros();
-        m_lastSolveStats.ridge = ridgeFor(cache.normalMatrix);
-        const Clock::time_point factorizeStart = Clock::now();
-        ++m_lastSolveStats.factorizations;
-        const bool factorized = cache.factorize();
-        m_lastSolveStats.factorizeSeconds = secondsSince(factorizeStart);
-        m_lastSolveStats.factorNonZeros = cache.factorNonZeros;
-        if (!factorized)
-            return false;
-        cache.factorized = true;
         m_matrixDirty = false;
+        m_fixedDirty = true;
+    }
+    if (m_fixedDirty) {
+        if (!mapFixedVariables() || !factorizeReducedSystem())
+            return false;
+        m_fixedDirty = false;
     }
     if (!cache.factorized)
         return false;
+    m_lastSolveStats.fixedVariables = cache.fixedColumns.size();
 
     Eigen::VectorXd scaledRightHandSide(static_cast<Eigen::Index>(m_energyEquations.size()));
     for (Eigen::Index row = 0; row < scaledRightHandSide.size(); ++row) {
@@ -341,12 +381,15 @@ bool ConstrainedLeastSquares::solveReduced(std::vector<double>* solution)
     }
     bool solveSucceeded = false;
     const Clock::time_point solveStart = Clock::now();
-    const Eigen::VectorXd reducedSolution = cache.solve(cache.scaledMatrix.transpose() * scaledRightHandSide,
-        &solveSucceeded);
+    Eigen::VectorXd normalRightHandSide = cache.scaledMatrix.transpose() * scaledRightHandSide;
+    cache.applyFixedColumns(&normalRightHandSide);
+    Eigen::VectorXd reducedSolution = cache.solve(normalRightHandSide, &solveSucceeded);
     m_lastSolveStats.solveSeconds = secondsSince(solveStart);
     m_lastSolveStats.nonFiniteValues = cache.nonFiniteValues;
     if (!solveSucceeded)
         return false;
+    for (size_t column : cache.fixedColumns)
+        reducedSolution[(Eigen::Index)column] = cache.fixedValue[(Eigen::Index)column];
 
     solution->resize(m_variableCount);
     for (size_t i = 0; i < m_variableCount; ++i) {
@@ -361,6 +404,51 @@ bool ConstrainedLeastSquares::solveReduced(std::vector<double>* solution)
             : substitution.offset + substitution.scale * reducedSolution[static_cast<Eigen::Index>(column)];
     }
     return true;
+}
+
+bool ConstrainedLeastSquares::mapFixedVariables()
+{
+    Cache& cache = *m_cache;
+    cache.fixedColumn.assign(m_freeCount, 0);
+    cache.fixedValue = Eigen::VectorXd::Zero(static_cast<Eigen::Index>(m_freeCount));
+    cache.fixedColumns.clear();
+    for (const auto& fixed : m_fixedVariables) {
+        if (fixed.first >= m_variableCount)
+            return false;
+        const Substitution& substitution = m_substitutions[fixed.first];
+        if (substitution.fixed)
+            return false;
+        const size_t column = m_freeIndexOfRoot[substitution.root];
+        if (noIndex == column)
+            return false;
+        const double value = (fixed.second - substitution.offset) / substitution.scale;
+        if (cache.fixedColumn[column]) {
+            const double held = cache.fixedValue[static_cast<Eigen::Index>(column)];
+            if (std::fabs(held - value) > 1e-9 * (1.0 + std::fabs(value)))
+                return false;
+            continue;
+        }
+        cache.fixedColumn[column] = 1;
+        cache.fixedValue[static_cast<Eigen::Index>(column)] = value;
+        cache.fixedColumns.push_back(column);
+    }
+    return true;
+}
+
+bool ConstrainedLeastSquares::factorizeReducedSystem()
+{
+    Cache& cache = *m_cache;
+    cache.factorized = false;
+    m_lastSolveStats.refactorized = true;
+    m_lastSolveStats.normalNonZeros = (size_t)cache.normalMatrix.nonZeros();
+    m_lastSolveStats.ridge = ridgeFor(cache.normalMatrix);
+    const Clock::time_point factorizeStart = Clock::now();
+    ++m_lastSolveStats.factorizations;
+    const bool factorized = cache.factorize(cache.systemMatrix());
+    m_lastSolveStats.factorizeSeconds = secondsSince(factorizeStart);
+    m_lastSolveStats.factorNonZeros = cache.factorNonZeros;
+    cache.factorized = factorized;
+    return factorized;
 }
 
 bool ConstrainedLeastSquares::solve(std::vector<double>* solution)
@@ -378,6 +466,7 @@ bool ConstrainedLeastSquares::solve(std::vector<double>* solution)
     stats.variables = m_variableCount;
     stats.energies = m_energyEquations.size();
     stats.constraints = m_constraintEquations.size();
+    stats.fixedVariables = m_fixedVariables.size();
     if (m_matrixDirty) {
         m_cache->patternAnalyzed = false;
         m_cache->factorized = false;
@@ -399,12 +488,17 @@ bool ConstrainedLeastSquares::solve(std::vector<double>* solution)
 bool ConstrainedLeastSquares::solveWithLagrangeMultipliers(std::vector<double>* solution)
 {
     const Eigen::Index variableCount = static_cast<Eigen::Index>(m_variableCount);
-    const Eigen::Index originalConstraintCount = static_cast<Eigen::Index>(m_constraintEquations.size());
+    // Held variables are plain constraints here: this path factorises from
+    // scratch anyway.
+    std::vector<LinearEquation> constraints = m_constraintEquations;
+    for (const auto& fixed : m_fixedVariables)
+        constraints.push_back({ { { fixed.first, 1.0 } }, fixed.second, 1.0 });
+    const Eigen::Index originalConstraintCount = static_cast<Eigen::Index>(constraints.size());
 
     Eigen::SparseMatrix<double> constraintMatrix(originalConstraintCount, variableCount);
     std::vector<Eigen::Triplet<double>> constraintEntries;
     for (Eigen::Index constraintIndex = 0; constraintIndex < originalConstraintCount; ++constraintIndex) {
-        for (const auto& coefficient : m_constraintEquations[static_cast<size_t>(constraintIndex)].coefficients) {
+        for (const auto& coefficient : constraints[static_cast<size_t>(constraintIndex)].coefficients) {
             if (coefficient.first >= m_variableCount)
                 return false;
             constraintEntries.emplace_back(constraintIndex, static_cast<Eigen::Index>(coefficient.first), coefficient.second);
@@ -443,7 +537,7 @@ bool ConstrainedLeastSquares::solveWithLagrangeMultipliers(std::vector<double>* 
         }
     }
     for (Eigen::Index constraintIndex = 0; constraintIndex < independentConstraintCount; ++constraintIndex) {
-        const LinearEquation& equation = m_constraintEquations[static_cast<size_t>(selectedConstraints[constraintIndex])];
+        const LinearEquation& equation = constraints[static_cast<size_t>(selectedConstraints[constraintIndex])];
         rightHandSide[variableCount + constraintIndex] = equation.rightHandSide;
         for (const auto& coefficient : equation.coefficients) {
             entries.emplace_back(static_cast<Eigen::Index>(coefficient.first), variableCount + constraintIndex, coefficient.second);
@@ -485,6 +579,7 @@ void appendSolveStats(DiagnosticRecord* record, const std::string& prefix,
     record->set(p + "variables", (double)stats.variables);
     record->set(p + "energies", (double)stats.energies);
     record->set(p + "constraints", (double)stats.constraints);
+    record->set(p + "fixed", (double)stats.fixedVariables);
     record->set(p + "n", (double)stats.freeVariables);
     record->set(p + "normal_nnz", (double)stats.normalNonZeros);
     record->set(p + "factor_nnz", (double)stats.factorNonZeros);

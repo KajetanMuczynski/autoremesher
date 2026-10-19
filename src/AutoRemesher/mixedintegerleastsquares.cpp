@@ -30,6 +30,9 @@ namespace AutoRemesher {
 namespace {
     const size_t noIndex = std::numeric_limits<size_t>::max();
     const double dropTolerance = 1e-10;
+    // Greedy rounding schedule, see fixNextBatch().
+    const size_t roundingBatches = 10;
+    const double nearlyIntegral = 1e-3;
 }
 
 MixedIntegerLeastSquares::MixedIntegerLeastSquares(size_t size)
@@ -447,6 +450,52 @@ void MixedIntegerLeastSquares::addEnergy(size_t a, double ca, size_t b, double c
         m_energy.push_back(std::move(row));
 }
 
+void MixedIntegerLeastSquares::fixNextBatch(IterationStats* stats)
+{
+    // Greedy rounding (Bommes, Zimmer and Kobbelt 2009) in batches.  Each
+    // pass fixes the unfixed integers whose relaxed values lie closest to
+    // their lattice, then the next solve lets every other variable adapt to
+    // them before it is rounded in turn.  Rounding everything after one
+    // relaxed solve ignored how the integers pull on each other: it moved
+    // translations by up to half their period (a whole quad), and it made
+    // half of the flipped triangles of the final map on the corpus.
+    //
+    // A pass takes the closest 1 / roundingBatches of all integers, so the
+    // rounding takes about roundingBatches refactorisations whatever the
+    // island size, plus everything already within nearlyIntegral of a
+    // lattice point, which rounding barely moves.  Ties are broken by index,
+    // so the result does not depend on anything but the input.
+    std::vector<std::pair<double, size_t>> candidates;
+    size_t integers = 0;
+    for (size_t i = 0; i < m_kernelSize; ++i) {
+        if (m_period[i] <= 0)
+            continue;
+        ++integers;
+        if (m_fixed[i])
+            continue;
+        const double x = m_values[i] / m_period[i];
+        candidates.push_back({ std::fabs(x - std::round(x)), i });
+    }
+    if (candidates.empty())
+        return;
+    std::sort(candidates.begin(), candidates.end());
+    const size_t batch = std::max<size_t>(1, (integers + roundingBatches - 1) / roundingBatches);
+    for (size_t k = 0; k < candidates.size(); ++k) {
+        if (k >= batch && candidates[k].first > nearlyIntegral)
+            break;
+        const size_t i = candidates[k].second;
+        m_fixed[i] = true;
+        m_fixedValue[i] = double(m_period[i]) * std::round(m_values[i] / double(m_period[i]));
+        const double shift = candidates[k].first * m_period[i];
+        ++stats->newlyFixed;
+        stats->maximumRoundingShift = std::max(stats->maximumRoundingShift, shift);
+        stats->meanRoundingShift += shift;
+    }
+    stats->meanRoundingShift /= (double)stats->newlyFixed;
+}
+
+size_t MixedIntegerLeastSquares::expectedRoundingPasses() { return roundingBatches; }
+
 bool MixedIntegerLeastSquares::solveIteration()
 {
     if (m_pass < 3 || m_kernelSize == 0)
@@ -462,43 +511,33 @@ bool MixedIntegerLeastSquares::solveIteration()
     if (m_values.empty()) {
         m_values.assign(m_kernelSize, 0.0);
         m_fixed.assign(m_kernelSize, false);
+        m_fixedValue.assign(m_kernelSize, 0.0);
     } else {
-        double threshold = 1e20;
-        for (size_t i = 0; i < m_kernelSize; ++i)
-            if (!m_fixed[i] && m_period[i] > 0) {
-                double d = std::fabs(m_values[i] / m_period[i] - std::round(m_values[i] / m_period[i]));
-                threshold = std::max(d + .001, 1.0);
-                break;
-            }
-        for (size_t i = 0; i < m_kernelSize; ++i)
-            if (!m_fixed[i] && m_period[i] > 0) {
-                double d = std::fabs(m_values[i] / m_period[i] - std::round(m_values[i] / m_period[i]));
-                if (d < threshold) {
-                    m_fixed[i] = true;
-                    const double shift = d * m_period[i];
-                    ++stats.newlyFixed;
-                    stats.maximumRoundingShift = std::max(stats.maximumRoundingShift, shift);
-                    stats.meanRoundingShift += shift;
-                }
-            }
-        if (stats.newlyFixed > 0)
-            stats.meanRoundingShift /= (double)stats.newlyFixed;
+        fixNextBatch(&stats);
     }
     if (nullptr == m_system) {
+        // Built once: fixing integers holds variables of the same system
+        // and keeps its pattern, so later passes only refactorise.
         m_system.reset(new ConstrainedLeastSquares(m_kernelSize));
+        m_energyIndices.clear();
+        m_energyIndices.reserve(m_reducedEnergy.size());
         std::vector<std::pair<size_t, double>> coefficients;
         for (const Row& energy : m_reducedEnergy) {
             coefficients.clear();
             coefficients.reserve(energy.coefficients.size());
             for (const Coeff& coefficient : energy.coefficients)
                 coefficients.push_back({ coefficient.index, coefficient.a });
-            m_system->addEnergy(coefficients, energy.rhs, energy.weight);
+            m_energyIndices.push_back(m_system->addEnergy(coefficients, energy.rhs, energy.weight));
         }
     }
-    m_system->clearConstraints();
-    for (size_t i = 0; i < m_kernelSize; ++i)
-        if (m_fixed[i])
-            m_system->addConstraint({ { i, 1.0 } }, double(m_period[i]) * std::round(m_values[i] / double(m_period[i])));
+    if (stats.newlyFixed > 0) {
+        std::vector<std::pair<size_t, double>> fixed;
+        fixed.reserve(stats.fixedBefore + stats.newlyFixed);
+        for (size_t i = 0; i < m_kernelSize; ++i)
+            if (m_fixed[i])
+                fixed.push_back({ i, m_fixedValue[i] });
+        m_system->fixVariables(fixed);
+    }
     const bool solved = m_system->solve(&m_values);
     stats.solve = m_system->lastSolveStats();
     return solved;
@@ -509,13 +548,13 @@ bool MixedIntegerLeastSquares::scaleSolution(double factor)
     for (const bool fixed : m_fixed)
         if (fixed)
             return false;
-    for (Row& energy : m_reducedEnergy)
-        energy.rhs *= factor;
+    for (size_t k = 0; k < m_reducedEnergy.size(); ++k) {
+        m_reducedEnergy[k].rhs *= factor;
+        if (nullptr != m_system && k < m_energyIndices.size())
+            m_system->setEnergyRightHandSide(m_energyIndices[k], m_reducedEnergy[k].rhs);
+    }
     for (double& value : m_values)
         value *= factor;
-    // Rebuilt from the scaled right-hand sides by the next solve, which
-    // refactors anyway once integers are fixed.
-    m_system.reset();
     return true;
 }
 
@@ -574,6 +613,19 @@ double MixedIntegerLeastSquares::integralityResidual() const
         residual = std::max(residual, std::fabs(x - std::round(x)));
     }
     return residual;
+}
+
+double MixedIntegerLeastSquares::energy() const
+{
+    double total = 0.0;
+    for (const Row& row : m_reducedEnergy) {
+        double residual = -row.rhs;
+        for (const Coeff& c : row.coefficients)
+            if (c.index < m_values.size())
+                residual += c.a * m_values[c.index];
+        total += row.weight * residual * residual;
+    }
+    return total;
 }
 
 double MixedIntegerLeastSquares::constraintResidual(double tolerance, size_t* violatedCount) const

@@ -55,7 +55,12 @@ public:
     void addEnergy(size_t firstVariable, double firstCoefficient,
         size_t secondVariable, double secondCoefficient, double rhs, double weight = 1.0);
 
+    // The first call solves the continuous relaxation.  Each later call fixes
+    // the next batch of integers to their nearest lattice values and solves
+    // again; converged() once every integer is fixed, after about
+    // expectedRoundingPasses() calls.
     bool solveIteration();
+    static size_t expectedRoundingPasses();
     // Multiplies the right-hand sides and the current solution by factor.
     // Valid only while no integer is fixed (after the first, continuous
     // solveIteration): every constraint is homogeneous, so the continuous
@@ -101,6 +106,10 @@ public:
     // elimination folded it into a combination of kernel variables.
     double integralityResidual() const;
 
+    // The least-squares energy sum w (a . x - rhs)^2 of the current solution;
+    // its growth from the continuous solution is what rounding cost.
+    double energy() const;
+
     // max |a . x| over all constraints as added (every constraint row is
     // homogeneous), and how many exceed `tolerance`.
     double constraintResidual(double tolerance, size_t* violatedCount) const;
@@ -136,6 +145,7 @@ private:
     void finalizeM1();
     void finalizeM2();
     void applyRemoveColumn(const std::vector<Coeff>& row, size_t remove);
+    void fixNextBatch(IterationStats* stats);
 
     size_t m_size;
     size_t m_pass;
@@ -156,6 +166,7 @@ private:
     std::vector<Row> m_reducedEnergy;
     std::vector<double> m_values;
     std::vector<bool> m_fixed;
+    std::vector<double> m_fixedValue;
 
     SparseMatrix m_kernel;
     bool m_kernelBuilt = false;
@@ -165,6 +176,7 @@ private:
     mutable std::vector<Coeff> m_merged;
 
     std::unique_ptr<ConstrainedLeastSquares> m_system;
+    std::vector<size_t> m_energyIndices;
     IterationStats m_lastIterationStats;
     size_t m_iterationCount = 0;
     size_t m_droppedConstraintCount = 0;
