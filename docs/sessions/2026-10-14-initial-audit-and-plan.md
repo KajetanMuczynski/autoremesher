@@ -1,0 +1,14 @@
+# 2026-10-14 · Claude (cloud session) · Initial audit and plan
+- Repos/commits: core `huxingyi/autoremesher@4a49f82` (v1.2.0, MIT); bridge `adriflex/autoremesher-blender-bridge@75f0c22` (v0.1.3, GPLv3).
+- Did: cloned both, read the full core pipeline (autoremesher, parameterizer, framefield, singularitysimplifier, quadparameterizer, mixedintegerleastsquares, constrainedleastsquares, quadextractor structure) and the bridge. Wrote REFERENCE.md and TODO.md.
+- Found (code read, see REFERENCE §4–5):
+  - Integer rounding is effectively one-shot (all integers rounded at once): `mixedintegerleastsquares.cpp:461`.
+  - Conformal sizing solve exists but is commented out: `parameterizer.cpp:388`.
+  - Field and parametrization are solved on a mesh at roughly target quad resolution.
+  - Islands are the only parallelism; single-island sculpts run parameterize/extract on one core.
+  - QuadExtractor has ~12 repair passes that rebuild a global edge map every round.
+  - Two different curvature/density estimators; `ModelType` unused.
+  - Core has no Qt dependency, so it can become a library / Python module.
+  - Bridge: blocking `subprocess.run`, OBJ files, no anisotropy option.
+- Measured: nothing. Not built or run.
+- Next: Phase 0 decisions (upstream vs private fork, licensing), Phase 1 build, Phase 2 corpus + metrics.

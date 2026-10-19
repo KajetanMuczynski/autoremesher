@@ -5,7 +5,7 @@ First written 2026-10-14 from a code read; the same day merged with the research
 
 Legend: **[V]** verified in the code at the commit below. **[M]** measured by the baseline thread. **[P]** checked by a project thread against a primary external source (paper, LICENSE file, official doc). **[E]** external claim, not checked at the source. **[I]** inferred (derivation or reasoning, not measured).
 
-Companion files: [README.md](README.md) (index), [TODO.md](TODO.md) (ordered plan), [SPECIALIST-QUESTIONS.md](SPECIALIST-QUESTIONS.md) (SQ-* IDs), [LICENSES.md](LICENSES.md), [RECONCILIATION.md](RECONCILIATION.md) (conflicts between sources), [SESSIONS.md](SESSIONS.md) (log), [research/](research/) (full reports). Pre-merge version: [archive/REFERENCE-2026-10-14-pre-merge.md](archive/REFERENCE-2026-10-14-pre-merge.md).
+Companion files: [README.md](README.md) (index), [TODO.md](TODO.md) (ordered plan), [SPECIALIST-QUESTIONS.md](SPECIALIST-QUESTIONS.md) (SQ-* IDs), [LICENSES.md](LICENSES.md), [RECONCILIATION.md](RECONCILIATION.md) (conflicts between sources), [sessions/](sessions/README.md) (log, one file per session), [research/](research/) (full reports). Pre-merge version: [archive/REFERENCE-2026-10-14-pre-merge.md](archive/REFERENCE-2026-10-14-pre-merge.md).
 
 For exact formulas, constants and line numbers of every stage, read research/code-to-math-spec.md ("spec" below). This file keeps the summary, the issue list and the decisions.
 

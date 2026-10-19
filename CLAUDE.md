@@ -67,17 +67,19 @@ CI (`.github/workflows/`):
   requires. Branch pushes without a PR get no run (use Actions > ci > Run workflow);
   a PR with merge conflicts gets no run either, so **CI passed** shows as missing.
   A PR that changes only documentation (`docs/`, Markdown at the top level or directly in `addon/`)
-  skips the macOS jobs (`changes` job decides; GitHub's macOS runners can queue for many minutes);
-  **CI passed** accepts that skip and nothing else.
+  skips the macOS job (`changes` job decides; GitHub's macOS runners can queue for many minutes);
+  **CI passed** accepts that skip and nothing else. Other paths never skip macOS or Windows: add-on
+  Python broke on Windows only before (#18), and Qt-GUI/bench-only PRs, the only other safe skip, never occurred.
   - `format`: `ci/lint.sh` (src/ and tests/) with clang-format pinned to 23.1.3 (pip); bump on purpose.
-  - `core (linux|macos)`: CMake Release build with tests, `ctest --no-tests=error`, then
-    `ci/output_gate.py` (procedural sphere, torus, box, open tube, two islands; fails on exit status,
-    quads outside 0.6-1.5x target, >2 % non-quads, any non-manifold edge, report/OBJ mismatch;
-    folded faces and empty islands are reported in the job summary, not gated yet).
   - `qt-app (linux)`: qmake app and `ar_bench`, `ci/smoke_test.sh` on both (1,200-2,400 quads).
-  - `addon (linux-x64|windows-x64|macos-arm64)`: CLI, worker tests, zip installed into a real Blender
-    (4.2 LTS on Linux, 5.2 on Windows and macOS). The Windows and macOS zips (static oneTBB; macOS
-    11.2+, Apple silicon) are uploaded as artifacts `addon-<platform>`.
+  - `addon (linux-x64|windows-x64|macos-arm64)`: one CMake Release build per platform, the shipped
+    configuration (static oneTBB on Windows and macOS), with the core tests: `ctest --no-tests=error`,
+    `ci/output_gate.py` on the installed CLI (procedural sphere, torus, box, open tube, two islands;
+    fails on exit status, quads outside 0.6-1.5x target, >2 % non-quads, any non-manifold edge,
+    report/OBJ mismatch; folded faces and empty islands are reported in the job summary, not gated
+    yet), worker tests, zip installed into a real Blender (4.2 LTS on Linux, 5.2 on Windows and
+    macOS). The Windows and macOS zips (macOS 11.2+, Apple silicon) are uploaded as artifacts
+    `addon-<platform>`. One macOS job per PR, since macOS runners are the scarce ones.
 - What ships is only the Blender add-on (Kajetan, 2026-10-15). The standalone Qt app (AppImage,
   Windows zip, DMG: upstream's `release.yml`) is no longer packaged; it is still built and
   smoke-tested on Linux by `qt-app`. A portable Linux add-on zip doesn't exist yet (the CI one links
@@ -102,6 +104,7 @@ Running the binary with no args opens the GUI. The core needs `setTargetTriangle
   to push more work to a ready PR, convert it back to draft first.
 - A thread pushes to its one `claude/project-thread-*` branch and has at most one open PR; the next
   PR waits until that one is merged. Never delete branches.
+- Branch protection for `master` (ruleset, up-to-date setting, why no merge queue) is planned in `docs/TODO.md` item 0.9.
 - Before claiming anything about a PR or CI (base, merged or not, which checks ran, their result),
   check it on GitHub. Never report from memory.
 - Commit trailer: `Co-Authored-By: Claude <noreply@anthropic.com>` (short form, Kajetan's choice).
@@ -128,4 +131,4 @@ single-file job on top. For routine work:
 `archive/` stay in `../docs/` only, so links to `research/` and `archive/` don't resolve in the repo.
 - `docs/README.md` (index) and `docs/TODO.md` ("Order at a glance", critical path) first.
 - `docs/REFERENCE.md`: pipeline map with line numbers, known performance and math issues, baseline.
-- Log each working session in `docs/SESSIONS.md`.
+- Log each working session as a new file in `docs/sessions/` (format in its README). Never append to a shared log: one shared file made every merge conflict with every other open PR.

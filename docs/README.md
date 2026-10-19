@@ -2,7 +2,7 @@
 
 Goal: upgrade AutoRemesher (huxingyi/autoremesher, MIT) into a GPL-3.0-or-later fork with ZBrush-ZRemesher-like quality, usable from Blender. Stage-by-stage upgrade, not a rewrite. Index last updated 2026-10-14.
 
-**New here?** Read TODO.md "Order at a glance", then the latest entry in SESSIONS.md, then REFERENCE.md §3 (pipeline) and §5 (issues).
+**New here?** Read TODO.md "Order at a glance", then the latest entry in [sessions/](sessions/README.md), then REFERENCE.md §3 (pipeline) and §5 (issues).
 
 ## Working files
 
@@ -15,7 +15,7 @@ Goal: upgrade AutoRemesher (huxingyi/autoremesher, MIT) into a GPL-3.0-or-later 
 | [SPECIALIST-QUESTIONS.md](SPECIALIST-QUESTIONS.md) | 39 open math questions (SQ-X, Z, P, L, F, S, E, M), each self-contained so it can be forwarded alone, with an "Ask first" list and suggested experts. |
 | [LICENSES.md](LICENSES.md) | License decision, dependency table, every candidate library's license as checked by the research, the flags used in TODO.md, test-data licensing, attribution checklist. |
 | [RECONCILIATION.md](RECONCILIATION.md) | 27 places where project files disagreed and 8 where measurement overturned a code read (B1–B8), which source wins and why. |
-| [SESSIONS.md](SESSIONS.md) | Session log, one entry per working session or thread (append at the bottom). |
+| [sessions/](sessions/README.md) | Session log, one file per working session or thread (add a file, never append to a shared one). |
 
 ## Research reports (`research/`)
 
@@ -39,7 +39,7 @@ All written 2026-10-14. Only the baseline report measured anything; the others a
 |---|---|
 | [archive/REFERENCE-2026-10-14-pre-merge.md](archive/REFERENCE-2026-10-14-pre-merge.md) | REFERENCE.md before the research merge ("REF-old" in RECONCILIATION.md). |
 | [archive/TODO-2026-10-14-pre-merge.md](archive/TODO-2026-10-14-pre-merge.md) | TODO.md before it was rebuilt as the ordered plan. |
-| [archive/REFERENCE-2026-10-14-pre-baseline.md](archive/REFERENCE-2026-10-14-pre-baseline.md) | REFERENCE.md just before the baseline was folded in (saved by the "Fold baseline results" thread). No pre-baseline copy of TODO.md exists; the SESSIONS.md entry "Baseline folded in" lists what changed. |
+| [archive/REFERENCE-2026-10-14-pre-baseline.md](archive/REFERENCE-2026-10-14-pre-baseline.md) | REFERENCE.md just before the baseline was folded in (saved by the "Fold baseline results" thread). No pre-baseline copy of TODO.md exists; the session entry [Baseline folded in](sessions/2026-10-14-baseline-folded-in.md) lists what changed. |
 
 ## Conventions
 

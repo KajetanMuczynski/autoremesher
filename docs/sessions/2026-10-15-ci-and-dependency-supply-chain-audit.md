@@ -1,0 +1,6 @@
+# 2026-10-15 · Claude (cloud thread "Supply-chain audit") · CI and dependency supply-chain audit
+- Repos/commits: fork master `6f68495` → PR #24 (ci(ci), draft).
+- Did: audited both workflows, every fetched or bundled library and tool, and the add-on zip; checked recent advisories (actions-cool tag hijack May/Sep 2026, Megalodon, PyPI Shai-Hulud copycat, Qt 5.15 CVEs, Homebrew qt@5 deprecation). PR #24 pins all actions to commit SHAs, sets a read-only token, drops persisted checkout credentials, pins the test-model repo, checks the Blender archive's SHA-256 and adds Dependabot for actions. Report: project files `research/supply-chain-audit-2026-10-15.md`.
+- Found: no compromise; no secrets or `pull_request_target`. Open risks: AppImage built with unverified "continuous" linuxdeployqt/appimagetool; AppImage and Windows zip ship Qt 5.15.2; install-qt-action v3 still runs a mutable inner ref (v4.4.1 fixes it); Homebrew qt@5 disabled 2027-05-19.
+- Measured: zizmor 1.31 offline 31 high + 19 medium → 0; vendored Eigen byte-identical to 5.0.1, meshoptimizer `.cpp` identical to v1.2.
+- Next: pin and checksum the AppImage tools; install-qt-action v4.4.1; hashed CI requirements; Kajetan's repo settings list in the report.

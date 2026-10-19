@@ -1,0 +1,6 @@
+# 2026-10-14 · Claude (thread "Consolidate research into project files", ≈20:26 UTC) · Baseline folded in
+- Did: replaced the REFERENCE §4.1 placeholder with the measured baseline. Added a measured verdict to P1–P8, M1–M4, M7 and M14, and new items P9, P10, M15 and M16. Corrected §2 (apt package, headless env var, `--report`). Added RECONCILIATION §5 (B1–B8, measurement beats code read). Updated TODO Wave 1 statuses (1.9 done, 1.12 new) and added quick wins 2.11–2.14, 8.0 and 8.7; retargeted 8.1 and 8.2. Added the measured flip rates to SPECIALIST-BRIEF.md and SQ-E1.
+- Found: the biggest user-visible bug is the quad count (2–3× under target by default), not speed. The cheapest win is tbbmalloc (one link flag).
+- Archive: the exact pre-baseline REFERENCE.md was saved by a parallel thread as `archive/REFERENCE-2026-10-14-pre-baseline.md`. **No pre-baseline copy of TODO.md was made**; the changes are the ones listed in "Did". That parallel thread ("Fold baseline results into plan files") stood down without editing; its checklist added: A/B at adaptivity 0 and 1 in 3.7, 4.1 raised, the tbbmalloc static-TBB caveat, the 2.9 libc++ note, and measured lines in SQ-P1/P3/Z1/E2/E3.
+- Measured: nothing new (folding only).
+- Next: code: 8.0, 2.11, 2.12 (quick wins), then the critical path 1.6 → 2.1–2.2 → 3.1–3.3. Kajetan: 1.12 on his machine; 0.8 when he wants.
