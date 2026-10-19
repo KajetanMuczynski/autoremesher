@@ -167,13 +167,12 @@ Everything we know about and deliberately left undone, with the reason and what 
 
 | Item | Why not done | Unblocked by | Owner | Since |
 |---|---|---|---|---|
-| Trademark check for the working name **Quadami** | Rename deferred until before the first public release; the name is kept in one place so it is cheap to change | His check, before a public release | K | 2026-10-15 (*unconfirmed*) |
+| Trademark check for the working name **Quadami** | Rename deferred until before the first public release; the name is kept in one place so it is cheap to change | His check, before a public release | K | 2026-10-15 |
 | **0.8** Specialist questions | He prefers asking in person, in Polish, from the printed handout (`handouts/pytania-analiza-pl.pdf` in project files), starting with his analysis professor. The handout's p. 2 derivation (a joint (θ, φ) solve splits into two independent ones for fixed cones) is unverified and decides whether 4.5's joint solve is worth building | His meeting; report back what was confirmed | K | 2026-10-15 |
-| First add-on run on Windows 10/11 | Tester (not Kajetan) has not run it yet; CI covers only the `bpy` side and the install | The run, using the CI zip `addon-windows-x64` | K | 2026-10-15 (*unconfirmed*) |
+| First add-on run on Windows 10/11 | Not run yet (Kajetan, 2026-10-19); CI covers only the `bpy` side and the install | The run, using the CI zip `addon-windows-x64` | K | 2026-10-15 |
 | Gatekeeper check of the macOS zip on a real Mac | CI cannot show what Gatekeeper does with an unsigned zip from a download | A run on a real Apple-silicon Mac | K | 2026-10-15 |
 | **0.9** Master branch ruleset (require PR + **CI passed**); "require branches up to date" | His repository setting. Up-to-date only makes sense once the shared session log is gone | #29 merged, then his setting | K | 2026-10-15 |
-| Repository security settings (supply-chain audit, "Repo settings for Kajetan": token permissions, SHA-pinned actions only, fork approval, Dependabot alerts, secret scanning, CodeQL, tag ruleset) | Settings aren't readable from a cloud session; current state *unconfirmed* | His settings pass | K | 2026-10-15 |
-| Token-saving rules for project instructions and thread effort (`research/token-usage-2026-10-19.md` in project files) | Proposed, his call; partly answered 2026-10-19 (drop text that CLAUDE.md already holds), the rest *unconfirmed* | His decision; Project settings → General for effort | K | 2026-10-19 |
+| Repository security settings (supply-chain audit, "Repo settings for Kajetan": token permissions, SHA-pinned actions only, fork approval, Dependabot alerts, secret scanning, CodeQL, tag ruleset) | None switched on yet (Kajetan, 2026-10-19: should be done) | His settings pass | K | 2026-10-15 |
 | **1.12** Runs on his machine: own 1–10M sculpts, macOS probe build (does P2 matter with Accelerate), E1 on 8–16 cores | The cloud has no sculpts and no macOS; his laptop overheats, so one heavy run at a time | His time and a cool machine | K | 2026-10-14 |
 | **1.8** rest: quadwild-bimdf comparison | The cloud can't reach its submodule host or GitHub release downloads | A build on his machine | K | 2026-10-15 |
 | **1.8** rest: ZRemesher and Quad Remesher comparison | He has no ZBrush; Quad Remesher is paid | A license, or drop these two rows | K | 2026-10-15 |
@@ -211,7 +210,7 @@ Everything we know about and deliberately left undone, with the reason and what 
 | Intrinsic symmetry | No licensed code (`ASK`); no commercial tool offers it | Licensed code appears | C | 2026-10-14 |
 | GPU solvers, MKL/Panua PARDISO, cuDSS, Gurobi | ≤ 2×, CUDA-only, or license `NO` | Never for Gurobi; otherwise new numbers | C | 2026-10-14 |
 | Standalone Qt app packages (AppImage, Windows zip, DMG) | Only the add-on ships; the app is still built and smoke-tested on Linux | He wants the app shipped again | K | 2026-10-15 |
-| Composite quality score | Pareto comparisons per metric family until SQ-M1 is answered (0.7) | SQ-M1 answered | K | *unconfirmed* |
+| Composite quality score | Pareto comparisons per metric family until SQ-M1 is answered (0.7) | SQ-M1 answered | K | 2026-10-14 |
 | Third-party Claude plugins (devil-advocate, token-usage, Headroom) | Audited, install none (`research/plugin-audit-2026-10-19.md` in project files) | A new plugin, after its own audit | K | 2026-10-19 |
 
 ### Accepted risks and known gaps
