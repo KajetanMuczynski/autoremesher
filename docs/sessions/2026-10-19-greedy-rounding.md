@@ -1,5 +1,5 @@
 # 2026-10-19 · cloud thread "Fix the map: rounding and solver" · greedy rounding on one factorisation (TODO 3.2, 3.3)
-- Repos/commits: core master `04e83ba` → branch `claude/project-thread-f7uemq`
+- Repos/commits: core master `04e83ba` → PR #37 (branch `claude/project-thread-f7uemq`)
 - Did: design critique of 3.1–3.3 before building. Then:
   - `ConstrainedLeastSquares::fixVariables`: held rows and columns are reduced to the diagonal, so the pattern and the analysis are kept (3.2).
   - Batched greedy rounding: the closest tenth per pass plus everything within 1e-3, ties by index (3.3).
