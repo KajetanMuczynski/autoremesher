@@ -3,8 +3,9 @@
 What good output means for this remesher, as numbers: the positioning, the gates every output must
 pass, per-family goals with a minimum and a stretch value, and which goal wins when they conflict.
 Defines TODO 0.7. Written 2026-10-19 from the 2026-10-15 comparison and a re-run of our side at the
-current default; an independent critique changed the first draft (§8). **Status: proposed.** The
-decisions in §6 are Kajetan's; until he makes them, §1 and §2.4 are the recommendation.
+current default; an independent critique changed the first draft (§8). **Status: decided** by Kajetan
+on 2026-10-20 (§6): positioning, priority with margins and release bar accepted; the artist-side
+reference is deferred.
 
 Tags as in [README.md](README.md): **[M]** measured, **[I]** inferred, **[P]** primary source, **[E]**
 external claim. Metric IDs (T*, G*, D*, A*, P*, S*) are those of research/extraction-layout-metrics.md
@@ -218,20 +219,21 @@ computed and no reference values (§7).
   - QuadriFlow with `-adaptive -sharp` on the hard-surface and thin-shell meshes, to see whether the
     fidelity lead survives their best settings.
 
-## 6. Decisions for Kajetan
+## 6. Decisions (Kajetan, 2026-10-20)
 
-1. **Positioning** (§1): "faithful, valid, predictable" instead of "ZRemesher-like quality" in the README
-   goal, with the reading of your three words given there. *Recommend yes:* it is where the data says
-   we lead, and ZRemesher's edge flow can't be measured, so it can't be a target yet.
-2. **Priority with margins** (§2.4). *Recommend yes;* it makes "no malformations" win without letting a
-   defect fix throw away the fidelity lead.
-3. **Release bar** (§3.2). *Recommend:* 0.x previews ship under the ratchet, since the add-on panel
+1. **Positioning** (§1): *accepted.* "Faithful, valid, predictable" replaces "ZRemesher-like quality" as
+   the goal in [README.md](README.md), with the reading of his three words given in §1. Reason: it is
+   where the data says we lead, and ZRemesher's edge flow can't be measured, so it can't be a target yet.
+2. **Priority with margins** (§2.4): *accepted.* "No malformations" wins without letting a defect fix
+   throw away the fidelity lead.
+3. **Release bar** (§3.2): *accepted.* 0.x previews ship under the ratchet, since the add-on panel
    already reports non-quads and folded faces; 1.0 needs §3.1 everywhere and the §3.2 bar, including
    fold-free organic and scan inputs.
-4. **Artist-side reference** (§7). *Recommend Quad Remesher's trial first*: one month, runs in Blender
-   on Linux [P], reportedly by ZRemesher's author [E]. ZBrush's 14-day trial is non-commercial and
-   Windows/macOS only [P], so it needs another machine. Read each EULA before publishing its numbers
-   (some forbid published benchmarks), and keep their output meshes out of the repo.
+4. **Artist-side reference** (§7): *deferred* ("later"). When it is picked up: Quad Remesher's trial
+   first (one month, runs in Blender on Linux [P], reportedly by ZRemesher's author [E]); ZBrush's
+   14-day trial is non-commercial and Windows/macOS only [P], so it needs another machine. Read each
+   EULA before publishing its numbers (some forbid published benchmarks), and keep their output meshes
+   out of the repo. Until then layout goals stay "parity with QuadriFlow" (§4.3).
 
 ## 7. Not definable yet, and the cheapest way to get the data
 
