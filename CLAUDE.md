@@ -74,7 +74,7 @@ CI (`.github/workflows/`):
   - `qt-app (linux)`: qmake app and `ar_bench`, `ci/smoke_test.sh` on both (1,200-2,400 quads).
   - `addon (linux-x64|windows-x64|macos-arm64)`: one CMake Release build per platform, the shipped
     configuration (static oneTBB on Windows and macOS), with the core tests: `ctest --no-tests=error`,
-    `ci/output_gate.py` on the installed CLI (procedural sphere, torus, box, open tube, two islands;
+    `ci/output_gate.py` on the installed CLI (procedural sphere, torus, box, open tube, two islands, sphere centred at 1e5;
     fails on exit status, quads outside 0.6-1.5x target, >2 % non-quads, any non-manifold edge,
     report/OBJ mismatch; folded faces and empty islands are reported in the job summary, not gated
     yet), worker tests, zip installed into a real Blender (4.2 LTS on Linux, 5.2 on Windows and

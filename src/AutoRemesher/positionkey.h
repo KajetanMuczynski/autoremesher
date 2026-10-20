@@ -34,12 +34,17 @@ public:
     bool operator==(const PositionKey& right) const;
 
 private:
-    long m_intX = 0;
-    long m_intY = 0;
-    long m_intZ = 0;
+    // Coordinates scaled by m_toIntFactor and truncated toward zero: points in
+    // the same 1e-5 cell share a key.  Held as doubles, not integers, so no
+    // coordinate overflows: a 32-bit long (MSVC) wrapped beyond about 21,475
+    // units and merged every far point into one key.  Below 2^53 the values
+    // are exactly the integers the old long cast gave.
+    double m_cellX = 0.0;
+    double m_cellY = 0.0;
+    double m_cellZ = 0.0;
     Vector3 m_position;
 
-    static long m_toIntFactor;
+    static const double m_toIntFactor;
 };
 
 }
