@@ -43,6 +43,16 @@ public:
         double rightHandSide = 0.0);
     void clearConstraints();
 
+    // Holds variables at the given values until the next call, which
+    // replaces the set (an empty set releases them all). Unlike a constraint
+    // this keeps the factorised pattern: the held unknowns' rows and columns
+    // of the normal matrix are replaced by their diagonal, so a new set
+    // costs one numeric refactorisation instead of a new substitution,
+    // ordering and factorisation. A held variable must not also be fixed by
+    // a constraint, and variables that constraints tie together must be held
+    // at consistent values; solve() fails otherwise.
+    void fixVariables(const std::vector<std::pair<size_t, double>>& values);
+
     bool solve(std::vector<double>* solution);
 
     // What the last solve() did and cost, for the diagnostics report.  Only
@@ -51,6 +61,8 @@ public:
         size_t variables = 0;
         size_t energies = 0;
         size_t constraints = 0;
+        // Variables held by fixVariables().
+        size_t fixedVariables = 0;
         // Unknowns of the factorised system after constraint substitution.
         size_t freeVariables = 0;
         size_t normalNonZeros = 0;
@@ -95,14 +107,19 @@ private:
     Substitution resolve(size_t variable);
     bool buildSubstitutions();
     bool buildReducedSystem();
+    bool mapFixedVariables();
+    bool factorizeReducedSystem();
     bool solveReduced(std::vector<double>* solution);
     bool solveWithLagrangeMultipliers(std::vector<double>* solution);
 
     size_t m_variableCount;
     std::vector<LinearEquation> m_energyEquations;
     std::vector<LinearEquation> m_constraintEquations;
+    std::vector<std::pair<size_t, double>> m_fixedVariables;
 
     bool m_matrixDirty = true;
+    // The held values changed since the last factorisation.
+    bool m_fixedDirty = false;
 
     std::vector<Substitution> m_substitutions;
     std::vector<size_t> m_freeIndexOfRoot;

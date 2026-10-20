@@ -707,11 +707,11 @@ namespace {
             record.set("dropped_constraints", (double)s.droppedConstraintCount());
             diagnostics->push_back(std::move(record));
         }
-        // Rounding usually converges after a couple of passes, well short of the
-        // cap, so spread the fraction over the passes it is expected to take and
-        // clamp instead of pacing it against the cap and barely moving.
+        // Rounding converges well short of the cap, so spread the fraction over
+        // the passes it is expected to take and clamp instead of pacing it
+        // against the cap and barely moving.
         const size_t maximumIterations = 100;
-        const size_t expectedIterations = 4;
+        const size_t expectedIterations = 1 + MixedIntegerLeastSquares::expectedRoundingPasses();
         size_t iterations = 0;
         for (size_t iteration = 0; iteration < maximumIterations; ++iteration) {
             report(0.3f + 0.65f * std::min(1.0f, (float)iteration / expectedIterations),
@@ -733,6 +733,7 @@ namespace {
                 return false;
             if (0 == iteration) {
                 result->set("continuous_rescale", matchCellCount(mesh, expectedCells, &s));
+                result->set("continuous_energy", s.energy());
                 appendSizeFidelity(result, "continuous", mesh, s, faceScaling, scale);
                 // Nothing is fixed in the first pass, so its solution is the
                 // continuous relaxation: flips there are not caused by
@@ -747,6 +748,7 @@ namespace {
         const double constraintResidual = s.constraintResidual(1e-6, &violatedConstraints);
         result->set("converged", s.converged() ? 1.0 : 0.0);
         result->set("integrality_residual", s.integralityResidual());
+        result->set("rounded_energy", s.energy());
         result->set("constraint_residual", constraintResidual);
         result->set("violated_constraints", (double)violatedConstraints);
         appendUvOrientation(result, "rounded", measureUvOrientation(cornerUvs(s, uvVariables)));
