@@ -36,3 +36,7 @@ add_test(NAME rounding COMMAND rounding_test)
 add_executable(position_key_test position_key_test.cpp)
 target_link_libraries(position_key_test PRIVATE autoremesher_core)
 add_test(NAME position_key COMMAND position_key_test)
+
+add_executable(untangle_test untangle_test.cpp)
+target_link_libraries(untangle_test PRIVATE autoremesher_core)
+add_test(NAME untangle COMMAND untangle_test)

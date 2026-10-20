@@ -593,6 +593,33 @@ double MixedIntegerLeastSquares::value(size_t i) const
 
 size_t MixedIntegerLeastSquares::kernelSize() const { return m_kernelSize; }
 
+void MixedIntegerLeastSquares::kernelTerms(size_t i, std::vector<std::pair<size_t, double>>* terms) const
+{
+    terms->clear();
+    if (i >= m_size)
+        return;
+    for (const Coeff& x : kernelLine(i))
+        terms->push_back({ x.index, x.a });
+}
+
+bool MixedIntegerLeastSquares::kernelVariableFixed(size_t k) const
+{
+    return k < m_fixed.size() && m_fixed[k];
+}
+
+double MixedIntegerLeastSquares::kernelValue(size_t k) const
+{
+    return k < m_values.size() ? m_values[k] : 0.0;
+}
+
+bool MixedIntegerLeastSquares::setKernelValue(size_t k, double value)
+{
+    if (k >= m_values.size() || m_fixed[k])
+        return false;
+    m_values[k] = value;
+    return true;
+}
+
 size_t MixedIntegerLeastSquares::integerKernelVariableCount() const
 {
     size_t count = 0;

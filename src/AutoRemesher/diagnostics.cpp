@@ -169,7 +169,8 @@ std::vector<std::pair<std::string, double>> summarizeDiagnostics(
                 return item.second;
         return fallback;
     };
-    double flipped = 0, degenerate = 0, flippedContinuous = 0, flippedRounded = 0, mapped = 0;
+    double flipped = 0, degenerate = 0, flippedContinuous = 0, flippedRounded = 0, flippedUntangled = 0, mapped = 0;
+    double pinned = 0, untangleSeconds = 0;
     double integralityResidual = 0, constraintResidual = 0, droppedConstraints = 0;
     double roundingShift = 0, roundingPasses = 0;
     double solves = 0, factorizations = 0, fallbacks = 0, nonFinite = 0;
@@ -189,6 +190,9 @@ std::vector<std::pair<std::string, double>> summarizeDiagnostics(
             degenerate += valueOf(record, "snapped_degenerate", 0);
             flippedContinuous += valueOf(record, "continuous_flipped", 0);
             flippedRounded += valueOf(record, "rounded_flipped", 0);
+            flippedUntangled += valueOf(record, "untangled_flipped", 0);
+            pinned += valueOf(record, "untangle_pinned_faces", 0);
+            untangleSeconds += valueOf(record, "untangle_seconds", 0);
             mapped += valueOf(record, "snapped_triangles", 0);
             integralityResidual = std::max(integralityResidual, valueOf(record, "integrality_residual", 0));
             constraintResidual = std::max(constraintResidual, valueOf(record, "constraint_residual", 0));
@@ -232,6 +236,9 @@ std::vector<std::pair<std::string, double>> summarizeDiagnostics(
         { "uv_degenerate_triangles", degenerate },
         { "uv_flipped_triangles_continuous", flippedContinuous },
         { "uv_flipped_triangles_rounded", flippedRounded },
+        { "uv_flipped_triangles_untangled", flippedUntangled },
+        { "uv_pinned_triangles", pinned },
+        { "untangle_seconds", untangleSeconds },
         { "uv_mapped_triangles", mapped },
         { "integrality_residual", integralityResidual },
         { "constraint_residual", constraintResidual },
