@@ -26,12 +26,8 @@ cat > "$out/ladder-corpus.json" <<'EOF'
 EOF
 run --corpus "$out/ladder-corpus.json" --out "$out/ladder" --targets 10000,50000 --no-metrics
 
-# E3 / P2: SimplicialLDLT (probe build) vs CHOLMOD supernodal (probe+cholmod build), same inputs.
-for b in ar_bench_probe ar_bench_probe_cholmod; do
-    [ -x "$build/$b" ] || { echo "skipping E3 for $b: not built" >&2; continue; }
-    "$py" -I "$here/run_corpus.py" --meshes "$meshes" --bench "$build/$b" --probe "$build/$b" \
-        --out "$out/solver" --only spot,koala,cat,nefertiti --targets 10000,50000 --tag "$b-" --no-metrics
-done
+# E3 / P2 (SimplicialLDLT vs CHOLMOD supernodal) was retired with its patch in 2026-10; the patch and
+# results are in git history (tools/bench/bench/cholmod-experiment.patch before that change).
 
 # E4 / P5: same binary with TBB's scalable allocator preloaded (3 repeats).
 tbbmalloc="$(ls /usr/lib/x86_64-linux-gnu/libtbbmalloc_proxy.so.2 2>/dev/null || true)"
