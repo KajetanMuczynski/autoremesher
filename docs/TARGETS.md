@@ -36,19 +36,20 @@ floor, not a lead.
 - *Speed*: Instant Meshes is 6× faster (median; 3–11× interquartile) [M]. We only guard against being
   slower than Blender's QuadriFlow (§4.4).
 
-**Where we stand** (current default, adaptivity 0.5, 16 of the 18 meshes, against the frozen free
-tools; ratio < 1 = ours better) [M]:
-- *Lead:* worst-case distance to the input. The 99th percentile of input-to-output distance is 0.57 of
-  the best free tool's (better in 40 of 48 runs), from the curvature-adaptive sizing; it is weakest on
-  scans (0.82, 90 % interval 0.67–1.01). The count is within ±5 % on the first try in 45/48 runs
-  (QuadriFlow 14/48). No island dropped, no input refused, a quarter of Blender QuadriFlow's memory.
-- *No lead yet:* mean distance (0.88 overall, but 1.11 on organic and 1.12 on scans) and normal
-  deviation (1.31, better in 4/48), because vertices are not projected onto the input (vertex-to-input
-  distance ~180× the best tool's; TODO 2.8). So "precise" today means "loses no parts", not "closest
+**Where we stand** (current default, adaptivity 0.5, all 18 meshes, against the frozen free tools;
+ratio < 1 = ours better) [M]:
+- *Lead:* worst-case distance to the input. The 99th percentile of input-to-output distance is 0.59 of
+  the best free tool's (better in 43 of 54 runs), from the curvature-adaptive sizing; it is weakest on
+  hard surface (0.90, 90 % interval 0.66–1.24; csg_bracket, 0.70 without it) and scans (0.80, 0.64–1.01).
+  The count is within ±5 % on the first try in 52/54 runs (QuadriFlow 18/54). No island dropped, no
+  input refused, a quarter of Blender QuadriFlow's memory.
+- *No lead yet:* mean distance (0.92 overall, but 1.15 on organic and 1.10 on scans) and normal
+  deviation (1.36, better in 5/54), because vertices are not projected onto the input (vertex-to-input
+  distance ~160× the best tool's; TODO 2.8). So "precise" today means "loses no parts", not "closest
   surface".
-- *Gap:* malformations. Non-quads in 43/48 runs (free tools: none); doublets or valence ≥ 7 in 19/48
-  (Blender: none); hard surface misses element-shape parity (SJ 1st percentile 0.49 against 0.82);
-  poles on hard surface and thin shells 2.1–3.0× QuadriFlow's.
+- *Gap:* malformations. Non-quads in 44/54 runs (free tools: none); doublets or valence ≥ 7 in 17/54
+  (Blender: none); hard surface misses element-shape parity (SJ 1st percentile 0.46 against 0.81);
+  poles on hard surface and thin shells 2.0–2.7× QuadriFlow's.
 - *Not checked:* the competitors ran at their defaults. QuadriFlow's `-adaptive` and `-sharp` were never
   tried, so the fidelity lead is against the free tools as users run them, not against their best
   settings (§7).
@@ -76,9 +77,11 @@ multi-island has one mesh [M]. So:
 Instant Meshes `7b31608` for that metric, from the frozen comparison runs
 (`research/remesher-comparison-scripts/results/runs.csv`, every tool calibrated to ±5 % of the count).
 They are never re-run, so a ratio against them moves only when our output moves.
-"Today" = master `507f9b3` at the default adaptivity 0.5, re-run on 2026-10-19 for 16 meshes × 3 counts
-(csg_bracket and blob_sym need generator libraries the cloud session did not have). csg_bracket figures
-come from the adaptivity-1 run of master `6f68495`.
+"Today" = master `47529e1` (greedy rounding, PR #37) at the default adaptivity 0.5, re-run on 2026-10-20
+for all 18 meshes × 3 counts (research/greedy-rounding-rerun-2026-10-20.md). The previous baseline
+(master `507f9b3`, 2026-10-19) had 16 meshes, without csg_bracket and blob_sym, so a family value can move
+because the family grew: hard surface went from 2 to 3 meshes. The min and stretch values of §4 were
+derived on those 16 meshes and are unchanged.
 
 ### 2.3 Paired ratios and noise
 Soft goals are geometric means of ours / reference over runs of the same mesh and count (counts get +0.5
@@ -113,12 +116,12 @@ marked), and a release needs them on every corpus run and replicate.
 
 | ID | Gate | Today [M] | In CI |
 |---|---|---|---|
-| H1 | Completes: exit 0, status ok, non-empty output; no input refused | 48/48 (54/54 at adaptivity 1); Blender refuses 2 meshes | yes |
-| H2 | 2-manifold: no non-manifold edge or vertex | 48/48 edges; vertices not counted yet (2.3) | edges |
-| H3 | Consistently oriented | 48/48 | add |
-| H4 | Islands kept: one output component per input island | 48/48; QuadriFlow 44/48 | add (reported today) |
-| H5 | Boundaries kept: input boundary loops stay open; closed inputs get no hole | 48/48; csg_bracket fails at adaptivity 1 (2.13) | after 2.13 |
-| H6 | Count within ±10 % of the target, first try | 48/48; QuadriFlow 28/48 | yes at 0.6–1.5; tighten to 0.9–1.1 |
+| H1 | Completes: exit 0, status ok, non-empty output; no input refused | 54/54; Blender refuses 2 meshes | yes |
+| H2 | 2-manifold: no non-manifold edge or vertex | 54/54 edges; vertices not counted yet (2.3) | edges |
+| H3 | Consistently oriented | 54/54 | add |
+| H4 | Islands kept: one output component per input island | 54/54; QuadriFlow 50/54 | add (reported today) |
+| H5 | Boundaries kept: input boundary loops stay open; closed inputs get no hole | 54/54; csg_bracket fails at adaptivity 1 (2.13) | after 2.13 |
+| H6 | Count within ±10 % of the target, first try | 54/54; QuadriFlow 34/54 | yes at 0.6–1.5; tighten to 0.9–1.1 |
 | H7 | Deterministic per build (§2.5) | Linux yes (REFERENCE P8) | later (8.6) |
 
 ### 3.2 Validity (malformations): a ratchet toward zero
@@ -133,17 +136,17 @@ five tools or settings is fold-free, among them all three human_neutral counts) 
 
 | ID | Gate | Today: runs clean (per 1k, o / h / t / s / m) [M] | Best free tool [M] | 1.0 bar [I] |
 |---|---|---|---|---|
-| V1 | All-quad | 5/48 (0.20 / 0.32 / 1.74 / 0.87 / 0.24) | 48/48, all three | every run |
-| V2 | No folded quad: every corner's scaled Jacobian > 0 (`folded_faces`) | 25/48 (0 / 0.27 / 0.73 / 0.05 / 0) | Blender 13/45 | every run on organic and scan inputs; elsewhere ≤ the best free tool per 1k |
-| V3 | No face flipped against the input (catches pleats of convex quads that V2 misses; faces where the input is thinner than a quad excluded once 1.4 can measure it) | 19/48 (0 / 0.51 / 1.24 / 0.08 / 0.80) | Instant Meshes 23/48 | as V2 |
-| V4 | No degenerate face (area < 10⁻⁶ h²) | 47/48 | Blender 42/45 | every run |
-| V5 | No interior vertex of valence 2 or ≥ 7 (feature corners exempt once Wave 5 marks them) | 29/48 | Blender 45/45 | every run |
-| V6 | Genus per island kept for every handle whose shortest loop is ≥ 4 quad edges; thinner handles reported | 61/72 runs with the right topology on master, 63/72 with greedy rounding (map-fix sets, 2k/10k) | not measured | every run (needs a loop-length measure in 1.4) |
+| V1 | All-quad | 10/54 (0.26 / 1.19 / 1.77 / 0.60 / 0) | all runs, all three | every run |
+| V2 | No folded quad: every corner's scaled Jacobian > 0 (`folded_faces`) | 29/54 (0 / 0.31 / 0.72 / 0.04 / 0) | Blender 14/48 | every run on organic and scan inputs; elsewhere ≤ the best free tool per 1k |
+| V3 | No face flipped against the input (catches pleats of convex quads that V2 misses; faces where the input is thinner than a quad excluded once 1.4 can measure it) | 25/54 (0 / 0.10 / 1.09 / 0.09 / 0) | Instant Meshes 26/54 | as V2 |
+| V4 | No degenerate face (area < 10⁻⁶ h²) | 54/54 | Blender 45/48 | every run |
+| V5 | No interior vertex of valence 2 or ≥ 7 (feature corners exempt once Wave 5 marks them) | 37/54 | Blender 48/48 | every run |
+| V6 | Genus per island kept for every handle whose shortest loop is ≥ 4 quad edges; thinner handles reported | 63/72 corpus runs (2k/10k) with the right topology, 61.5/72 over the 5 replicates (55 right in all six, 6 wrong in all six); closed set 75/78 (75.5/78); greedy rounding fixed or broke none unanimously | not measured | every run (needs a loop-length measure in 1.4) |
 
-All of V1–V5 together: ours 4/48, ours at adaptivity 0 8/48, Blender's QuadriFlow 10/45, Instant Meshes
-7/48, QuadriFlow 2/48 [M]. Why "every run" for folds on organic and scan inputs: those are the add-on's
+All of V1–V5 together: ours 9/54, ours at adaptivity 0 9/54 (frozen run), Blender's QuadriFlow 11/48,
+Instant Meshes 8/54, QuadriFlow 4/54 [M]. Why "every run" for folds on organic and scan inputs: those are the add-on's
 main inputs, they are thick and smooth, and a fold there is a defect a user sees as a shading crease [I];
-11/15 organic runs are already fold-free. The exception to trace first: human_neutral folds with every
+15/18 organic runs are already fold-free. The exception to trace first: human_neutral folds with every
 tool at every count (cause not traced) [M].
 
 ## 4. Soft goals per family
@@ -158,12 +161,12 @@ Ratio = ours / best free tool, paired, geo-mean; lower is better.
 
 | Metric | Today o / h / t / s / m | Min | Stretch | Why |
 |---|---|---|---|---|
-| D1r input-to-output distance, 99th percentile | **0.59** / **0.71** / **0.31** / 0.82 / **0.80** | ≤ 0.8 | ≤ 0.5 | A lead under 20 % is inside the scan interval and one sizing change; 0.5 halves the worst deviation, which shows on thin parts |
-| D1 Hausdorff (diagnostic) | 0.56 / 0.72 / 0.71 / 1.15 / 0.68 | – | – | One maximum per run; reported because it is the standard number |
-| D2 mean distance | 1.11 / **0.99** / **0.43** / 1.12 / 1.46 | ≤ 1.0 | ≤ 0.8 | Parity first; projection (2.8) is the known missing step |
-| D3 normal deviation, mean | 1.25 / 1.96 / 1.21 / 1.22 / 1.37 | ≤ 1.0 | ≤ 0.8 | Same; hard surface also needs creases (5.1–5.3) |
-| Vertices on the input: median vertex-to-input distance, ×10⁻³ diag | 0.043 / 0.005 / 0.009 / 0.095 / 0.20 | ≤ 0.001 | ≤ 0.0001 | Instant Meshes projects to 0.0001; QuadriFlow sits at 0.0002–0.04 |
-| A1 sharp-feature coverage, hard surface, per mesh (dihedral > 40°; output edge within 0.1 h and 10°; h = local quad size, not the global mean the comparison used) | boat 0.23, wingnut 0.18, csg_bracket 0.10 (adaptivity 1) | ≥ 0.6 each | ≥ 0.9 each | QuadriFlow without its feature option reaches 0.42 on csg_bracket; a hard lock (5.2–5.3) should cover every crease longer than a quad |
+| D1r input-to-output distance, 99th percentile | **0.59** / 0.90 / **0.30** / 0.801 / **0.74** | ≤ 0.8 | ≤ 0.5 | A lead under 20 % is inside the scan interval and one sizing change; 0.5 halves the worst deviation, which shows on thin parts |
+| D1 Hausdorff (diagnostic) | 0.54 / 0.82 / 0.75 / 1.11 / 0.61 | – | – | One maximum per run; reported because it is the standard number |
+| D2 mean distance | 1.15 / 1.15 / **0.43** / 1.10 / 1.41 | ≤ 1.0 | ≤ 0.8 | Parity first; projection (2.8) is the known missing step |
+| D3 normal deviation, mean | 1.26 / 2.23 / 1.18 / 1.22 / 1.35 | ≤ 1.0 | ≤ 0.8 | Same; hard surface also needs creases (5.1–5.3) |
+| Vertices on the input: median vertex-to-input distance, ×10⁻³ diag | 0.052 / 0.004 / 0.009 / 0.091 / 0.20 | ≤ 0.001 | ≤ 0.0001 | Instant Meshes projects to 0.0001; QuadriFlow sits at 0.0002–0.04 |
+| A1 sharp-feature coverage, hard surface, per mesh (dihedral > 40°; output edge within 0.1 h and 10°; h = local quad size, not the global mean the comparison used) | boat 0.23, wingnut 0.20, csg_bracket 0.07 | ≥ 0.6 each | ≥ 0.9 each | QuadriFlow without its feature option reaches 0.42 on csg_bracket; a hard lock (5.2–5.3) should cover every crease longer than a quad |
 
 ### 4.2 Element shape (parity with the best free tool)
 
@@ -171,9 +174,9 @@ Family median of the per-run value; higher SJ and lower skew are better.
 
 | Metric | Today o / h / t / s / m | Min | Stretch | Why |
 |---|---|---|---|---|
-| G1 scaled Jacobian, 1st percentile | **0.82** / 0.49 / **0.47** / **0.78** / **0.75** | 0.80 / 0.80 / 0.40 / 0.75 / 0.65 | 0.85 / 0.85 / 0.70 / 0.85 / 0.80 | Min = best free tool's family median, rounded; stretch = our own adaptivity-0 output (0.84 / 0.84 / 0.71 / 0.84 / 0.81), so this pipeline can reach it |
-| G2 angle skew, 95th percentile (°) | **21** / 35 / **25** / **25** / **31** | 24 / 19 / 26 / 25 / 31 | 18 / 16 / 20 / 19 / 26 | Same rule |
-| G4 aspect, mean | 1.70 / 1.98 / 2.03 / 1.65 / 1.50 | reported only | | Anisotropy is on by default on purpose (stretched quads along flat directions spend fewer quads per unit of error); the others are at 1.1–1.5 |
+| G1 scaled Jacobian, 1st percentile | **0.84** / 0.46 / **0.54** / **0.78** / **0.75** | 0.80 / 0.80 / 0.40 / 0.75 / 0.65 | 0.85 / 0.85 / 0.70 / 0.85 / 0.80 | Min = best free tool's family median, rounded; stretch = our own adaptivity-0 output (0.84 / 0.84 / 0.71 / 0.84 / 0.81), so this pipeline can reach it |
+| G2 angle skew, 95th percentile (°) | **19** / 34 / **23** / **24** / 32 | 24 / 19 / 26 / 25 / 31 | 18 / 16 / 20 / 19 / 26 | Same rule |
+| G4 aspect, mean | 1.66 / 1.95 / 2.03 / 1.67 / 1.50 | reported only | | Anisotropy is on by default on purpose (stretched quads along flat directions spend fewer quads per unit of error); the others are at 1.1–1.5 |
 
 The sizing work's success test (4.1/4.5): the stretch row here together with D1r ≤ 0.8 in every family.
 
@@ -181,9 +184,9 @@ The sizing work's success test (4.1/4.5): the stretch row here together with D1r
 
 | Metric | Today o / h / t / s / m | Min | Stretch | Why |
 |---|---|---|---|---|
-| T3 irregular vertices, ratio to QuadriFlow (paired) | **0.94** / 2.11 / 2.96 / **0.87** / **0.72** | ≤ 1.0 | ≤ 0.75 | Adaptivity 0 reaches 0.73 / 1.21 / 2.08 / 0.53 / 0.55 (frozen runs): organic and scans are sizing; hard surface and thin shells need features and thin-part handling (Wave 5, 4.1) [I] |
-| T5 3–5 pole pairs per 1k quads | **0.14** / 0.50 / **0.49** / **0.38** / **0.12** | ≤ 0.5 | ≤ 0.2 | Removable dipoles; adaptivity 0 has 0.10 / 0.12 / 0.51 / 0.07 / 0.82 |
-| P1 clustered poles: share with another pole within 2 h | **0.47** / 0.65 / 0.88 / **0.52** / **0.51** | QuadriFlow's: 0.68 / 0.52 / 0.63 / 0.77 / 0.71 | 0.30 / 0.40 / 0.50 / 0.25 / 0.30 | Stretch from adaptivity 0 (0.26 / 0.36 / 0.72 / 0.24 / 0.29), thin shells set below it |
+| T3 irregular vertices, ratio to QuadriFlow (paired) | **0.90** / 2.01 / 2.71 / **0.82** / **0.70** | ≤ 1.0 | ≤ 0.75 | Adaptivity 0 reaches 0.73 / 1.21 / 2.08 / 0.53 / 0.55 (frozen runs): organic and scans are sizing; hard surface and thin shells need features and thin-part handling (Wave 5, 4.1) [I] |
+| T5 3–5 pole pairs per 1k quads | **0.14** / 0.60 / **0.39** / **0.23** / **0** | ≤ 0.5 | ≤ 0.2 | Removable dipoles; adaptivity 0 has 0.10 / 0.12 / 0.51 / 0.07 / 0.82 |
+| P1 clustered poles: share with another pole within 2 h | **0.40** / 0.83 / 0.84 / **0.46** / **0.48** | QuadriFlow's: 0.68 / 0.52 / 0.63 / 0.77 / 0.71 | 0.30 / 0.40 / 0.50 / 0.25 / 0.30 | Stretch from adaptivity 0 (0.26 / 0.36 / 0.72 / 0.24 / 0.29), thin shells set below it |
 | S2 topological symmetry on symmetric inputs | 0.20–0.49 without a symmetry option (adaptivity 1) | reported only until 5.5; then ≥ 0.95 with a closed seam | 1.00, closed seam | Blender's mirror gives 1.00 but leaves the seam open |
 
 Edge loops (A2–A4), pole placement against curvature (P2–P4) and patch count (T6): no target; not
@@ -193,11 +196,11 @@ computed and no reference values (§7).
 
 | Metric | Today o / h / t / s / m | Min | Stretch | Why |
 |---|---|---|---|---|
-| G6 count on the first try, runs within ±5 % | 13/15, 6/6, 11/12, 12/12, 3/3 | all | – | QuadriFlow 14/48 |
-| G6 count on the first try, runs within ±2 % | 11/15, 6/6, 10/12, 8/12, 2/3 | – | all | The count controller (4.7) aims at ±1–2 % |
-| Count spread over the 5 replicates of a run | not measured (one case seen by the review: 5 % at 10k) | ≤ 2 % | ≤ 0.5 % | A user re-exporting the same sculpt should get the same count [I] |
-| Wall time, ratio to Blender's QuadriFlow | **0.65** / **0.47** / **0.90** / **0.62** / **0.30** | ≤ 1.0 | ≤ 0.6 | Kajetan's rule: quality over speed, no pointless slowdowns |
-| Peak memory, ratio to Blender's QuadriFlow | **0.24** / **0.20** / **0.27** / **0.29** / **0.23** | ≤ 0.5 | ≤ 0.3 | Laptops |
+| G6 count on the first try, runs within ±5 % | 16/18, 9/9, 12/12, 12/12, 3/3 | all | – | QuadriFlow 18/54 |
+| G6 count on the first try, runs within ±2 % | 15/18, 7/9, 10/12, 11/12, 3/3 | – | all | The count controller (4.7) aims at ±1–2 % |
+| Count spread over the 5 replicates of a run | (max − min) / mean over plain + 5 replicates, corpus set at 2k/10k: median 1.9 %, 38/72 runs ≤ 2 %, worst 11.7 % (spot_x8 quality 2k) | ≤ 2 % | ≤ 0.5 % | A user re-exporting the same sculpt should get the same count [I] |
+| Wall time, ratio to Blender's QuadriFlow | **0.65** / **0.47** / **0.90** / **0.62** / **0.30** (507f9b3; not re-measured: the 2026-10-20 machine ran our side 1.7× faster on the same meshes, so a ratio to the frozen Blender times would mix machines) | ≤ 1.0 | ≤ 0.6 | Kajetan's rule: quality over speed, no pointless slowdowns |
+| Peak memory, ratio to Blender's QuadriFlow | **0.24** / **0.23** / **0.27** / **0.29** / **0.24** | ≤ 0.5 | ≤ 0.3 | Laptops |
 
 ## 5. How the targets are used
 
@@ -214,9 +217,9 @@ computed and no reference values (§7).
   - move the comparison metrics into `tools/bench` (1.4), with V3's thin-part exclusion and V6's loop
     length, so every number is computed in the repo;
   - in `ci/output_gate.py`, gate H3, H4 and a 0.9–1.1 count;
-  - greedy rounding (PR #37, merged 2026-10-20) changes output (non-quads ×0.73 on its 72-run A/B), so
-    the "today" columns (master 507f9b3) are now dated: re-run `run_compare.py --tools ours_quality` on
-    master for all 18 meshes and replace them;
+  - decide whether to re-derive the §4 min values on 18 meshes (they are tool-relative and were taken
+    from 16; e.g. QuadriFlow's P1 on hard surface is now 0.50, not 0.52); the "today" columns were
+    re-run on master 47529e1 for all 18 meshes on 2026-10-20 (§2.2);
   - QuadriFlow with `-adaptive -sharp` on the hard-surface and thin-shell meshes, to see whether the
     fidelity lead survives their best settings.
 
