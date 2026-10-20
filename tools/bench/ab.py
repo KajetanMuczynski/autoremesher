@@ -253,6 +253,7 @@ def value(r, k):
     if k == "irregular_1k": return (m.get("valence") or {}).get("irregular_per_1k_quads")
     if k == "hausdorff": return (m.get("distance") or {}).get("hausdorff")
     if k == "in_out_mean": return (m.get("distance") or {}).get("in_to_out_mean")
+    if k == "in_out_p99": return (m.get("distance") or {}).get("in_to_out_p99")
     if k == "count_err": return abs(o["quads"] / r["target"] - 1) if o.get("quads") else None
     if k == "energy_ratio":
         e = [(c["continuous_energy"], c["rounded_energy"]) for c in r.get("cover") or []
@@ -263,8 +264,7 @@ def value(r, k):
 
 
 COUNTS = ["flips_cont", "flips_round", "flips", "degenerate", "non_quads", "sj_le_0"]
-MEANS = ["irregular_1k", "hausdorff", "in_out_mean", "count_err", "energy_ratio", "time"]
-LOWER_BETTER = COUNTS + MEANS
+MEANS = ["irregular_1k", "in_out_p99", "hausdorff", "in_out_mean", "count_err", "energy_ratio", "time"]
 
 
 def resolve(spec, work):

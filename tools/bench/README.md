@@ -67,7 +67,7 @@ $P tools/bench/ab.py run HEAD --set closed   # genus check; also --set suzanne
 - **What it records.** Per run in `<set>/<mesh>/<resolution>-t<target>/u<k>/`: the output OBJ, the CLI's
   `report.json` and `stages.jsonl`, `metrics.json` and a `record.json` summary. `compare` reports the
   report's UV flips (continuous, rounded, final), degenerate UV triangles, non-quads, SJ ≤ 0 quads,
-  irregular vertices, Hausdorff and mean distance, quad count error, rounded/continuous energy and
+  irregular vertices, in→out p99 distance (the fidelity target of docs/TARGETS.md), Hausdorff and mean distance, quad count error, rounded/continuous energy and
   time, the runs that fail, and topology (Euler characteristic, components and boundary loops equal to
   the input, no non-manifold edge). `--per-run` adds one row per run.
 - **Timing.** The `time` row is the CLI's own total under `--jobs` load. Use it for effects of 20 % or
