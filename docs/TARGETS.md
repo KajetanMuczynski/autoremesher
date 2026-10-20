@@ -214,8 +214,9 @@ computed and no reference values (§7).
   - move the comparison metrics into `tools/bench` (1.4), with V3's thin-part exclusion and V6's loop
     length, so every number is computed in the repo;
   - in `ci/output_gate.py`, gate H3, H4 and a 0.9–1.1 count;
-  - after the map-fix PR merges, re-run `run_compare.py --tools ours_quality` on master for all 18 meshes
-    and replace the "today" columns;
+  - greedy rounding (PR #37, merged 2026-10-20) changes output (non-quads ×0.73 on its 72-run A/B), so
+    the "today" columns (master 507f9b3) are now dated: re-run `run_compare.py --tools ours_quality` on
+    master for all 18 meshes and replace them;
   - QuadriFlow with `-adaptive -sharp` on the hard-surface and thin-shell meshes, to see whether the
     fidelity lead survives their best settings.
 
