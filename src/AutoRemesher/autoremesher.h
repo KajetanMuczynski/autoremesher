@@ -258,9 +258,20 @@ public:
     // Per-island durations are accumulated in microseconds: a mesh split into
     // hundreds of islands spends well under a millisecond on most of them, and
     // truncating each one to whole milliseconds loses the bulk of the total.
+    // Of a mesh's faces: Euler characteristic and the edges on one face or
+    // on more than two.
+    struct SurfaceTopology {
+        size_t components = 0;
+        size_t boundaryEdges = 0;
+        size_t nonManifoldEdges = 0;
+        long long eulerCharacteristic = 0;
+    };
+
     struct DecimationStats {
         std::atomic<long long> timeUs { 0 };
         std::atomic<size_t> islandsDecimated { 0 };
+        // Islands left undecimated because decimating changed their topology.
+        std::atomic<size_t> islandsKeptUndecimated { 0 };
         std::atomic<size_t> islandsConsidered { 0 };
         std::atomic<size_t> trianglesBefore { 0 };
         std::atomic<size_t> trianglesAfter { 0 };
@@ -317,14 +328,17 @@ private:
     static double calculateAverageEdgeLength(const std::vector<Vector3>& vertices,
         const std::vector<std::vector<size_t>>& faces);
     void initializeVoxelSize();
+    // `topology` is that of vertices and triangles; decimation must keep it.
     static bool decimateIfTooDense(std::vector<Vector3>& vertices,
         std::vector<std::vector<size_t>>& triangles,
+        const SurfaceTopology& topology,
         double voxelSize,
         double sharpEdgeDegrees,
         size_t islandIndex,
         DecimationStats* stats);
     static void resample(std::vector<Vector3>& vertices,
         std::vector<std::vector<size_t>>& triangles,
+        const SurfaceTopology& topology,
         double voxelSize,
         double adaptivity,
         double sharpEdgeDegrees,

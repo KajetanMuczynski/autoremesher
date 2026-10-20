@@ -74,8 +74,11 @@ class RemeshSettings(bpy.types.PropertyGroup):
     # with the Qt app's ranges. Tooltips state measured behaviour
     # (research/baseline-and-profiling.md section 4.5, code-to-math-spec.md).
     target_quads: IntProperty(
-        name="Target Quads", default=5000, min=1, soft_min=100, soft_max=1000000,
-        description="Number of quads to aim for")
+        name="Target Quads", default=5000, min=1, max=worker.MAXIMUM_TARGET_QUADS,
+        soft_min=100, soft_max=worker.LARGE_TARGET_QUADS,
+        description="Number of quads to aim for. Memory use grows with it, about 2 GB "
+                    "per 100,000 quads; above %s quads the add-on asks first"
+                    % format(worker.LARGE_TARGET_QUADS, ","))
     adaptivity: FloatProperty(
         name="Adaptivity", default=0.5, min=0.0, max=1.0,
         description="Smaller quads where the surface curves strongly, larger where it is "
@@ -180,6 +183,17 @@ class OBJECT_OT_remesh_quads(bpy.types.Operator):
         return _job is None and obj is not None and obj.type == "MESH" and context.mode == "OBJECT"
 
     def invoke(self, context, event):
+        # A stray extra zero in Target Quads can exhaust the machine's memory.
+        target = _settings(context).target_quads
+        if target > worker.LARGE_TARGET_QUADS:
+            return context.window_manager.invoke_confirm(
+                self, event, title="Remesh to %s quads?" % format(target, ","),
+                message="This needs about %.1f GB of memory and can take a long time."
+                        % (target * worker.PEAK_BYTES_PER_QUAD / 1e9),
+                confirm_text="Remesh", icon="WARNING")
+        return self.execute(context)
+
+    def execute(self, context):
         global _job, _cancel_from_panel, _last_status, _last_message, _last_report
         preferences = _preferences(context)
         configured = bpy.path.abspath(preferences.executable) if preferences else ""

@@ -55,6 +55,10 @@ namespace {
         const RemeshParameters& parameters = request.parameters;
         if (0 == parameters.targetQuadCount)
             return "target quad count must be greater than zero";
+        static_assert(2000000 == MaximumTargetQuadCount && 22e3 == ApproximatePeakBytesPerQuad,
+            "the message below states both");
+        if (parameters.targetQuadCount > MaximumTargetQuadCount)
+            return "target quad count is above the maximum of 2000000 (it would need about 44 GB of memory)";
         if (!std::isfinite(parameters.adaptivity) || !std::isfinite(parameters.anisotropy)
             || !std::isfinite(parameters.edgeScaling) || !std::isfinite(parameters.sharpEdgeDegrees)
             || !std::isfinite(parameters.smoothNormalDegrees))

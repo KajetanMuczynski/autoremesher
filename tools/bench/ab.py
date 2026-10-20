@@ -152,6 +152,7 @@ def run_one(cli, mesh, setname, target, res, k, out, cli_args, work, metrics):
         stages = [json.loads(line) for line in open(os.path.join(d, "stages.jsonl")) if line.strip()]
         rec["cover"] = [{k2: s.get(k2) for k2 in ("continuous_energy", "rounded_energy", "iterations")}
                         for s in stages if s.get("stage") == "cover_result"]
+        rec["t_topology"] = t_topology(stages)
     except (OSError, ValueError) as ex:
         rec["stage_error"] = str(ex)
     if metrics and rc == 0 and os.path.exists(os.path.join(d, "out.obj")):
@@ -173,6 +174,13 @@ def run_one(cli, mesh, setname, target, res, k, out, cli_args, work, metrics):
     with open(record_path, "w") as fp:
         json.dump(rec, fp, indent=1)
     return rec
+
+
+def t_topology(stages):
+    """T's defects from the run record (cores from 2026-10-20 on; None before)."""
+    run = next((s for s in stages if s.get("stage") == "run"), {})
+    keys = ("decimated_non_manifold_edges", "isotropic_non_manifold_edges", "isotropic_opened_closed_islands")
+    return {k: run[k] for k in keys} if all(k in run for k in keys) else None
 
 
 def run_dir(ref, cli_args, work):
@@ -233,6 +241,9 @@ def load_runs(path, setname):
             r = json.load(open(os.path.join(root, "record.json")))
             if "out_sha" not in r and os.path.exists(os.path.join(root, "out.obj")):
                 r["out_sha"] = file_hash(os.path.join(root, "out.obj"))
+            if "t_topology" not in r and os.path.exists(os.path.join(root, "stages.jsonl")):
+                r["t_topology"] = t_topology([json.loads(line) for line in open(os.path.join(root, "stages.jsonl"))
+                                              if line.strip()])
             runs.setdefault((r["mesh"], r["res"], r["target"]), {})[r["replicate"]] = r
     return runs
 
@@ -260,10 +271,12 @@ def value(r, k):
              if c.get("continuous_energy") and c.get("rounded_energy") is not None]
         return sum(b for _, b in e) / sum(a for a, _ in e) if e else None
     if k == "time": return r.get("time")
+    if k == "t_non_manifold": return (r.get("t_topology") or {}).get("isotropic_non_manifold_edges")
+    if k == "t_opened": return (r.get("t_topology") or {}).get("isotropic_opened_closed_islands")
     raise KeyError(k)
 
 
-COUNTS = ["flips_cont", "flips_round", "flips", "degenerate", "non_quads", "sj_le_0"]
+COUNTS = ["flips_cont", "flips_round", "flips", "degenerate", "non_quads", "sj_le_0", "t_non_manifold", "t_opened"]
 MEANS = ["irregular_1k", "in_out_p99", "hausdorff", "in_out_mean", "count_err", "energy_ratio", "time"]
 
 

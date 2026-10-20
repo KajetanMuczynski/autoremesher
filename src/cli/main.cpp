@@ -49,7 +49,8 @@ const char* const usage = "Usage: autoremesher-cli -i input.obj -o output.obj [o
                           "                              the run fails (schema autoremesher.remesh-result)\n"
                           "  --stage-diagnostics <file>  per-stage solver, rounding and timing records as\n"
                           "                              JSON lines (schema autoremesher.stage-diagnostics)\n"
-                          "  --target-quads <count>      target quad count (default 50000)\n"
+                          "  --target-quads <count>      target quad count (default 50000, at most\n"
+                          "                              2000000; about 22 KB of memory per quad)\n"
                           "  --adaptivity <0..1>         curvature-adaptive density (default 0.5)\n"
                           "  --anisotropy <0..1>         curvature-adaptive elongation (default 1)\n"
                           "  --edge-scaling <factor>     quad edge length factor (default 1)\n"
@@ -75,6 +76,10 @@ struct Options {
     RemeshParameters parameters;
     bool stdinControl = false;
 };
+
+// Above this many quads the run needs gigabytes, so the command line says
+// how many (the Blender add-on asks first at the same count).
+const uint32_t largeTargetQuadCount = 200000;
 
 // Lives until exit, so the detached stdin reader never outlives it.
 CancelToken g_stdinCancelToken;
@@ -172,6 +177,12 @@ int parseArguments(const std::vector<std::string>& arguments, Options* options)
     if (options->inputPath.empty() || options->outputPath.empty()) {
         std::fprintf(stderr, "Error: --input and --output are required (see --help)\n");
         return 1;
+    }
+    // Above the core's maximum the remesh itself refuses with a message.
+    const uint32_t targetQuads = options->parameters.targetQuadCount;
+    if (targetQuads > largeTargetQuadCount && targetQuads <= MaximumTargetQuadCount) {
+        std::fprintf(stderr, "Warning: --target-quads %u needs about %.1f GB of memory\n",
+            targetQuads, targetQuads * ApproximatePeakBytesPerQuad / 1e9);
     }
     return 0;
 }

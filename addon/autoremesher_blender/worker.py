@@ -48,6 +48,13 @@ import numpy as np
 CANCEL_GRACE_SECONDS = 5.0
 SUPPORTED_INTERFACE_MAJOR = 1
 
+# The core's MaximumTargetQuadCount and ApproximatePeakBytesPerQuad
+# (src/AutoRemesher/remesh.h; test_worker.py checks they agree), and the count
+# above which autoremesher-cli warns and the panel asks first.
+MAXIMUM_TARGET_QUADS = 2_000_000
+PEAK_BYTES_PER_QUAD = 22e3
+LARGE_TARGET_QUADS = 200_000
+
 # Parameter name in the report JSON -> CLI flag.
 PARAMETER_FLAGS = {
     "target_quads": "--target-quads",

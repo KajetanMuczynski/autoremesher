@@ -36,3 +36,11 @@ add_test(NAME rounding COMMAND rounding_test)
 add_executable(position_key_test position_key_test.cpp)
 target_link_libraries(position_key_test PRIVATE autoremesher_core)
 add_test(NAME position_key COMMAND position_key_test)
+
+add_executable(decimation_topology_test decimation_topology_test.cpp)
+target_link_libraries(decimation_topology_test PRIVATE autoremesher_core)
+add_test(NAME decimation_topology COMMAND decimation_topology_test)
+
+add_executable(target_limit_test target_limit_test.cpp)
+target_link_libraries(target_limit_test PRIVATE autoremesher_core)
+add_test(NAME target_limit COMMAND target_limit_test)

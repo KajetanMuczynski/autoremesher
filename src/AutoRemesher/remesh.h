@@ -36,7 +36,16 @@
 namespace AutoRemesher {
 
 const int InterfaceVersionMajor = 1;
-const int InterfaceVersionMinor = 2;
+const int InterfaceVersionMinor = 3;
+
+// Since 1.3.  Peak memory grows linearly with the target, by about this much
+// per quad at Quality resolution (21 KB measured on spot at 25k-100k quads;
+// Fast needs about 9 KB).  Hosts use it to warn before a large run.
+constexpr double ApproximatePeakBytesPerQuad = 22e3;
+// Since 1.3.  Targets above this are rejected as InvalidInput: they would
+// need about 44 GB and hours of run time (100k quads took 2.4 minutes, and
+// time grows faster than the count).  One is usually a typo, an extra zero.
+constexpr uint32_t MaximumTargetQuadCount = 2000000;
 
 // How fine the triangle mesh is that the cross field and the
 // parametrization are solved on.  The quad count is the same either way.
