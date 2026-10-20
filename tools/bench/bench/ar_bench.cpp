@@ -12,10 +12,13 @@
 //          [--smooth-normal 0] [--adaptivity 0.5] [--anisotropy 1]
 //          [--resolution fast|quality|<triangles per quad>]
 //          [--threads N] [--dump-param param.obj]
+//          [--stage-diagnostics stages.jsonl]   (the core's per-stage records,
+//                                                as autoremesher-cli writes them)
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "tiny_obj_loader.h"
 
 #include <AutoRemesher/AutoRemesher>
+#include <AutoRemesher/Diagnostics>
 #include <oneapi/tbb/global_control.h>
 
 #include <atomic>
@@ -35,10 +38,6 @@
 #include <thread>
 #include <unistd.h>
 #include <vector>
-
-#ifdef AR_BENCH_PROBE
-#include "bench_probe.h"
-#endif
 
 namespace {
 
@@ -323,6 +322,7 @@ int main(int argc, char** argv)
                                                          : std::stod(resolution);
     const int threads = std::stoi(arg("threads", "0"));
     const std::string paramPath = arg("dump-param", "");
+    const std::string stagesPath = arg("stage-diagnostics", "");
 
     std::unique_ptr<tbb::global_control> threadLimit;
     if (threads > 0)
@@ -400,6 +400,8 @@ int main(int argc, char** argv)
     const UvCheck uvCheck = checkUvs(isoTriangles, uvs, isoVertices.size());
     if (!paramPath.empty())
         writeParamObj(paramPath, isoVertices, isoTriangles, uvs);
+    if (!stagesPath.empty())
+        std::ofstream(stagesPath) << AutoRemesher::diagnosticsToJsonLines(remesher->diagnostics());
 
     std::ostringstream json;
     json << "{\n";
@@ -439,30 +441,6 @@ int main(int argc, char** argv)
          << ", \"uv_available\": " << (uvCheck.available ? "true" : "false")
          << ", \"uv_components\": " << uvCheck.components
          << ", \"uv_flipped\": " << uvCheck.flipped << ", \"uv_degenerate\": " << uvCheck.degenerate << "}";
-#ifdef AR_BENCH_PROBE
-    json << ",\n  \"probe_events\": [";
-    {
-        bool first = true;
-        for (const auto& event : ar_probe::events()) {
-            json << (first ? "\n    " : ",\n    ") << "{\"kind\": \"" << jsonEscape(event.kind) << "\", \"step\": \""
-                 << jsonEscape(event.step) << "\"";
-            for (const auto& value : event.values)
-                json << ", \"" << jsonEscape(value.first) << "\": " << number(value.second);
-            json << "}";
-            first = false;
-        }
-    }
-    json << "],\n  \"probe_rounds\": {";
-    {
-        bool first = true;
-        for (const auto& it : ar_probe::rounds()) {
-            json << (first ? "" : ", ") << "\"" << jsonEscape(it.first) << "\": {\"rounds\": " << number(it.second.first)
-                 << ", \"faces_scanned\": " << number(it.second.second) << "}";
-            first = false;
-        }
-    }
-    json << "}";
-#endif
     json << "\n}\n";
 
     std::ofstream out(jsonPath);

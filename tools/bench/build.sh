@@ -12,11 +12,8 @@
 # Produces in <work-dir>:
 #   app/autoremesher                   Qt app (qmake, release), headless CLI
 #   build/ar_bench                     Qt-free driver, core as it is in the source tree
-#   build/ar_bench_probe               same core + bench/probes.patch (counters/timers only)
-#   build/ar_bench_probe_cholmod       probes + bench/cholmod-experiment.patch (P2 experiment)
-# The probe builds are skipped with a warning when the patches no longer apply (they were
-# written against upstream 4a49f82, the commit the baseline measured); the CHOLMOD build is
-# skipped when cholmod.h is missing.
+#   venv/                              Python with the metrics and mesh generator packages
+# ab.py builds autoremesher-cli itself, per git ref.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 src="$(cd "${AR_SOURCE_DIR:-$here/../..}" && pwd)"
@@ -29,7 +26,7 @@ if [ "${SKIP_APT:-0}" != 1 ]; then
     sudo apt-get update
     sudo DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential cmake git \
         qt5-qmake qtbase5-dev libqt5opengl5-dev qttools5-dev-tools libqt5svg5-dev libtbb-dev libgl1-mesa-dev \
-        libsuitesparse-dev libopenblas-dev linux-tools-generic python3-venv
+        linux-tools-generic python3-venv
 fi
 
 # 2. Qt app, out of tree.
@@ -42,35 +39,7 @@ cmake --build "$work/build-pristine" -j"$jobs"
 mkdir -p "$work/build"
 ln -sf "$work/build-pristine/ar_bench" "$work/build/ar_bench"
 
-# 4. Patched copies for the probe and CHOLMOD builds (source tree untouched).
-copy_patched() {  # <variant> <patch>...
-    local dest="$work/autoremesher-$1"; shift
-    rm -rf "$dest"; mkdir -p "$dest"
-    cp -a "$src/src" "$src/include" "$src/thirdparty" "$dest/"
-    local p
-    for p in "$@"; do
-        if ! patch -s --dry-run -d "$dest" -p1 < "$p" >/dev/null; then
-            echo "warning: $(basename "$p") does not apply to $src; skipping this build" >&2
-            return 1
-        fi
-        patch -s -d "$dest" -p1 < "$p"
-    done
-}
-if copy_patched probe "$here/bench/probes.patch"; then
-    cmake -S "$here/bench" -B "$work/build-probe" -DAR_SOURCE_DIR="$work/autoremesher-probe" -DAR_BENCH_PROBE=ON
-    cmake --build "$work/build-probe" -j"$jobs"
-    ln -sf "$work/build-probe/ar_bench_probe" "$work/build/ar_bench_probe"
-fi
-if [ ! -f /usr/include/suitesparse/cholmod.h ]; then
-    echo "warning: cholmod.h not found (libsuitesparse-dev); skipping the CHOLMOD build" >&2
-elif copy_patched cholmod "$here/bench/probes.patch" "$here/bench/cholmod-experiment.patch"; then
-    cmake -S "$here/bench" -B "$work/build-cholmod" -DAR_SOURCE_DIR="$work/autoremesher-cholmod" \
-        -DAR_BENCH_PROBE=ON -DAR_USE_CHOLMOD=ON
-    cmake --build "$work/build-cholmod" -j"$jobs"
-    ln -sf "$work/build-cholmod/ar_bench_probe_cholmod" "$work/build/ar_bench_probe_cholmod"
-fi
-
-# 5. Python for metrics and mesh generation.
+# 4. Python for metrics and mesh generation.
 python3 -m venv "$work/venv"
 "$work/venv/bin/pip" install -q numpy scipy libigl manifold3d scikit-image
 echo "Built in $work. The headless CLI needs QT_QPA_PLATFORM=offscreen on a machine without a display."

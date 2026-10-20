@@ -17,6 +17,11 @@ Meshes (symmetry plane x = 0 where noted):
   spot_noisy       spot (public domain) + Gaussian displacement along normals, sigma = 0.3% bbox diagonal.
   spot_x8          8 translated copies of spot (8 islands; parallelism test).
   koala_sub{1,2,3} Loop subdivisions of koala (CC BY 3.0) for the input-size ladder (--ladder).
+  ellipsoid_<b>_<c>, torus_<r>
+                   the "closed" A/B set (corpus.json): thin ellipsoids (1, b, c), b in {0.15, 0.4},
+                   c in {0.003, 0.01, 0.03, 0.1}, and tori R = 1, r in {0.03, 0.05, 0.1, 0.2, 0.4}.
+                   Genus regressions show here first. Reconstruction of the face-tracing thread's
+                   set (2026-10-19), whose generator was lost.
 """
 import argparse
 import hashlib
@@ -159,6 +164,33 @@ def thin_leaf():
     return V, F
 
 
+def ellipsoid(b, c):
+    V, F = icosphere(5)
+    return V * np.array([1.0, b, c]), F
+
+
+def torus(r, nu=256, nv=48):
+    a = 2 * np.pi * np.arange(nu) / nu
+    b = 2 * np.pi * np.arange(nv) / nv
+    A, B = np.meshgrid(a, b, indexing="ij")
+    V = np.stack([(1 + r * np.cos(B)) * np.cos(A), (1 + r * np.cos(B)) * np.sin(A), r * np.sin(B)], -1).reshape(-1, 3)
+    i, j = np.meshgrid(np.arange(nu), np.arange(nv), indexing="ij")
+    p, q = i * nv + j, ((i + 1) % nu) * nv + j
+    p1, q1 = i * nv + (j + 1) % nv, ((i + 1) % nu) * nv + (j + 1) % nv
+    F = np.stack([np.stack([p, q, q1], -1), np.stack([p, q1, p1], -1)], 2).reshape(-1, 3)
+    return V, F.astype(np.int64)
+
+
+def closed_set():
+    jobs = {}
+    for b in (0.15, 0.4):
+        for c in (0.003, 0.01, 0.03, 0.1):
+            jobs[f"ellipsoid_{b}_{c}"] = (lambda b=b, c=c: ellipsoid(b, c))
+    for r in (0.03, 0.05, 0.1, 0.2, 0.4):
+        jobs[f"torus_{r}"] = (lambda r=r: torus(r))
+    return jobs
+
+
 def spot_noisy(spot_path, sigma_rel=0.003, seed=1):
     V, F = read_obj(spot_path)
     diag = np.linalg.norm(V.max(0) - V.min(0))
@@ -212,6 +244,7 @@ def main():
         "thin_leaf": thin_leaf,
         "spot_noisy": lambda: spot_noisy(spot),
         "spot_x8": lambda: spot_x8(spot),
+        **closed_set(),
     }
     manifest = {}
     for name, make in jobs.items():

@@ -1,5 +1,10 @@
 {
- "_comment": "Baseline corpus. 'file' is relative to the meshes folder made by fetch_meshes.sh + make_synthetic.py. sym = mirror plane for symmetry metrics (axis, center); 'auto' center = input bbox centre on that axis.",
+ "_comment": "Mesh sets for run_corpus.py (set corpus) and ab.py (any set). 'file' is relative to the meshes folder: downloads/ from fetch_meshes.sh, synthetic/ from make_synthetic.py, suzanne/ from make_suzanne.py. 'set' defaults to corpus. sym = mirror plane for symmetry metrics (axis, center); 'auto' center = input bbox centre on that axis. sets: default targets and resolutions per set for ab.py.",
+ "sets": {
+  "corpus": {"targets": [2000, 10000], "resolutions": ["fast", "quality"]},
+  "closed": {"targets": [150, 500, 2000], "resolutions": ["fast", "quality"]},
+  "suzanne": {"targets": [2000, 5000, 10000], "resolutions": ["quality"]}
+ },
  "meshes": [
   {"id": "spot", "file": "downloads/spot.obj", "category": "organic, clean, genus 0"},
   {"id": "koala", "file": "downloads/koala.obj", "category": "organic sculpt"},
@@ -18,6 +23,22 @@
   {"id": "hammer", "file": "downloads/hammer.obj", "category": "noisy raw scan"},
   {"id": "spot_noisy", "file": "synthetic/spot_noisy.obj", "category": "synthetic noise (0.3% diag)"},
   {"id": "nefertiti", "file": "downloads/nefertiti.obj", "category": "scan, dense (2.0M tris)"},
-  {"id": "spot_x8", "file": "synthetic/spot_x8.obj", "category": "8 islands (parallelism)"}
+  {"id": "spot_x8", "file": "synthetic/spot_x8.obj", "category": "8 islands (parallelism)"},
+  {"id": "ellipsoid_0.15_0.003", "file": "synthetic/ellipsoid_0.15_0.003.obj", "category": "closed, thin ellipsoid", "set": "closed"},
+  {"id": "ellipsoid_0.15_0.01", "file": "synthetic/ellipsoid_0.15_0.01.obj", "category": "closed, thin ellipsoid", "set": "closed"},
+  {"id": "ellipsoid_0.15_0.03", "file": "synthetic/ellipsoid_0.15_0.03.obj", "category": "closed, thin ellipsoid", "set": "closed"},
+  {"id": "ellipsoid_0.15_0.1", "file": "synthetic/ellipsoid_0.15_0.1.obj", "category": "closed, thin ellipsoid", "set": "closed"},
+  {"id": "ellipsoid_0.4_0.003", "file": "synthetic/ellipsoid_0.4_0.003.obj", "category": "closed, thin ellipsoid", "set": "closed"},
+  {"id": "ellipsoid_0.4_0.01", "file": "synthetic/ellipsoid_0.4_0.01.obj", "category": "closed, thin ellipsoid", "set": "closed"},
+  {"id": "ellipsoid_0.4_0.03", "file": "synthetic/ellipsoid_0.4_0.03.obj", "category": "closed, thin ellipsoid", "set": "closed"},
+  {"id": "ellipsoid_0.4_0.1", "file": "synthetic/ellipsoid_0.4_0.1.obj", "category": "closed, thin ellipsoid", "set": "closed"},
+  {"id": "torus_0.03", "file": "synthetic/torus_0.03.obj", "category": "closed, torus R=1", "set": "closed"},
+  {"id": "torus_0.05", "file": "synthetic/torus_0.05.obj", "category": "closed, torus R=1", "set": "closed"},
+  {"id": "torus_0.1", "file": "synthetic/torus_0.1.obj", "category": "closed, torus R=1", "set": "closed"},
+  {"id": "torus_0.2", "file": "synthetic/torus_0.2.obj", "category": "closed, torus R=1", "set": "closed"},
+  {"id": "torus_0.4", "file": "synthetic/torus_0.4.obj", "category": "closed, torus R=1", "set": "closed"},
+  {"id": "suzanne_sub1", "file": "suzanne/suzanne_sub1.obj", "category": "Blender Suzanne + Subdivision, open (eyes)", "set": "suzanne"},
+  {"id": "suzanne_sub2", "file": "suzanne/suzanne_sub2.obj", "category": "Blender Suzanne + Subdivision, open (eyes)", "set": "suzanne"},
+  {"id": "suzanne_sub3", "file": "suzanne/suzanne_sub3.obj", "category": "Blender Suzanne + Subdivision, open (eyes)", "set": "suzanne"}
  ]
 }
