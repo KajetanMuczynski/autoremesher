@@ -139,6 +139,8 @@ def run_one(cli, mesh, setname, target, res, k, out, cli_args, work, metrics):
         rc = subprocess.call(cmd, stdout=log, stderr=subprocess.STDOUT)
     rec = {"mesh": mesh["id"], "set": setname, "target": target, "res": res, "replicate": k, "rc": rc,
            "wall": time.time() - t0, "cli_args": cli_args}
+    if os.path.exists(os.path.join(d, "out.obj")):
+        rec["out_sha"] = file_hash(os.path.join(d, "out.obj"))
     try:
         rep = json.load(open(os.path.join(d, "report.json")))
         rec["output"] = rep.get("output")
@@ -229,6 +231,8 @@ def load_runs(path, setname):
     for root, _, files in os.walk(base):
         if "record.json" in files:
             r = json.load(open(os.path.join(root, "record.json")))
+            if "out_sha" not in r and os.path.exists(os.path.join(root, "out.obj")):
+                r["out_sha"] = file_hash(os.path.join(root, "out.obj"))
             runs.setdefault((r["mesh"], r["res"], r["target"]), {})[r["replicate"]] = r
     return runs
 
@@ -323,6 +327,12 @@ def cmd_compare(a):
 
     # Noise: with replicates, how often B's spread separates from A's.
     if len(reps) > 1:
+        same = {side: sum(1 for k in keys for u in reps[1:]
+                    if D[k][u].get("out_sha") and D[k][u].get("out_sha") == D[k][0].get("out_sha"))
+                for side, D in (("A", A), ("B", B))}
+        if any(same.values()):
+            print(f"Replicates with output identical to the plain run (no extra information): A {same['A']}, "
+                  f"B {same['B']} of {len(keys) * (len(reps) - 1)}\n")
         print(f"**Replicates** ({len(reps)} per run): runs where every B replicate is below (above) every A one\n")
         print("| metric | B lower, separated | B higher, separated | median CV of A over replicates |")
         print("|---|---|---|---|")

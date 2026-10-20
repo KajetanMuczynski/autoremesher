@@ -81,7 +81,7 @@ between 1-ulp copies on master). So:
 - **Discrete claims** ("fixes mesh X", "breaks the genus of Y", "holes 3 → 0") need replicates:
   `ab.py run <ref> --only <meshes> --replicates 5` for both sides. Replicate u0 is the plain input; uk
   rounds every coordinate to float32 and moves it one float32 ulp up or down (seed k), which is the
-  precision Blender hands the add-on. `compare` calls a run fixed or broken only when all replicates
+  precision Blender hands the add-on (docs/TARGETS.md §2.5). `compare` calls a run fixed or broken only when all replicates
   agree on both sides and lists the rest as noise; with one replicate it labels its lists candidates.
 - **Aggregates** over a whole set (sums, geo-means, "better in 50 of 72 runs") don't need replicates.
   Do add them when the effect is small next to the spread: `compare` prints, per metric, how many
