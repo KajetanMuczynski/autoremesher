@@ -134,6 +134,9 @@ def corpus():
         ("box", single(lambda m: box(m, "b")), 1500),
         ("open_tube", single(lambda m: open_tube(m, "o")), 1500),
         ("two_islands", single(two_islands), 2000),
+        # Far from the origin: crossing-point keys once overflowed a 32-bit
+        # long (MSVC) beyond about 21,475 units and tore the output on Windows.
+        ("far_sphere", single(lambda m: sphere(m, "f", center=(1e5, 1e5, 1e5))), 2000),
     ]
 
 
