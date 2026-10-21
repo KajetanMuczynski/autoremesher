@@ -1,4 +1,4 @@
-# AutoRemesher fork
+# Quadami (AutoRemesher fork)
 
 Notes for Claude working in this repository.
 
@@ -10,7 +10,7 @@ Notes for Claude working in this repository.
 - GUI (`src/*.cpp`, Qt 5.15 or Qt 6 + OpenGL) wraps the core; built with qmake (`autoremesher.pro`).
 - Vendored in `thirdparty/`: eigen, tbb (2017-era), isotropicremesher, meshoptimizer, QtAwesome,
   QtWaitingSpinner. Upstream README mentions Geogram/libigl, but the `.pro` uses neither.
-- `origin` = Kajetan's fork (github.com/KajetanMuczynski/autoremesher), `upstream` = huxingyi. Never push upstream.
+- `origin` = Kajetan's fork (github.com/KajetanMuczynski/quadami), `upstream` = huxingyi. Never push upstream.
 
 ## License policy
 - The fork is **GPL-3.0-or-later**. Keep Jeremy Hu's MIT notices (`LICENSE-MIT-upstream`, file headers)
@@ -58,7 +58,7 @@ Core tests (`tests/`, Qt-free, link `autoremesher_core`): configure with `-DAUTO
 build all targets (ctest reports a test whose executable wasn't built as failed), run
 `ctest --test-dir <build> --output-on-failure`.
 
-Blender add-on (`addon/`, working name Quadami): `python addon/package.py --cli-prefix <install-prefix>`
+Blender add-on (`addon/`, Quadami): `python addon/package.py --cli-prefix <install-prefix>`
 builds the extension zip with the CLI bundled; see `addon/README.md`.
 
 CI (`.github/workflows/`):
@@ -98,7 +98,7 @@ Running the binary with no args opens the GUI. The core needs `setTargetTriangle
 - A change that can move topology also runs `--set closed`.
 
 ## PRs, branches and commits (Kajetan's rules, 2026-10-15)
-- Every PR targets `master` of KajetanMuczynski/autoremesher. Never a feature branch, no stacked PRs
+- Every PR targets `master` of KajetanMuczynski/quadami. Never a feature branch, no stacked PRs
   (PRs into other branches run no CI, and a late merge there never reaches master). GitHub defaults
   a fork's PR to the parent repo: check the base repository is not huxingyi/autoremesher.
 - Title: `<type>(<area>): <what it does> [TODO x.y]`, e.g. `fix(islands): keep tiny islands closed [TODO 2.14]`.
@@ -111,6 +111,10 @@ Running the binary with no args opens the GUI. The core needs `setTargetTriangle
   head, no conflicts with master, A/B or regression checks finished, description final. Then mark it
   Ready for review and reply "ready to merge" with the head SHA. Kajetan merges only non-draft PRs;
   to push more work to a ready PR, convert it back to draft first.
+- Waiting for CI: after opening or pushing to a PR, subscribe to its activity (`subscribe_pr_activity`).
+  When CI results arrive, run the ready check and mark the PR ready in the same turn; never end a turn
+  with only "waiting for CI". A PR with a merge conflict gets no CI run, so merge master first.
+  Unsubscribe after the merge.
 - A thread pushes to its one `claude/project-thread-*` branch and has at most one open PR; the next
   PR waits until that one is merged. Never delete branches.
 - Branch protection for `master` (ruleset, up-to-date setting, why no merge queue) is planned in `docs/TODO.md` item 0.9.
