@@ -68,3 +68,7 @@ add_test(NAME qex_guard COMMAND qex_guard_test "${CMAKE_CURRENT_SOURCE_DIR}/data
     "${CMAKE_CURRENT_SOURCE_DIR}/data/qex-faceloop-sculpt-parts.obj")
 # A guard that stops working shows as a hang; unguarded, this map never ends.
 set_tests_properties(qex_guard PROPERTIES TIMEOUT 120)
+
+add_executable(needle_tip_test needle_tip_test.cpp)
+target_link_libraries(needle_tip_test PRIVATE autoremesher_core)
+add_test(NAME needle_tip COMMAND needle_tip_test)

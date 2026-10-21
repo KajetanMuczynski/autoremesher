@@ -9,6 +9,8 @@ Blender down.
 
 License: GPL-3.0-or-later, like the rest of the fork.
 
+This file is for building and packaging. **Using** the add-on: [docs/USER-GUIDE.md](../docs/USER-GUIDE.md).
+
 ## What it does
 
 - **Sidebar > Quadami** shows the parameters of the core's `remesh()`
@@ -88,7 +90,7 @@ besides Blender.
 3. **Check.** *Edit > Preferences > Add-ons*, expand *Quadami*: the line
    under *Remesher executable* must say *Using: ...\bin\autoremesher-cli.exe*
    with a check mark. Leave *Remesher executable* empty.
-4. Continue with *First test in Blender* below.
+4. Continue with the user guide, [docs/USER-GUIDE.md](../docs/USER-GUIDE.md) §3.
 
 `autoremesher-cli.exe` links the C++ runtime and oneTBB statically, so it
 needs no Visual C++ Redistributable and no other DLL beyond the ones every
@@ -165,39 +167,20 @@ path in the preferences.
 To update after a code change: run step 2 again, then in *Get Extensions*
 remove Quadami and install the new zip (or restart Blender after reinstalling).
 
-## First test in Blender
+## Using the add-on
 
-Never used Blender? Follow [BEGINNERS.md](BEGINNERS.md) instead.
+How to use it (panel, settings, result rows, warnings, troubleshooting) is in
+the user guide, [docs/USER-GUIDE.md](../docs/USER-GUIDE.md), the only
+user-facing guide; keep usage instructions there, not here.
 
-1. Start Blender from a terminal, so the worker's messages are visible there
-   if something fails. (Windows: *Window > Toggle System Console* instead.)
-2. *Add > Mesh > Monkey*, then add a *Subdivision Surface* modifier at level 2
-   (the add-on remeshes the mesh with modifiers applied). Stay in Object Mode.
-3. In the *Quadami* tab set *Target Quads* to 2000 and press *Remesh*. The
-   status bar shows the percentage and step; orbit the view to check that
-   Blender stays responsive.
-4. When it finishes, `Suzanne_remesh` appears, the source is hidden and the
-   panel shows the report. Expect a status of *Done*, quads near the target,
-   and red rows only for real defects (non-quads, non-manifold edges, winding
-   flips, folded faces, empty islands).
-5. `Ctrl+Z` once should remove the result and show the source again.
-6. **Cancel:** select the source, set *Target Quads* to 50000 and press
-   *Remesh*; after a few seconds press `Esc` (or *Cancel* in the panel). The
-   status bar says *cancelling...*; within 5 s the panel shows *Cancelled* and
-   no new object is added.
-7. Optional, headless (no window):
+Headless check without a window:
 
-   ```
-   AUTOREMESHER_EXECUTABLE=build/cli/autoremesher-cli <blender> -b --factory-startup --python-exit-code 1 --python addon/tests/blender_smoke.py
-   ```
+```
+AUTOREMESHER_EXECUTABLE=build/cli/autoremesher-cli <blender> -b --factory-startup --python-exit-code 1 --python addon/tests/blender_smoke.py
+```
 
-   It should end with `blender_smoke: OK`.
-
-CI runs the same check on the installed zip with its bundled CLI
-(`blender_smoke.py -- --installed`).
-
-If a step fails, copy the terminal output (lines after *Quadami worker
-output*) and the panel's status line.
+It should end with `blender_smoke: OK`. CI runs the same check on the
+installed zip with its bundled CLI (`blender_smoke.py -- --installed`).
 
 ## Tests
 

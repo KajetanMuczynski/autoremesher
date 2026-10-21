@@ -12,9 +12,9 @@ case the gate fails on:
   - any non-manifold edge;
   - an output OBJ whose own counts disagree with the report (so a broken counter can't hide a
     bad mesh).
-Folded faces, empty islands, boundary edges and components are reported, not gated, until the
-plan sets targets for them (TODO 0.7). The thresholds are wide on purpose: this gate catches
-broken output, not small quality changes. A Markdown table goes to $GITHUB_STEP_SUMMARY when set.
+Folded faces, empty islands, boundary edges, holes in closed islands and components are reported,
+not gated, until the plan sets targets for them (TODO 0.7). The thresholds are wide on purpose: this
+gate catches broken output, not small quality changes. A Markdown table goes to $GITHUB_STEP_SUMMARY when set.
 """
 import json
 import math
@@ -189,6 +189,7 @@ def run_case(cli, work, name, mesh, target):
     row.update(quads=quads, non_quads=others, non_manifold=non_manifold,
                folded=out["folded_faces"], boundary=out["boundary_edges"],
                components=out["components"], empty_islands=report["islands"]["without_output"],
+               holes=report["islands"]["holes"],
                islands=report["islands"]["input"])
     ratio = quads / target
     if not MIN_RATIO <= ratio <= MAX_RATIO:
@@ -211,7 +212,7 @@ def main():
     rows = [run_case(cli, work, name, mesh, target) for name, mesh, target in corpus()]
 
     columns = ["case", "target", "quads", "non_quads", "non_manifold", "folded", "empty_islands",
-               "islands", "boundary", "components", "seconds"]
+               "islands", "boundary", "holes", "components", "seconds"]
     lines = ["| " + " | ".join(columns) + " | result |", "|" + "---|" * (len(columns) + 1)]
     for row in rows:
         cells = [("%.2f" % row[c]) if c == "seconds" else str(row.get(c, "-")) for c in columns]

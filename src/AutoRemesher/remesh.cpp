@@ -25,6 +25,7 @@
 #include <cmath>
 #include <exception>
 #include <iomanip>
+#include <limits>
 #include <locale>
 #include <numeric>
 #include <sstream>
@@ -100,17 +101,23 @@ void measureMesh(const RemeshMesh& mesh, QualityReport* report)
     report->faceCount = faceCount;
 
     // One entry per face side: the undirected edge as a sorted vertex pair,
-    // which face it belongs to and whether the face walks it low to high.
+    // which face it belongs to, whether the face walks it low to high, and
+    // the face's corners at the low and the high vertex.
     struct EdgeUse {
         uint64_t key;
         uint32_t face;
         bool forward;
+        size_t lowCorner;
+        size_t highCorner;
     };
     std::vector<EdgeUse> uses;
     uses.reserve(mesh.faceIndices.size());
     std::vector<size_t> parents(vertexCount);
     std::iota(parents.begin(), parents.end(), (size_t)0);
     std::vector<uint8_t> used(vertexCount, 0);
+    // Consecutive corners of a face on the same vertex: one corner for the
+    // fans, as the edge between them has no length.
+    std::vector<std::pair<size_t, size_t>> repeatedCorners;
 
     size_t offset = 0;
     for (size_t face = 0; face < faceCount; ++face) {
@@ -165,11 +172,16 @@ void measureMesh(const RemeshMesh& mesh, QualityReport* report)
             const uint32_t first = corners[i];
             const uint32_t second = corners[(i + 1) % size];
             used[first] = 1;
-            if (first == second)
+            const size_t firstCorner = offset - size + i;
+            const size_t secondCorner = offset - size + (i + 1) % size;
+            if (first == second) {
+                repeatedCorners.emplace_back(firstCorner, secondCorner);
                 continue;
+            }
             const uint32_t low = std::min(first, second);
             const uint32_t high = std::max(first, second);
-            uses.push_back({ ((uint64_t)low << 32) | high, (uint32_t)face, first == low });
+            uses.push_back({ ((uint64_t)low << 32) | high, (uint32_t)face, first == low,
+                first == low ? firstCorner : secondCorner, first == low ? secondCorner : firstCorner });
             const size_t firstRoot = findRoot(parents, first);
             const size_t secondRoot = findRoot(parents, second);
             if (firstRoot != secondRoot)
@@ -180,13 +192,37 @@ void measureMesh(const RemeshMesh& mesh, QualityReport* report)
     std::sort(uses.begin(), uses.end(), [](const EdgeUse& a, const EdgeUse& b) {
         return a.key != b.key ? a.key < b.key : a.face < b.face;
     });
+    // Corners joined when their faces share an edge at the corner's vertex:
+    // the fans around each vertex.  Vertices joined by boundary edges: the
+    // boundary loops.
+    std::vector<size_t> cornerParents(mesh.faceIndices.size());
+    std::iota(cornerParents.begin(), cornerParents.end(), (size_t)0);
+    std::vector<size_t> boundaryParents(vertexCount);
+    std::iota(boundaryParents.begin(), boundaryParents.end(), (size_t)0);
+    std::vector<uint8_t> onBoundary(vertexCount, 0);
+    const auto join = [](std::vector<size_t>& parents, size_t a, size_t b) {
+        a = findRoot(parents, a);
+        b = findRoot(parents, b);
+        if (a != b)
+            parents[std::max(a, b)] = std::min(a, b);
+    };
+    for (const auto& pair : repeatedCorners)
+        join(cornerParents, pair.first, pair.second);
     for (size_t begin = 0; begin < uses.size();) {
         size_t end = begin + 1;
         while (end < uses.size() && uses[end].key == uses[begin].key)
             ++end;
         const size_t count = end - begin;
+        for (size_t k = begin + 1; k < end; ++k) {
+            join(cornerParents, uses[begin].lowCorner, uses[k].lowCorner);
+            join(cornerParents, uses[begin].highCorner, uses[k].highCorner);
+        }
         if (1 == count) {
             ++report->boundaryEdgeCount;
+            const size_t low = (size_t)(uses[begin].key >> 32);
+            const size_t high = (size_t)(uses[begin].key & 0xffffffffu);
+            onBoundary[low] = onBoundary[high] = 1;
+            join(boundaryParents, low, high);
         } else if (2 == count) {
             const EdgeUse& a = uses[begin];
             const EdgeUse& b = uses[begin + 1];
@@ -201,6 +237,60 @@ void measureMesh(const RemeshMesh& mesh, QualityReport* report)
     for (size_t vertex = 0; vertex < vertexCount; ++vertex) {
         if (used[vertex] && findRoot(parents, vertex) == vertex)
             ++report->componentCount;
+        if (onBoundary[vertex] && findRoot(boundaryParents, vertex) == vertex)
+            ++report->boundaryLoopCount;
+    }
+
+    // A vertex is non-manifold when its corners fall into more than one fan.
+    const size_t noFan = std::numeric_limits<size_t>::max();
+    std::vector<size_t> firstFan(vertexCount, noFan);
+    std::vector<uint8_t> nonManifold(vertexCount, 0);
+    for (size_t corner = 0; corner < mesh.faceIndices.size(); ++corner) {
+        const uint32_t vertex = mesh.faceIndices[corner];
+        const size_t fan = findRoot(cornerParents, corner);
+        if (noFan == firstFan[vertex]) {
+            firstFan[vertex] = fan;
+        } else if (fan != firstFan[vertex] && !nonManifold[vertex]) {
+            nonManifold[vertex] = 1;
+            ++report->nonManifoldVertexCount;
+        }
+    }
+}
+
+void measureClosedIslands(const RemeshMesh& mesh,
+    const std::vector<::AutoRemesher::AutoRemesher::RemeshedIsland>& islands,
+    QualityReport* report)
+{
+    size_t vertexBegin = 0;
+    size_t faceBegin = 0;
+    size_t cornerBegin = 0;
+    for (const auto& island : islands) {
+        size_t cornerCount = 0;
+        for (size_t face = faceBegin; face < faceBegin + island.faceCount; ++face)
+            cornerCount += mesh.faceSizes[face];
+        if (island.closedInput) {
+            ++report->closedInputIslandCount;
+            if (island.faceCount > 0) {
+                RemeshMesh part;
+                part.positions.assign(mesh.positions.begin() + 3 * vertexBegin,
+                    mesh.positions.begin() + 3 * (vertexBegin + island.vertexCount));
+                part.faceSizes.assign(mesh.faceSizes.begin() + faceBegin,
+                    mesh.faceSizes.begin() + faceBegin + island.faceCount);
+                part.faceIndices.reserve(cornerCount);
+                for (size_t corner = cornerBegin; corner < cornerBegin + cornerCount; ++corner)
+                    part.faceIndices.push_back(mesh.faceIndices[corner] - (uint32_t)vertexBegin);
+                QualityReport measured;
+                measureMesh(part, &measured);
+                if (measured.boundaryEdgeCount > 0 || measured.nonManifoldEdgeCount > 0
+                    || measured.nonManifoldVertexCount > 0)
+                    ++report->openedClosedIslandCount;
+                report->closedIslandHoleCount += measured.boundaryLoopCount;
+                report->closedIslandHoleEdgeCount += measured.boundaryEdgeCount;
+            }
+        }
+        vertexBegin += island.vertexCount;
+        faceBegin += island.faceCount;
+        cornerBegin += cornerCount;
     }
 }
 
@@ -389,6 +479,7 @@ RemeshResult remeshWithPreview(const RemeshRequest& request,
             mesh.faceIndices.push_back((uint32_t)vertex);
     }
     measureMesh(mesh, &report);
+    measureClosedIslands(mesh, engine.remeshedIslands(), &report);
 
     if (nullptr != preview) {
         preview->decimated = engine.decimated();
@@ -408,6 +499,11 @@ RemeshResult remeshWithPreview(const RemeshRequest& request,
     if (report.islandsWithoutOutput > 0) {
         report.warnings.push_back(std::to_string(report.islandsWithoutOutput) + " of "
             + std::to_string(report.islandCount) + " islands produced no faces");
+    }
+    if (report.closedIslandHoleCount > 0) {
+        report.warnings.push_back("Output has " + std::to_string(report.closedIslandHoleCount)
+            + (1 == report.closedIslandHoleCount ? " hole" : " holes") + " where the input was closed ("
+            + std::to_string(report.closedIslandHoleEdgeCount) + " open edges)");
     }
     return finish(RemeshStatus::Ok, std::string());
 }
@@ -454,10 +550,16 @@ std::string toJson(const RemeshResult& result)
         << ", \"folded_faces\": " << jsonCount(report.foldedFaceCount)
         << ",\n             \"degenerate_faces\": " << jsonCount(report.degenerateFaceCount)
         << ", \"components\": " << jsonCount(report.componentCount)
+        << ", \"boundary_loops\": " << jsonCount(report.boundaryLoopCount)
+        << ", \"non_manifold_vertices\": " << jsonCount(report.nonManifoldVertexCount)
         << "},\n";
     out << "  \"islands\": {"
         << "\"input\": " << jsonCount(report.islandCount)
         << ", \"without_output\": " << jsonCount(report.islandsWithoutOutput)
+        << ", \"closed_in_input\": " << jsonCount(report.closedInputIslandCount)
+        << ", \"opened\": " << jsonCount(report.openedClosedIslandCount)
+        << ",\n              \"holes\": " << jsonCount(report.closedIslandHoleCount)
+        << ", \"hole_edges\": " << jsonCount(report.closedIslandHoleEdgeCount)
         << "},\n";
     out << "  \"time\": {\"total_seconds\": " << jsonNumber(report.seconds) << ", \"steps\": [";
     for (size_t i = 0; i < report.stepSeconds.size(); ++i) {

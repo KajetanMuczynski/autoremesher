@@ -354,6 +354,9 @@ def value(r, k):
     if k == "in_out_p99": return (m.get("distance") or {}).get("in_to_out_p99")
     if k == "vertex_dist": return (m.get("distance") or {}).get("vertex_to_in_median")
     if k == "normal_dev": return (m.get("normal_deviation_deg") or {}).get("mean")
+    if k == "sj_p1": return (m.get("quads") or {}).get("sj_p1")
+    if k == "skew_p95": return (m.get("quads") or {}).get("skew_p95")
+    if k == "crease_cov": return (m.get("creases") or {}).get("coverage")
     if k == "count_err": return abs(o["quads"] / r["target"] - 1) if o.get("quads") else None
     if k == "energy_ratio":
         e = [(c["continuous_energy"], c["rounded_energy"]) for c in r.get("cover") or []
@@ -371,8 +374,10 @@ def value(r, k):
 
 COUNTS = ["flips_cont", "flips_round", "flips", "degenerate", "non_quads", "sj_le_0", "flipped_vs_input",
           "t_non_manifold", "t_opened", "qex_fallbacks"]
-MEANS = ["irregular_1k", "in_out_p99", "hausdorff", "in_out_mean", "normal_dev", "vertex_dist", "count_err",
-         "energy_ratio", "time", "peak_rss_mb"]
+MEANS = ["irregular_1k", "in_out_p99", "hausdorff", "in_out_mean", "normal_dev", "vertex_dist", "sj_p1",
+         "skew_p95", "crease_cov", "count_err", "energy_ratio", "time", "peak_rss_mb"]
+# Rows where a higher value is the better one (for "runs B better / worse").
+HIGHER_IS_BETTER = {"sj_p1", "crease_cov"}
 
 
 def resolve(spec, work):
@@ -426,8 +431,8 @@ def cmd_compare(a):
         shift = 1 if metric in COUNTS else 0
         logs = [math.log((y + shift) / (x + shift)) for x, y in pairs if x + shift > 0 and y + shift > 0]
         gm = math.exp(st.mean(logs)) if logs else float("nan")
-        better = sum(1 for x, y in pairs if y < x)
-        worse = sum(1 for x, y in pairs if y > x)
+        better = sum(1 for x, y in pairs if (y > x if metric in HIGHER_IS_BETTER else y < x))
+        worse = sum(1 for x, y in pairs if (y < x if metric in HIGHER_IS_BETTER else y > x))
         print(f"| {metric} | {fmt(agg(x for x, _ in pairs))} | {fmt(agg(y for _, y in pairs))} | ×{gm:.3f} | "
               f"{better} / {worse} |")
     print("\nCounts are summed over runs (geo-mean of (B+1)/(A+1)), the rest averaged. time is the CLI's own "

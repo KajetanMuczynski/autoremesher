@@ -22,8 +22,11 @@
 // Vertices off the input land on it; boundary vertices land on the input's
 // boundary; a vertex on a thin part goes to the sheet facing its way, not to
 // the nearer one facing away; a move that would fold a face is not made.
+// The relaxation after it evens out quads along the input, keeps the
+// boundary, and puts vertices next to an input crease onto the crease.
 
 #include <AutoRemesher/SurfaceProjector>
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <vector>
@@ -144,6 +147,91 @@ bool keepsMovesThatFold()
     ok = check(1 == result.keptFolding, "it is reported as kept") && ok;
     return ok;
 }
+
+bool relaxEvensOutAlongThePlane()
+{
+    std::printf("relax on a plane\n");
+    std::vector<Vector3> input;
+    Faces triangles;
+    square(-1.0, 5.0, 0.0, true, &input, &triangles);
+    std::vector<Vector3> output;
+    Faces quads;
+    grid(4, 0.0, &output, &quads);
+    const std::vector<Vector3> before = output;
+    // Vertex 12 is the centre (2, 2); pull it off towards a corner.
+    output[12] = Vector3(2.4, 2.3, 0.0);
+    const auto result = SurfaceProjector(&input, &triangles, 90.0).relax(&output, quads, 5);
+    bool ok = check(9 == result.free && 0 == result.snapped, "the 9 interior vertices are free, no crease");
+    const double offBefore = std::hypot(0.4, 0.3);
+    const double offAfter = std::hypot(output[12].x() - 2.0, output[12].y() - 2.0);
+    ok = check(offAfter < 0.5 * offBefore, "the pulled vertex moves back towards the centre") && ok;
+    bool onPlane = true, boundaryKept = true;
+    for (size_t v = 0; v < output.size(); ++v) {
+        onPlane = onPlane && std::fabs(output[v].z()) < 1e-12;
+        const bool boundary = 0 == v % 5 || 4 == v % 5 || v < 5 || v >= 20;
+        if (boundary)
+            boundaryKept = boundaryKept && (output[v] - before[v]).length() < 1e-12;
+    }
+    ok = check(onPlane, "every vertex stays on the plane") && ok;
+    ok = check(boundaryKept, "boundary vertices stay") && ok;
+    return ok;
+}
+
+// A sheet folded along the x axis: flat for y <= 0, rising at 45 degrees for
+// y >= 0, so its crease (dihedral 45 degrees) is the line y = z = 0.
+void foldedSheet(std::vector<Vector3>* vertices, Faces* triangles)
+{
+    const double ys[] = { -3.0, 0.0, 3.0 };
+    for (const double y : ys) {
+        vertices->push_back(Vector3(-1.0, y, std::max(0.0, y)));
+        vertices->push_back(Vector3(5.0, y, std::max(0.0, y)));
+    }
+    for (size_t row = 0; row < 2; ++row) {
+        const size_t a = 2 * row;
+        triangles->push_back({ a, a + 1, a + 3 });
+        triangles->push_back({ a, a + 3, a + 2 });
+    }
+}
+
+// A 4 x 4 quad grid on the folded sheet over x in [0, 4], y in [-2, 2], with
+// the middle vertex of the crease row (index 12) moved 0.1 up the slope.
+void gridOnFoldedSheet(std::vector<Vector3>* vertices, Faces* quads)
+{
+    grid(4, 0.0, vertices, quads);
+    for (auto& v : *vertices) {
+        v.setY(v.y() - 2.0);
+        v.setZ(std::max(0.0, v.y()));
+    }
+    (*vertices)[12] = Vector3(2.0, 0.1, 0.1);
+}
+
+bool relaxPutsVerticesOnCreases()
+{
+    std::printf("relax next to a crease\n");
+    std::vector<Vector3> input;
+    Faces triangles;
+    foldedSheet(&input, &triangles);
+    std::vector<Vector3> output;
+    Faces quads;
+    gridOnFoldedSheet(&output, &quads);
+    const auto result = SurfaceProjector(&input, &triangles, 30.0).relax(&output, quads, 5);
+    bool ok = check(3 == result.snapped && 6 == result.free, "the crease row is snapped, the other 6 are free");
+    ok = check(std::fabs(output[12].y()) < 1e-12 && std::fabs(output[12].z()) < 1e-12,
+             "the vertex next to the crease lands on it")
+        && ok;
+    bool onSheet = true;
+    for (const auto& v : output)
+        onSheet = onSheet && std::fabs(v.z() - std::max(0.0, v.y())) < 1e-9;
+    ok = check(onSheet, "every vertex stays on the sheet") && ok;
+
+    std::printf("relax with creases off\n");
+    std::vector<Vector3> unsnapped;
+    Faces sameQuads;
+    gridOnFoldedSheet(&unsnapped, &sameQuads);
+    const auto off = SurfaceProjector(&input, &triangles, 0.0).relax(&unsnapped, sameQuads, 0);
+    ok = check(0 == off.snapped && std::fabs(unsnapped[12].y() - 0.1) < 1e-12, "sharp edge 0 snaps nothing") && ok;
+    return ok;
+}
 }
 
 int main()
@@ -153,5 +241,7 @@ int main()
     failures += landsOnPlaneAndBoundary() ? 0 : 1;
     failures += picksTheSheetFacingTheSameWay() ? 0 : 1;
     failures += keepsMovesThatFold() ? 0 : 1;
+    failures += relaxEvensOutAlongThePlane() ? 0 : 1;
+    failures += relaxPutsVerticesOnCreases() ? 0 : 1;
     return failures ? 1 : 0;
 }

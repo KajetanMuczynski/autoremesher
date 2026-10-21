@@ -118,8 +118,35 @@ class ReportTest(unittest.TestCase):
         self.assertIn(("Winding flips", "1", True), rows)
         self.assertIn(("Empty islands", "1 of 3", True), rows)
         self.assertIn(("Time", "0.8 s", False), rows)
-        self.assertIn(("Warning", "1 of 3 islands produced no faces", True), rows)
-        self.assertFalse(any(label == "Input cleanup" for label, _, _ in rows))
+        self.assertFalse(any(label in ("Input cleanup", "Holes") for label, _, _ in rows))
+
+    def test_warnings_are_wrapped(self):
+        lines = report.warning_lines({"status": "ok", "warnings": ["1 of 3 islands produced no faces"]},
+                                     width=20)
+        self.assertEqual(lines, [("1 of 3 islands", True, True), ("produced no faces", False, True)])
+        self.assertEqual(report.warning_lines({"status": "ok"}), [])
+
+    def test_holes_in_a_closed_input(self):
+        # Kajetan's closed head at 10k quads (2026-10-21).
+        holes = {
+            "status": "ok", "parameters": {"target_quads": 10000},
+            "output": {"quads": 10060, "non_manifold_vertices": 2},
+            "islands": {"input": 1, "without_output": 0, "closed_in_input": 1, "opened": 1,
+                        "holes": 2, "hole_edges": 240},
+            "warnings": ["Output has 2 holes where the input was closed (240 open edges)"]}
+        rows = report.summary_rows(holes)
+        self.assertIn(("Holes", "2 (240 open edges)", True), rows)
+        self.assertIn(("Non-manifold vertices", "2", True), rows)
+        lines = report.warning_lines(holes)
+        self.assertTrue(all(len(text) <= report.WARNING_WIDTH for text, _, _ in lines))
+        self.assertEqual(" ".join(text for text, _, problem in lines if problem),
+                         "Output has 2 holes where the input was closed (240 open edges)")
+        hint = " ".join(text for text, _, problem in lines if not problem)
+        self.assertIn("Select All by Trait > Non Manifold", hint)
+
+        closed = dict(holes, islands={"input": 1, "closed_in_input": 1, "holes": 0}, warnings=[])
+        self.assertIn(("Holes", "0", False), report.summary_rows(closed))
+        self.assertEqual(report.warning_lines(closed), [])
 
     def test_input_cleanup_row(self):
         rows = report.summary_rows({

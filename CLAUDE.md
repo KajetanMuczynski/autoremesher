@@ -64,7 +64,8 @@ builds the extension zip with the CLI bundled; see `addon/README.md`.
 CI (`.github/workflows/`):
 - `ci.yml` (every PR, push to master or a tag, manual run): all checks in one workflow. Its last job,
   **CI passed**, is green only if every other job succeeded; it is the one check branch protection
-  requires. Branch pushes without a PR get no run (use Actions > ci > Run workflow);
+  is meant to require (TODO 0.9; checked 2026-10-21: the `master` ruleset requires a PR and blocks
+  force pushes and deletion, but requires no status check yet). Branch pushes without a PR get no run (use Actions > ci > Run workflow);
   a PR with merge conflicts gets no run either, so **CI passed** shows as missing.
   A PR that changes only documentation (`docs/`, Markdown at the top level or directly in `addon/`)
   skips the macOS job (`changes` job decides; GitHub's macOS runners can queue for many minutes);
@@ -80,6 +81,13 @@ CI (`.github/workflows/`):
     yet), worker tests, zip installed into a real Blender (4.2 LTS on Linux, 5.2 on Windows and
     macOS). The Windows and macOS zips (macOS 11.2+, Apple silicon) are uploaded as artifacts
     `addon-<platform>`. One macOS job per PR, since macOS runners are the scarce ones.
+- `rerun-dropped.yml` (when a ci run completes): GitHub drops a macOS arm64 job that waits ~15 min
+  for a runner (cancelled, no runner, no steps), which turns **CI passed** red. `ci/rerun_dropped.py`
+  then re-runs the failed jobs of that same run, only if every failed job never got a runner, the
+  run was not cancelled by a newer push, the PR head is unchanged and the attempt is below 3; a real
+  failure or timeout is never re-run. It runs master's copy only (untestable on its own PR); its
+  decision is unit-tested in `qt-app` (`ci/tests`). A long GitHub capacity outage still beats it:
+  then click "Re-run failed jobs" later.
 - What ships is only the Blender add-on (Kajetan, 2026-10-15). The standalone Qt app (AppImage,
   Windows zip, DMG: upstream's `release.yml`) is no longer packaged; it is still built and
   smoke-tested on Linux by `qt-app`. A portable Linux add-on zip doesn't exist yet (the CI one links
@@ -109,7 +117,14 @@ Running the binary with no args opens the GUI. The core needs `setTargetTriangle
   `src/AutoRemesher/quadextractor.cpp`), say so in the body so parallel PRs can be ordered.
 - A PR stays **draft** until its thread has verified everything: **CI passed** green on the current
   head, no conflicts with master, A/B or regression checks finished, description final. Then mark it
-  Ready for review and reply "ready to merge" with the head SHA. Kajetan merges only non-draft PRs;
+  Ready for review and reply "ready to merge" with the head SHA.
+- macOS drop exception (Kajetan, 2026-10-21): if **CI passed** is red only because the macOS job was
+  dropped (conclusion cancelled, no runner, no steps: it never ran) and every other job of the PR's
+  own run on the current head succeeded, the PR may be marked ready after its one re-run (by
+  `rerun-dropped.yml` or by hand) dropped as well, or after the first drop where no re-run is possible. Say so in the reply ("macOS dropped, not run").
+  A macOS job that ran and failed, timed out or was cancelled with a runner still blocks. Nothing
+  in GitHub enforces this: the `master` ruleset has no required status check (TODO 0.9), so the
+  thread's check is the only gate. Kajetan merges only non-draft PRs;
   to push more work to a ready PR, convert it back to draft first.
 - Waiting for CI: after opening or pushing to a PR, subscribe to its activity (`subscribe_pr_activity`).
   When CI results arrive, run the ready check and mark the PR ready in the same turn; never end a turn

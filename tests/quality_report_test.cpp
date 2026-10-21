@@ -19,7 +19,10 @@
 
 // The per-face counts of the quality report on hand-made faces. A face is
 // folded when a corner turns against the face's area vector (scaled Jacobian
-// <= 0), whatever its neighbours and whichever way it faces.
+// <= 0), whatever its neighbours and whichever way it faces. Then the
+// boundary loops and non-manifold vertices, and the holes counted in the
+// output of islands that were closed in the input (ENVELOPE §3.2): a closed
+// head at 10k came out with 2 holes and the add-on showed nothing.
 
 #include <AutoRemesher/MeasureMesh>
 #include <cstdint>
@@ -41,6 +44,121 @@ AutoRemesher::QualityReport measure(const std::vector<double>& positions,
     AutoRemesher::QualityReport report;
     AutoRemesher::measureMesh(mesh, &report);
     return report;
+}
+
+// The unit cube's corners, vertex 4 z + 2 y + x at (x, y, z), shifted by dx.
+std::vector<double> cubeCorners(double dx)
+{
+    std::vector<double> positions;
+    for (int z = 0; z < 2; ++z)
+        for (int y = 0; y < 2; ++y)
+            for (int x = 0; x < 2; ++x)
+                positions.insert(positions.end(), { x + dx, (double)y, (double)z });
+    return positions;
+}
+
+// Its six faces, outward, corner indices offset by `first`; bottom, top,
+// then the four sides.
+std::vector<std::vector<uint32_t>> cubeFaces(uint32_t first)
+{
+    std::vector<std::vector<uint32_t>> faces = { { 0, 2, 3, 1 }, { 4, 5, 7, 6 },
+        { 0, 1, 5, 4 }, { 2, 6, 7, 3 }, { 0, 4, 6, 2 }, { 1, 3, 7, 5 } };
+    for (auto& face : faces)
+        for (auto& corner : face)
+            corner += first;
+    return faces;
+}
+
+int topologyFailures()
+{
+    struct Case {
+        std::string name;
+        std::vector<double> positions;
+        std::vector<std::vector<uint32_t>> faces;
+        size_t boundaryEdges;
+        size_t boundaryLoops;
+        size_t nonManifoldVertices;
+    };
+    const std::vector<double> cube = cubeCorners(0.0);
+    const auto faces = cubeFaces(0);
+    const std::vector<std::vector<uint32_t>> open(faces.begin() + 1, faces.end());
+    const std::vector<std::vector<uint32_t>> tube(faces.begin() + 2, faces.end());
+    // Two cubes sharing corner 7 of the first as corner 0 of the second.
+    std::vector<double> twoCubes = cube;
+    const std::vector<double> shifted = cubeCorners(1.0);
+    for (int i = 1; i < 8; ++i)
+        twoCubes.insert(twoCubes.end(),
+            { shifted[3 * i], shifted[3 * i + 1] + 1.0, shifted[3 * i + 2] + 1.0 });
+    std::vector<std::vector<uint32_t>> twoCubeFaces = faces;
+    for (const auto& face : cubeFaces(7))
+        twoCubeFaces.push_back(face);
+    // Two squares touching at vertex 2.
+    const std::vector<double> touching = { 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 2, 1, 0, 2, 2, 0, 1, 2, 0 };
+    // A repeated corner is one corner of the fan, not a pinch.
+    const std::vector<double> square = { 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0 };
+    const std::vector<Case> cases = {
+        { "closed cube", cube, faces, 0, 0, 0 },
+        { "cube without its bottom", cube, open, 4, 1, 0 },
+        { "open tube", cube, tube, 8, 2, 0 },
+        { "two cubes at a corner", twoCubes, twoCubeFaces, 0, 0, 1 },
+        { "two squares at a corner", touching, { { 0, 1, 2, 3 }, { 2, 4, 5, 6 } }, 8, 1, 1 },
+        { "repeated corner", square, { { 0, 1, 1, 2, 3 } }, 4, 1, 0 },
+    };
+    int failures = 0;
+    printf("%-24s %16s %13s %22s\n", "case", "boundary edges", "loops", "non-manifold vertices");
+    for (const auto& c : cases) {
+        const AutoRemesher::QualityReport report = measure(c.positions, c.faces);
+        const bool ok = report.boundaryEdgeCount == c.boundaryEdges && report.boundaryLoopCount == c.boundaryLoops
+            && report.nonManifoldVertexCount == c.nonManifoldVertices;
+        failures += ok ? 0 : 1;
+        printf("%-24s %6zu (want %zu) %4zu (want %zu) %10zu (want %zu)%s\n", c.name.c_str(),
+            report.boundaryEdgeCount, c.boundaryEdges, report.boundaryLoopCount, c.boundaryLoops,
+            report.nonManifoldVertexCount, c.nonManifoldVertices, ok ? "" : "  FAIL");
+    }
+    return failures;
+}
+
+// Three islands one after the other, as remesh() returns them: a closed
+// input that came out closed, a closed input that came out without its
+// bottom, and an open input (a grid) whose border is not a hole. A closed
+// island without output is counted as closed, not as opened.
+int closedIslandFailures()
+{
+    using Island = ::AutoRemesher::AutoRemesher::RemeshedIsland;
+    AutoRemesher::RemeshMesh mesh;
+    std::vector<Island> islands;
+    const auto add = [&](const std::vector<double>& positions,
+                         const std::vector<std::vector<uint32_t>>& faces, bool closedInput) {
+        const uint32_t first = (uint32_t)(mesh.positions.size() / 3);
+        mesh.positions.insert(mesh.positions.end(), positions.begin(), positions.end());
+        for (const auto& face : faces) {
+            mesh.faceSizes.push_back((uint32_t)face.size());
+            for (const uint32_t corner : face)
+                mesh.faceIndices.push_back(first + corner);
+        }
+        Island island;
+        island.vertexCount = positions.size() / 3;
+        island.faceCount = faces.size();
+        island.closedInput = closedInput;
+        islands.push_back(island);
+    };
+    const auto faces = cubeFaces(0);
+    add(cubeCorners(0.0), faces, true);
+    add({}, {}, true);
+    add(cubeCorners(2.0), std::vector<std::vector<uint32_t>>(faces.begin() + 1, faces.end()), true);
+    add({ 0, 0, 5, 1, 0, 5, 1, 1, 5, 0, 1, 5 }, { { 0, 1, 2, 3 } }, false);
+
+    AutoRemesher::QualityReport report;
+    AutoRemesher::measureMesh(mesh, &report);
+    AutoRemesher::measureClosedIslands(mesh, islands, &report);
+    const bool ok = 3 == report.closedInputIslandCount && 1 == report.openedClosedIslandCount
+        && 1 == report.closedIslandHoleCount && 4 == report.closedIslandHoleEdgeCount
+        && 2 == report.boundaryLoopCount && 8 == report.boundaryEdgeCount;
+    printf("closed islands %zu (want 3), opened %zu (want 1), holes %zu (want 1), hole edges %zu (want 4), "
+           "all loops %zu (want 2)%s\n\n",
+        report.closedInputIslandCount, report.openedClosedIslandCount, report.closedIslandHoleCount,
+        report.closedIslandHoleEdgeCount, report.boundaryLoopCount, ok ? "" : "  FAIL");
+    return ok ? 0 : 1;
 }
 
 }
@@ -77,6 +195,8 @@ int main()
     };
 
     int failures = 0;
+    failures += topologyFailures();
+    failures += closedIslandFailures();
     printf("%-24s %13s %17s %11s\n", "case", "folded", "degenerate", "flips");
     for (const auto& c : cases) {
         const AutoRemesher::QualityReport report = measure(c.positions, c.faces);

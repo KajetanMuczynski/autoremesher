@@ -1,0 +1,155 @@
+{
+ "run": {
+  "id": 39631234238,
+  "event": "pull_request",
+  "status": "completed",
+  "conclusion": "failure",
+  "run_attempt": 1,
+  "head_sha": "b23a3956286d877aa79e59df3cf5530701c5c6d6",
+  "head_branch": "claude/project-thread-4z5inw"
+ },
+ "pull_requests": [
+  {
+   "number": 64,
+   "head_sha": "b23a3956286d877aa79e59df3cf5530701c5c6d6"
+  }
+ ],
+ "jobs": [
+  {
+   "id": 119329641526,
+   "name": "qt-app (linux)",
+   "status": "completed",
+   "conclusion": "success",
+   "runner_id": 1000001385,
+   "steps": [
+    "Set up job",
+    "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+    "Install dependencies",
+    "Build Qt app",
+    "Build Qt-free core (ar_bench)",
+    "Smoke test, Qt app headless",
+    "Smoke test, core",
+    "Bench tools tests",
+    "Upload smoke test output",
+    "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+    "Complete job"
+   ]
+  },
+  {
+   "id": 119329641890,
+   "name": "addon (linux-x64)",
+   "status": "completed",
+   "conclusion": "success",
+   "runner_id": 1000001386,
+   "steps": [
+    "Set up job",
+    "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+    "Run actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1",
+    "Install dependencies",
+    "Build the core, CLI and tests",
+    "Core tests",
+    "Output gate",
+    "Upload gate output",
+    "Check the DLLs it needs",
+    "Check the libraries it needs",
+    "CLI arguments",
+    "Worker tests",
+    "Package the extension",
+    "Cache Blender 4.2.23",
+    "Download Blender 4.2.23",
+    "Verify Blender 4.2.23",
+    "Unpack Blender",
+    "Install the zip in Blender and remesh",
+    "Upload the extension zip",
+    "Post Cache Blender 4.2.23",
+    "Post Run actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1",
+    "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+    "Complete job"
+   ]
+  },
+  {
+   "id": 119329641930,
+   "name": "format (clang-format 23)",
+   "status": "completed",
+   "conclusion": "success",
+   "runner_id": 1000001387,
+   "steps": [
+    "Set up job",
+    "Run actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+    "Run actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1",
+    "Install clang-format",
+    "Run clang-format",
+    "Check for changes",
+    "Post Run actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1",
+    "Post Run actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+    "Complete job"
+   ]
+  },
+  {
+   "id": 119329642043,
+   "name": "changes",
+   "status": "completed",
+   "conclusion": "success",
+   "runner_id": 1000001389,
+   "steps": [
+    "Set up job",
+    "Run actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+    "Changed files",
+    "Post Run actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+    "Complete job"
+   ]
+  },
+  {
+   "id": 119329642065,
+   "name": "addon (windows-x64)",
+   "status": "completed",
+   "conclusion": "success",
+   "runner_id": 1000001388,
+   "steps": [
+    "Set up job",
+    "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+    "Run actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1",
+    "Install dependencies",
+    "Build the core, CLI and tests",
+    "Core tests",
+    "Output gate",
+    "Upload gate output",
+    "Check the DLLs it needs",
+    "Check the libraries it needs",
+    "CLI arguments",
+    "Worker tests",
+    "Package the extension",
+    "Cache Blender 5.2.2",
+    "Download Blender 5.2.2",
+    "Verify Blender 5.2.2",
+    "Unpack Blender",
+    "Install the zip in Blender and remesh",
+    "Upload the extension zip",
+    "Post Cache Blender 5.2.2",
+    "Post Run actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1",
+    "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+    "Complete job"
+   ]
+  },
+  {
+   "id": 119329716909,
+   "name": "addon (macos-arm64) (macos-latest, macos-arm64, 5.2.2, blender-5.2.2-macos-arm64.dmg, dc4125399b8...",
+   "status": "completed",
+   "conclusion": "cancelled",
+   "runner_id": 0,
+   "steps": []
+  },
+  {
+   "id": 119337776238,
+   "name": "CI passed",
+   "status": "completed",
+   "conclusion": "failure",
+   "runner_id": 1000001398,
+   "steps": [
+    "Set up job",
+    "Check every job",
+    "Complete job"
+   ]
+  }
+ ]
+}
