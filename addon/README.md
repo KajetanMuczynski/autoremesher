@@ -151,6 +151,13 @@ Blender that uses it.
    below *Remesher executable* must say *Using: .../bin/autoremesher-cli*
    with a check mark. To use another build, set *Remesher executable* or
    start Blender with `AUTOREMESHER_EXECUTABLE=<path>`.
+5. **Which build.** The grey line at the bottom of the *Quadami* panel (and
+   in the preferences) is the build id: commit and commit date, e.g.
+   `4d15d5f 2026-10-21` (`-dirty`: uncommitted changes; `pr52 abc1234+master`:
+   a PR's CI zip, built from that head merged into master; `dev`: the add-on
+   runs from the source tree). The manifest version stays 0.1.0, so Blender's
+   extension list cannot tell builds apart. If the add-on and the remesher it
+   uses come from different builds, both ids show in red.
 
 `python3 addon/package.py` without arguments makes a zip without the CLI
 (`quadami-<version>.zip`, any platform), which then needs the executable

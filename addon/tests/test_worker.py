@@ -179,6 +179,24 @@ class FakeWorkerTest(unittest.TestCase):
             if saved_env is not None:
                 os.environ["AUTOREMESHER_EXECUTABLE"] = saved_env
 
+    @unittest.skipIf(os.name == "nt", "uses a shell script as the worker")
+    def test_worker_build_id(self):
+        with tempfile.TemporaryDirectory() as folder:
+            script = os.path.join(folder, "version.sh")
+
+            def program(text):
+                with open(script, "w") as f:
+                    f.write("#!/bin/sh\necho '%s'\n" % text)
+                os.chmod(script, 0o755)
+
+            program("autoremesher-cli 1.2.0 (build abc1234 2026-10-21, remesh interface 1.3)")
+            self.assertEqual(worker.worker_build_id(script), "abc1234 2026-10-21")
+            program("autoremesher-cli 1.2.0 (remesh interface 1.3) # before build ids")
+            os.utime(script, ns=(1, 1))  # a rebuilt program is asked again
+            self.assertIsNone(worker.worker_build_id(script))
+        self.assertIsNone(worker.worker_build_id(script))  # gone
+        self.assertEqual(worker.addon_build_id(), "dev")  # source tree: no build-id.txt
+
     def test_unknown_parameter(self):
         job = worker.RemeshJob("unused", np.zeros((3, 3)), np.array([[0, 1, 2]]), {"mirror": True})
         with self.assertRaises(ValueError):
@@ -190,6 +208,9 @@ class CliTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.positions, cls.triangles = uv_sphere()
+
+    def test_version_has_build_id(self):
+        self.assertTrue(worker.worker_build_id(EXECUTABLE))
 
     def test_remesh(self):
         updates = []
