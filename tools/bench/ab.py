@@ -128,7 +128,7 @@ def perturbed(src, k, work):
     return dst
 
 
-def run_one(cli, mesh, setname, target, res, k, out, cli_args, work, metrics):
+def run_one(cli, mesh, setname, target, res, k, out, cli_args, work, metrics, timeout):
     d = os.path.join(out, setname, mesh["id"], f"{res}-t{target}", f"u{k}")
     record_path = os.path.join(d, "record.json")
     if os.path.exists(record_path):
@@ -140,10 +140,14 @@ def run_one(cli, mesh, setname, target, res, k, out, cli_args, work, metrics):
            "--resolution", res, "--report-json", os.path.join(d, "report.json"),
            "--stage-diagnostics", os.path.join(d, "stages.jsonl")] + cli_args
     t0 = time.time()
+    timed_out = False
     with open(os.path.join(d, "log.txt"), "w") as log:
-        rc = subprocess.call(cmd, stdout=log, stderr=subprocess.STDOUT)
+        try:
+            rc = subprocess.call(cmd, stdout=log, stderr=subprocess.STDOUT, timeout=timeout or None)
+        except subprocess.TimeoutExpired:  # the child is killed; a hang counts as a failed run
+            rc, timed_out = -9, True
     rec = {"mesh": mesh["id"], "set": setname, "target": target, "res": res, "replicate": k, "rc": rc,
-           "wall": time.time() - t0, "cli_args": cli_args}
+           "wall": time.time() - t0, "cli_args": cli_args, "timed_out": timed_out}
     if os.path.exists(os.path.join(d, "out.obj")):
         rec["out_sha"] = file_hash(os.path.join(d, "out.obj"))
     try:
@@ -220,7 +224,8 @@ def cmd_run(a):
     jobs = [(m, t, r, k) for m in meshes for t in targets for r in resolutions for k in range(a.replicates + 1)]
     print(f"{len(jobs)} runs into {out}", flush=True)
     with cf.ThreadPoolExecutor(max_workers=a.jobs) as pool:
-        futs = [pool.submit(run_one, cli, m, a.set, t, r, k, out, a.cli_arg, a.work, not a.no_metrics)
+        futs = [pool.submit(run_one, cli, m, a.set, t, r, k, out, a.cli_arg, a.work, not a.no_metrics,
+                            a.timeout)
                 for m, t, r, k in jobs]
         for f in futs:
             rec = f.result()
@@ -421,6 +426,8 @@ def main():
                    help="extra CMake configure argument, repeatable; write it as --cmake-arg=-DX=1")
     r.add_argument("--jobs", type=int, default=2, help="parallel runs and build jobs (default 2)")
     r.add_argument("--no-metrics", action="store_true")
+    r.add_argument("--timeout", type=float, default=900,
+                   help="seconds before a run is killed and counted as failed (default 900, 0 = none)")
     c = sub.add_parser("compare", help="compare run folder (or ref) A with B")
     c.add_argument("a")
     c.add_argument("b")
