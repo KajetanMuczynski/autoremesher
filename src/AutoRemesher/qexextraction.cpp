@@ -16,6 +16,9 @@
  *
  *  SPDX-License-Identifier: GPL-3.0-or-later
  */
+// Built only with -DAUTOREMESHER_QEX; empty otherwise, for builds that glob
+// the core's sources (tools/bench/bench/CMakeLists.txt).
+#if AUTOREMESHER_QEX
 #include "qexextraction.h"
 #include <algorithm>
 #include <cmath>
@@ -180,3 +183,5 @@ bool extractWithQex(const std::vector<Vector3>& vertices,
 }
 
 }
+
+#endif
