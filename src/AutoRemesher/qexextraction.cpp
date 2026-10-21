@@ -17,10 +17,95 @@
  *  SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "qexextraction.h"
+#include <algorithm>
+#include <cmath>
 #include <exception>
+#include <map>
 #include <qex.h>
+#include <utility>
 
 namespace AutoRemesher {
+
+namespace {
+
+    double distanceToSegment(const Vector3& p, const Vector3& a, const Vector3& b)
+    {
+        const Vector3 ab = b - a;
+        const double length2 = Vector3::dotProduct(ab, ab);
+        double t = length2 > 0 ? Vector3::dotProduct(p - a, ab) / length2 : 0.0;
+        t = std::max(0.0, std::min(1.0, t));
+        return (p - (a + ab * t)).length();
+    }
+
+    // Two kinds of QEx faces QuadExtractor's repair can't take, dropped so
+    // that the hole filling sees an ordinary hole:
+    // - faces on an edge more than two faces use, or on a directed edge
+    //   another face uses too (sheets of a fold touching along an edge);
+    //   the repair keys faces by directed edge and misses both;
+    // - an n-gon all of whose vertices lie on the triangle mesh's boundary:
+    //   QEx closes each boundary loop with such a face.
+    void dropUnrepairableFaces(const QEx::TriMesh& mesh, const std::vector<Vector3>& vertices,
+        std::vector<std::vector<size_t>>* polygons)
+    {
+        std::map<std::pair<size_t, size_t>, size_t> undirected, directed;
+        for (const auto& face : *polygons) {
+            for (size_t i = 0; i < face.size(); ++i) {
+                const size_t a = face[i], b = face[(i + 1) % face.size()];
+                ++undirected[std::make_pair(std::min(a, b), std::max(a, b))];
+                ++directed[std::make_pair(a, b)];
+            }
+        }
+        std::vector<std::pair<Vector3, Vector3>> boundary;
+        double diagonal2 = 0.0;
+        {
+            Vector3 low = vertices.empty() ? Vector3() : vertices.front(), high = low;
+            for (const auto& v : vertices) {
+                low = Vector3(std::min(low.x(), v.x()), std::min(low.y(), v.y()), std::min(low.z(), v.z()));
+                high = Vector3(std::max(high.x(), v.x()), std::max(high.y(), v.y()), std::max(high.z(), v.z()));
+            }
+            diagonal2 = (high - low).lengthSquared();
+        }
+        for (auto e = mesh.edges_begin(); e != mesh.edges_end(); ++e) {
+            if (!mesh.is_boundary(*e))
+                continue;
+            const auto h = mesh.halfedge_handle(*e, 0);
+            const auto& a = mesh.point(mesh.from_vertex_handle(h));
+            const auto& b = mesh.point(mesh.to_vertex_handle(h));
+            boundary.emplace_back(Vector3(a[0], a[1], a[2]), Vector3(b[0], b[1], b[2]));
+        }
+        const double tolerance = 1e-9 * std::sqrt(diagonal2);
+        const auto onBoundary = [&](const Vector3& p) {
+            for (const auto& segment : boundary) {
+                if (distanceToSegment(p, segment.first, segment.second) <= tolerance)
+                    return true;
+            }
+            return false;
+        };
+        std::vector<std::vector<size_t>> kept;
+        kept.reserve(polygons->size());
+        for (auto& face : *polygons) {
+            bool drop = false;
+            for (size_t i = 0; i < face.size() && !drop; ++i) {
+                const size_t a = face[i], b = face[(i + 1) % face.size()];
+                drop = undirected[std::make_pair(std::min(a, b), std::max(a, b))] > 2
+                    || directed[std::make_pair(a, b)] > 1;
+            }
+            if (!drop && face.size() > 4 && !boundary.empty()) {
+                drop = true;
+                for (size_t v : face) {
+                    if (!onBoundary(vertices[v])) {
+                        drop = false;
+                        break;
+                    }
+                }
+            }
+            if (!drop)
+                kept.push_back(std::move(face));
+        }
+        *polygons = std::move(kept);
+    }
+
+}
 
 bool extractWithQex(const std::vector<Vector3>& vertices,
     const std::vector<std::vector<size_t>>& triangles,
@@ -86,6 +171,7 @@ bool extractWithQex(const std::vector<Vector3>& vertices,
         if (polygon.size() >= 3)
             outPolygons->push_back(std::move(polygon));
     }
+    dropUnrepairableFaces(mesh, *outVertices, outPolygons);
     if (outPolygons->empty()) {
         *why = "QEx returned no faces";
         return false;
