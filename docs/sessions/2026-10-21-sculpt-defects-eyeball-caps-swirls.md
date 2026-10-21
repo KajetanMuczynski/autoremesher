@@ -17,6 +17,12 @@
   99 % of SJ ≤ 0 quads within 1.5 h of folded input. Offline input unfolding: head 10k non-quads 26.7 → 2.7,
   SJ ≤ 0 21.8 → 0, topology 1/6 → 6/6, but p99 ×2.5 against the original input. sculpt_parts 5k with smooth
   eyeballs: topology right 2/6 → 6/6, non-quads 16 → 2.
+- Fold repair prototype (`tools/bench/fold_repair.py`, coordinator's go, tools only): local chart untangle of each
+  fold cluster, vertices put back on the original surface. Master, 5 replicates, p99 measured against the ORIGINAL
+  input: head 10k holes 1.3 → 0, non-quads 26.7 → 11.3, SJ ≤ 0 21.8 → 3.8, topology 1/6 → 5/6, p99 ×0.78; cube 10k
+  topology 1/6 → 6/6, p99 ×0.98; sword 3k no longer collapses (p99 ×0.11, 6 of 6), but it still has wrong topology.
+  Moved vertices stay within 0.2 % of the diagonal of the original surface; the spike tip does not move. Brush set and
+  details: research/sculpt-defects-2026-10-21.md §8.
 - Next: Kajetan decides whether the core repairs folded input (proposed TODO 2.19); add-on warning for holes in
   closed islands and for folded input; after #58, keep fold edges out of the sharp-edge locks; after 6.1b, re-measure
   the holes and the handle.
