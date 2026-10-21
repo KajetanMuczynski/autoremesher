@@ -460,18 +460,18 @@ void MixedIntegerLeastSquares::fixNextBatch(IterationStats* stats)
     // translations by up to half their period (a whole quad), and it made
     // half of the flipped triangles of the final map on the corpus.
     //
-    // A pass takes the closest 1 / roundingBatches of all integers, so the
+    // A pass takes everything already within nearlyIntegral of a lattice
+    // point, which rounding barely moves, plus the closest 1 / roundingBatches
+    // of the integers that were not, counted at the first pass.  So the
     // rounding takes about roundingBatches refactorisations whatever the
-    // island size, plus everything already within nearlyIntegral of a
-    // lattice point, which rounding barely moves.  Ties are broken by index,
-    // so the result does not depend on anything but the input.
+    // island size.  Counting the nearly integral ones in the batch size made
+    // the passes coarse where many integers start on the lattice (40 % of
+    // them on the plane at 2000 quads, which then took 6 passes, not 10).
+    // Ties are broken by index, so the result does not depend on anything
+    // but the input.
     std::vector<std::pair<double, size_t>> candidates;
-    size_t integers = 0;
     for (size_t i = 0; i < m_kernelSize; ++i) {
-        if (m_period[i] <= 0)
-            continue;
-        ++integers;
-        if (m_fixed[i])
+        if (m_period[i] <= 0 || m_fixed[i])
             continue;
         const double x = m_values[i] / m_period[i];
         candidates.push_back({ std::fabs(x - std::round(x)), i });
@@ -479,9 +479,14 @@ void MixedIntegerLeastSquares::fixNextBatch(IterationStats* stats)
     if (candidates.empty())
         return;
     std::sort(candidates.begin(), candidates.end());
-    const size_t batch = std::max<size_t>(1, (integers + roundingBatches - 1) / roundingBatches);
+    size_t nearly = 0;
+    while (nearly < candidates.size() && candidates[nearly].first <= nearlyIntegral)
+        ++nearly;
+    if (0 == m_roundingBatch)
+        m_roundingBatch = std::max<size_t>(1, (candidates.size() - nearly + roundingBatches - 1) / roundingBatches);
+    const size_t batch = nearly + m_roundingBatch;
     for (size_t k = 0; k < candidates.size(); ++k) {
-        if (k >= batch && candidates[k].first > nearlyIntegral)
+        if (k >= batch)
             break;
         const size_t i = candidates[k].second;
         m_fixed[i] = true;

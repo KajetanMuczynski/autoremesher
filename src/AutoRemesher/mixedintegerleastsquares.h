@@ -189,6 +189,8 @@ private:
     std::vector<size_t> m_energyIndices;
     IterationStats m_lastIterationStats;
     size_t m_iterationCount = 0;
+    // Integers fixed per rounding pass besides the nearly integral ones.
+    size_t m_roundingBatch = 0;
     size_t m_droppedConstraintCount = 0;
 };
 }
