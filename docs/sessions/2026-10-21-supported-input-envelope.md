@@ -12,6 +12,6 @@
 - Handles (§3.1), reconciled with the seam-lattice thread: by continuous meridian holonomy H,
   H < 2 permanent limit, 2 ≤ H < 3 known limit owned by 7.2 (ℤ² alone regressed, not adopted), H ≥ 3 bug.
 - Measured: nothing new; numbers come from the genus, sculpt, untangling and nonquads notes.
-- Decided (Kajetan, 10:00): warn and run; handle bands; eyeball caps inside + runtime warning follow-up (§3.2); 2 h₀ provisional; row 15 open.
+- Decided (Kajetan, 10:00): warn and run; handle bands; eyeball caps inside + runtime warning follow-up (§3.2); 2 h₀ provisional; row 15 ratchet only.
 - Next: E1 after TODO 1.14; link ENVELOPE from TARGETS after the TARGETS V1
   PR merges.

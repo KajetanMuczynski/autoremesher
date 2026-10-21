@@ -4,8 +4,8 @@ Which inputs and settings the remesher is expected to handle. **Inside the envel
 [TARGETS.md](TARGETS.md) applies as written, and a failure is a bug. Outside it a failure is reported as
 an *expected limit*:** it is still counted and ratcheted, but it does not fail a gate. Written
 2026-10-21 (thread "Supported-input envelope for the remesher") for Kajetan's "strict, but not stupidly
-strict". **Status: decided in part** by Kajetan on 2026-10-21 (§6): warn and run, the handle bands, eyeball
-caps inside the envelope, and the 2 h₀ radius (provisional). Non-default settings (row 15) are still open.
+strict". **Status: decided** by Kajetan on 2026-10-21 (§6): warn and run, the handle bands, eyeball caps inside
+the envelope, the 2 h₀ radius (provisional), and ratchet only for non-default settings.
 The [I] thresholds stay provisional until their experiments (§4) run.
 
 Tags as in [README.md](README.md): **[M]** measured, **[C]** checked in code, **[I]** inferred. Every [I]
@@ -167,7 +167,7 @@ Before each tag: re-run every row's test mesh and canary. A canary that fails is
 release. An outside mesh that now passes tightens its row. The envelope is re-signed with the release
 version at the top of this file.
 
-## 6. Decisions (Kajetan, 2026-10-21) and what is open
+## 6. Decisions (Kajetan, 2026-10-21)
 
 1. **Outside the envelope: warn and run.** *Decided.* The panel shows the *pre* warnings and runs anyway.
    Only the memory ceiling refuses, as it already does.
@@ -177,5 +177,5 @@ version at the top of this file.
 3. **Eyeball caps (row 6):** *decided: inside the envelope, a bug.* Kajetan added that the user should get
    a specific warning when it happens. The design is in §3.2, as a follow-up.
 4. **Locality radius 2 h₀ (§5.3):** *accepted as provisional.* E2 measures it.
-5. **Non-default settings (row 15):** *open.* The question is whether a run at non-default settings must
-   meet the 1.0 bar or only the ratchet (defined in row 15).
+5. **Non-default settings (row 15):** *decided: ratchet only.* Runs at non-default settings must not get
+   worse from one release to the next, but the 1.0 bar applies only at the defaults.
