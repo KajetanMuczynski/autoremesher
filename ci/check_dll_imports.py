@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 AutoRemesher fork contributors
+# Copyright (C) 2026 Quadami contributors
 """List the DLLs a Windows executable imports; fail on runtime or TBB DLLs.
 
     python ci/check_dll_imports.py autoremesher-cli.exe     (needs: pip install pefile)

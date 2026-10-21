@@ -32,7 +32,7 @@ jobs:
   # wait in the queue for many minutes), so a pull request that changes only
   # documentation skips it; everything else runs it. Fail-closed: documentation is
   # docs/ and the Markdown files at the top level or directly in addon/, nothing else
-  # (Markdown in thirdparty/ or addon/autoremesher_blender/ can end up in the zip).
+  # (Markdown in thirdparty/ or addon/quadami/ can end up in the zip).
   # Pushes, tags and manual runs always run the macOS job.
   changes:
     name: changes

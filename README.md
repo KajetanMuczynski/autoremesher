@@ -1,6 +1,6 @@
-# AutoRemesher (fork)
+# Quadami
 
-AutoRemesher is a cross-platform automatic quad remeshing tool that converts high-polygon meshes into clean quad-based topology.
+Quadami is an automatic quad remesher for Blender: it converts high-polygon meshes into clean quad-based topology. The Blender add-on is in [`addon/`](addon/README.md); it runs the Qt-free remeshing core as a separate program (`autoremesher-cli`).
 
 This repository is a fork of [AutoRemesher](https://github.com/huxingyi/autoremesher) by Jeremy Hu (huxingyi). The fork works on remeshing quality, speed and Blender integration, and is a work in progress. The original project and its releases live at [huxingyi/autoremesher](https://github.com/huxingyi/autoremesher).
 
@@ -10,7 +10,7 @@ It is built on [Eigen](https://eigen.tuxfamily.org/), [TBB](https://github.com/o
 
 ## Getting Started
 
-These instructions will get you a copy of **AutoRemesher** up and running on your local machine for development.
+These instructions build the original AutoRemesher Qt app (still built and tested here, not shipped) and get it running on your local machine for development.
 
 ### Prerequisites
 
@@ -31,8 +31,8 @@ sudo apt install build-essential qt5-qmake qtbase5-dev qttools5-dev-tools libqt5
 sudo apt install libtbb-dev libgl1-mesa-dev
 
 # Clone and build
-git clone https://github.com/KajetanMuczynski/autoremesher.git
-cd autoremesher
+git clone https://github.com/KajetanMuczynski/quadami.git
+cd quadami
 qmake
 make -j$(nproc)
 ```
@@ -84,7 +84,7 @@ pacman -S --needed \
 3. Build from the same shell:
 
 ```bash
-cd /c/path/to/autoremesher
+cd /c/path/to/quadami
 qmake
 make -j$(nproc)
 ```
@@ -102,8 +102,8 @@ brew install qt@5 tbb cmake
 
 # Build
 export PATH="/usr/local/opt/qt@5/bin:$PATH"
-git clone https://github.com/KajetanMuczynski/autoremesher.git
-cd autoremesher
+git clone https://github.com/KajetanMuczynski/quadami.git
+cd quadami
 qmake CONFIG+=sdk_no_version_check
 make -j$(sysctl -n hw.logicalcpu)
 ```
