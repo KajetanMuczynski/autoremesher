@@ -23,6 +23,9 @@
 #include <AutoRemesher/PositionKey>
 #include <AutoRemesher/QuadExtractor>
 #include <AutoRemesher/SurfaceProjector>
+#if AUTOREMESHER_QEX
+#include "qexextraction.h"
+#endif
 #include <algorithm>
 #include <axisalignedboundingbox.h>
 #include <axisalignedboundingboxtree.h>
@@ -57,6 +60,30 @@ bool QuadExtractor::extract()
             m_progressHandler(fraction, name);
     };
 
+#if AUTOREMESHER_QEX
+    // TODO 6.1 experiment: QEx's faces replace the traced graph; the repair
+    // (and with AUTOREMESHER_QEX 1 the cleanup) below runs on them as usual.
+    // An island OpenMesh or QEx can't take falls back to the tracing.
+    bool extractedWithQex = false;
+    {
+        std::string why;
+        extractedWithQex = extractWithQex(*m_vertices, *m_triangles, *m_triangleUvs,
+            &m_remeshedVertices, &m_remeshedPolygons, &why);
+        if (extractedWithQex) {
+            size_t nonQuads = 0;
+            for (const auto& face : m_remeshedPolygons)
+                nonQuads += face.size() != 4;
+            std::cerr << "QEx: extracted " << m_remeshedPolygons.size() << " faces, "
+                      << nonQuads << " not quads" << std::endl;
+        } else {
+            std::cerr << "QEx: fallback to own extraction: " << why << std::endl;
+        }
+    }
+    // The tracing below keeps its indentation while the experiment lasts
+    // (6.1b replaces the switch).
+    // clang-format off
+    if (!extractedWithQex) {
+#endif
     report(0.0f, "Extracting connections");
     std::cerr << "Extract connections..." << std::endl;
     std::vector<Vector3> crossPoints;
@@ -161,6 +188,14 @@ bool QuadExtractor::extract()
     std::cerr << "Extract mesh..." << std::endl;
     extractMesh(crossPoints, crossPointSourceTriangles, edgeConnectMap, &m_remeshedPolygons);
     std::cerr << "Extract mesh done" << std::endl;
+#if AUTOREMESHER_QEX
+    } else {
+        m_extractedConnections.clear();
+        m_extractedConnectionMoved.clear();
+        rebuildHalfEdges();
+    }
+    // clang-format on
+#endif
 
     report(0.29f, "Fixing holes");
     fixHoles();
@@ -217,10 +252,22 @@ bool QuadExtractor::extract()
         }
     }
 
+#if AUTOREMESHER_QEX == 2
+    if (extractedWithQex) {
+        report(1.0f, "");
+        return true;
+    }
+#endif
     report(0.31f, "Smoothing and projecting");
     std::cerr << "Smooth and project..." << std::endl;
     smoothAndProject(5);
     std::cerr << "Smooth and project done" << std::endl;
+#if AUTOREMESHER_QEX == 3
+    if (extractedWithQex) {
+        report(1.0f, "");
+        return true;
+    }
+#endif
 
     report(0.44f, "Splitting seven edge faces");
     splitSevenEdgeFaces();

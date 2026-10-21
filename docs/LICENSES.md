@@ -104,8 +104,8 @@ Re-implementing a method from its paper does not copy code, so the source reposi
 
 | Code | License | Status | Flag | Source |
 |---|---|---|---|---|
-| libQEx | GPL-3.0-**or-later** (file headers `src/MeshExtractorT.hh`, `interfaces/c/qex.h` and README checked 2026-10-14; commercial on request) | [P] | OK-GPL3 | extr §2.1; consolidation thread |
-| OpenMesh (libQEx dependency) | BSD-3 | [E] | OK-MIT | extr §2.1 |
+| libQEx | GPL-3.0-**or-later** (file headers `src/MeshExtractorT.hh`, `interfaces/c/qex.h` and README checked 2026-10-14; re-checked 2026-10-21 at `517dcaa` (2026-05-27): every source header, `CMakeLists.txt` and README say "version 3 … or (at your option) any later version"; `LICENSE`/`COPYING` are the GPL-3.0 text; commercial on request). Its `src/predicates.c` is Shewchuk's (public domain) | [P] | OK-GPL3 | extr §2.1; consolidation thread; TODO 6.1 A/B (research/qex-ab-2026-10-21.md) |
+| OpenMesh (libQEx dependency) | BSD-3-Clause (`OpenMesh/LICENSE` of OpenMesh 9.1.0, inside the PyPI `openmesh` 1.2.1 sdist, SHA-256 `6fd3fa41…af3c`, checked 2026-10-21) | [P] | OK-MIT | extr §2.1 |
 | Ray 2025 messy-map extraction | no code released | – | re-implement | extr §2.2 |
 | Shewchuk adaptive predicates | public domain | [E] | OK-MIT | perf §8.3 |
 | Geogram (PCK predicates, mesh_repair) | BSD-3 | [P] | OK-MIT | perf §8.1, §8.3 |
