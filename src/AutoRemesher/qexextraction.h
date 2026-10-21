@@ -68,6 +68,14 @@ bool extractWithQex(const std::vector<Vector3>& vertices,
     std::vector<std::vector<size_t>>* outPolygons,
     QexOutcome* outcome);
 
+// Twice the number of handles of a polygon surface, 2C - chi - B over its C
+// components with B boundary loops; cutting or filling a hole leaves it as it
+// is. Each fan of faces around a vertex counts as its own vertex, and each
+// sheet of an edge more than two faces use as its own boundary edge, so a
+// pinch or a fold touching along an edge splits the surface rather than adding
+// a handle.
+long long twiceHandleCount(size_t vertexCount, const std::vector<std::vector<size_t>>& faces);
+
 }
 
 #endif

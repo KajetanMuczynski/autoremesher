@@ -50,6 +50,39 @@ namespace AutoRemesher {
 
 bool QuadExtractor::extract()
 {
+    // libQEx extracts the faces (TODO 6.1b); an island it can't take, or one
+    // where it hits a guard, falls back to tracing the graph ourselves. The
+    // repair and cleanup below run on either.
+    m_qexOutcome = QexOutcome();
+    const bool usedQex = m_useQex && extractWithQexFrontEnd();
+    if (!usedQex)
+        traceMesh();
+    finishMesh();
+
+    // Across a fold libQEx can join two sheets into a handle that tracing the
+    // same map does not make (suzanne_sub2 Quality 5000, 6 of 6 replicates on
+    // master b4995a6); the raw QEx output is too torn to judge, so the island
+    // is checked after the repair and traced again if it gained a handle.
+    if (usedQex) {
+        const long long handlesIn = twiceHandleCount(m_vertices->size(), *m_triangles);
+        const long long handlesOut = twiceHandleCount(m_remeshedVertices.size(), m_remeshedPolygons);
+        if (handlesOut > handlesIn) {
+            m_qexOutcome.used = false;
+            m_qexOutcome.reason = "QEx output has more handles (2g " + std::to_string(handlesIn) + " -> "
+                + std::to_string(handlesOut) + ")";
+            std::cerr << "QEx: falling back to own extraction: " << m_qexOutcome.reason << std::endl;
+            m_remeshedVertices.clear();
+            m_remeshedPolygons.clear();
+            m_halfEdges.clear();
+            traceMesh();
+            finishMesh();
+        }
+    }
+    return true;
+}
+
+void QuadExtractor::finishMesh()
+{
     // The fractions are the measured share of extraction each step costs.  The
     // topology cleanup passes at the end are over half of it, so they report
     // individually instead of as one long silent block.
@@ -57,13 +90,6 @@ bool QuadExtractor::extract()
         if (m_progressHandler)
             m_progressHandler(fraction, name);
     };
-
-    // libQEx extracts the faces (TODO 6.1b); an island it can't take, or one
-    // where it hits a guard, falls back to tracing the graph ourselves. The
-    // repair and cleanup below run on either.
-    m_qexOutcome = QexOutcome();
-    if (!m_useQex || !extractWithQexFrontEnd())
-        traceMesh();
 
     report(0.29f, "Fixing holes");
     fixHoles();
@@ -178,8 +204,6 @@ bool QuadExtractor::extract()
         fclose(fp);
     }
 #endif
-
-    return true;
 }
 
 bool QuadExtractor::extractWithQexFrontEnd()

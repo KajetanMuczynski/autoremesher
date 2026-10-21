@@ -58,50 +58,6 @@ namespace {
         *polygons = std::move(kept);
         return dropped;
     }
-
-    // Twice the number of handles of a surface, 2C - chi - B summed over its C
-    // components with B boundary loops; a hole cut or filled leaves it as it is.
-    // Loops are counted as components of the boundary-edge graph.
-    template <class Faces>
-    long long twiceHandleCount(size_t vertexCount, const Faces& faces)
-    {
-        std::vector<size_t> surface(vertexCount), boundary(vertexCount);
-        for (size_t v = 0; v < vertexCount; ++v)
-            surface[v] = boundary[v] = v;
-        const auto find = [](std::vector<size_t>& parent, size_t v) {
-            while (parent[v] != v)
-                v = parent[v] = parent[parent[v]];
-            return v;
-        };
-        std::map<std::pair<size_t, size_t>, size_t> edges;
-        std::vector<char> used(vertexCount, 0);
-        for (const auto& face : faces) {
-            for (size_t i = 0; i < face.size(); ++i) {
-                const size_t a = face[i], b = face[(i + 1) % face.size()];
-                used[a] = 1;
-                surface[find(surface, a)] = find(surface, b);
-                ++edges[std::make_pair(std::min(a, b), std::max(a, b))];
-            }
-        }
-        std::vector<char> onBoundary(vertexCount, 0);
-        for (const auto& edge : edges) {
-            if (1 != edge.second)
-                continue;
-            onBoundary[edge.first.first] = onBoundary[edge.first.second] = 1;
-            boundary[find(boundary, edge.first.first)] = find(boundary, edge.first.second);
-        }
-        long long components = 0, loops = 0, vertices = 0;
-        for (size_t v = 0; v < vertexCount; ++v) {
-            if (!used[v])
-                continue;
-            ++vertices;
-            components += find(surface, v) == v;
-            loops += onBoundary[v] && find(boundary, v) == v;
-        }
-        const long long euler = vertices - (long long)edges.size() + (long long)faces.size();
-        return 2 * components - euler - loops;
-    }
-
 }
 
 bool extractWithQex(const std::vector<Vector3>& vertices,
@@ -177,20 +133,81 @@ bool extractWithQex(const std::vector<Vector3>& vertices,
         outcome->reason = "QEx returned no faces";
         return false;
     }
-    // libQEx keeps the map's topology only where the map is valid; across a
-    // fold it can join two sheets into a handle that our tracer, on the same
-    // map, does not make (suzanne_sub2 Quality 5000: 6 of 6 replicates).
-    const long long handlesIn = twiceHandleCount(vertices.size(), triangles);
-    const long long handlesOut = twiceHandleCount(outVertices->size(), *outPolygons);
-    if (handlesOut > handlesIn) {
-        outcome->reason = "QEx added a handle (2g " + std::to_string(handlesIn) + " -> "
-            + std::to_string(handlesOut) + ")";
-        return false;
-    }
     outcome->faces = outPolygons->size();
     for (const auto& face : *outPolygons)
         outcome->nonQuads += face.size() != 4;
     return true;
+}
+
+long long twiceHandleCount(size_t vertexCount, const std::vector<std::vector<size_t>>& faces)
+{
+    // Corners (face, position) around a vertex are one fan when their faces
+    // share an edge at it that exactly two faces use; each fan counts as its
+    // own vertex, so a pinch or a non-manifold edge splits the surface instead
+    // of adding a handle.
+    std::vector<size_t> cornerBase(faces.size() + 1, 0);
+    for (size_t f = 0; f < faces.size(); ++f)
+        cornerBase[f + 1] = cornerBase[f] + faces[f].size();
+    std::vector<size_t> fan(cornerBase.back());
+    for (size_t c = 0; c < fan.size(); ++c)
+        fan[c] = c;
+    const auto find = [](std::vector<size_t>& parent, size_t x) {
+        while (parent[x] != x)
+            x = parent[x] = parent[parent[x]];
+        return x;
+    };
+    const auto unite = [&find](std::vector<size_t>& parent, size_t a, size_t b) { parent[find(parent, a)] = find(parent, b); };
+    // Undirected edge -> the corners at its two ends, per face using it.
+    std::map<std::pair<size_t, size_t>, std::vector<std::pair<size_t, size_t>>> edges;
+    for (size_t f = 0; f < faces.size(); ++f) {
+        const auto& face = faces[f];
+        for (size_t i = 0; i < face.size(); ++i) {
+            const size_t j = (i + 1) % face.size();
+            const size_t a = face[i], b = face[j];
+            if (a >= vertexCount || b >= vertexCount || a == b)
+                continue;
+            const size_t ca = cornerBase[f] + i, cb = cornerBase[f] + j;
+            edges[std::make_pair(std::min(a, b), std::max(a, b))].push_back(a < b ? std::make_pair(ca, cb) : std::make_pair(cb, ca));
+        }
+    }
+    for (const auto& edge : edges) {
+        if (2 != edge.second.size())
+            continue;
+        unite(fan, edge.second[0].first, edge.second[1].first);
+        unite(fan, edge.second[0].second, edge.second[1].second);
+    }
+    // Faces join their fans into components; boundary edges (one face, or a
+    // sheet of a non-manifold edge) join them into boundary loops.
+    std::vector<size_t> component(fan.size()), loop(fan.size());
+    for (size_t c = 0; c < fan.size(); ++c)
+        component[c] = loop[c] = c;
+    for (size_t f = 0; f < faces.size(); ++f) {
+        for (size_t c = cornerBase[f] + 1; c < cornerBase[f + 1]; ++c)
+            unite(component, find(fan, c), find(fan, cornerBase[f]));
+    }
+    long long edgeCount = 0;
+    std::vector<char> onBoundary(fan.size(), 0);
+    for (const auto& edge : edges) {
+        const bool boundary = 2 != edge.second.size();
+        edgeCount += boundary ? (long long)edge.second.size() : 1;
+        if (!boundary)
+            continue;
+        for (const auto& ends : edge.second) {
+            const size_t a = find(fan, ends.first), b = find(fan, ends.second);
+            onBoundary[a] = onBoundary[b] = 1;
+            unite(loop, a, b);
+        }
+    }
+    long long fans = 0, components = 0, loops = 0;
+    for (size_t c = 0; c < fan.size(); ++c) {
+        if (find(fan, c) != c)
+            continue;
+        ++fans;
+        components += find(component, c) == c;
+        loops += onBoundary[c] && find(loop, c) == c;
+    }
+    const long long euler = fans - edgeCount + (long long)faces.size();
+    return 2 * components - euler - loops;
 }
 
 }

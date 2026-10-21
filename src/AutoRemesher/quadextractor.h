@@ -169,6 +169,8 @@ private:
 
     bool extractWithQexFrontEnd();
     void traceMesh();
+    // Hole filling, repair and the cleanup passes, after either extractor.
+    void finishMesh();
     void extractConnections(std::vector<Vector3>* crossPoints,
         std::vector<size_t>* sourceTriangles,
         std::set<std::pair<size_t, size_t>>* connections);
