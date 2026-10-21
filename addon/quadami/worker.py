@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 AutoRemesher fork contributors
+# Copyright (C) 2026 Quadami contributors
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -246,7 +246,7 @@ class RemeshJob:
         unknown = set(self.parameters) - set(PARAMETER_FLAGS)
         if unknown:
             raise ValueError("unknown parameters: " + ", ".join(sorted(unknown)))
-        self._workdir = tempfile.mkdtemp(prefix="autoremesher-")
+        self._workdir = tempfile.mkdtemp(prefix="quadami-")
         write_obj(self._path("input.obj"), self.positions, self.triangles)
         args = [self.executable,
                 "-i", self._path("input.obj"),

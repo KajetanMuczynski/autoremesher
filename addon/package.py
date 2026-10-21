@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 AutoRemesher fork contributors
+# Copyright (C) 2026 Quadami contributors
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -46,7 +46,7 @@ import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
-PACKAGE = os.path.join(HERE, "autoremesher_blender")
+PACKAGE = os.path.join(HERE, "quadami")
 PLATFORMS = ("windows-x64", "windows-arm64", "linux-x64", "macos-x64", "macos-arm64")
 CLI_NAME = "autoremesher-cli"
 
