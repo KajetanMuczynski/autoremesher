@@ -16,6 +16,9 @@
  * 
  * You should have received a copy of the GNU General Public License
  * along with QEx.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ * Modified by the Quadami fork, 2026-10-21 (TODO 6.1b): extractQuadMeshOMLimited.
+ * See thirdparty/libQEx/PATCHES.md.
  */
 
 /// @file
@@ -80,6 +83,7 @@ typedef const std::vector<OpenMesh::Vec2d> *const_UVVector_t;
  * @param out_quadMesh The result will be output into the supplied quad mesh.
  */
 DLLEXPORT void extractQuadMeshOM(TriMesh_t in_triMesh, const_UVVector_t in_uvs, const_ValenceVector_t in_vertexValences, QuadMesh_t out_quadMesh);
+
 
 } /* namespace QEx */
 
@@ -159,6 +163,14 @@ DLLEXPORT void qex_extractQuadMesh(qex_TriMesh const * in_triMesh, qex_Valence *
 namespace QEx {
 
 typedef OpenMesh::VectorT<signed int,2> Vec2i;
+
+/// Quadami fork: as extractQuadMeshOM, with a tracing step budget and a cap
+/// on grid vertices (0 = none). Throws QEx::Abort (a std::runtime_error) when
+/// a limit is hit or the connectivity it builds would make OpenMesh loop.
+/// Returns the tracing steps used. C++ linkage, so the exception may pass
+/// (MSVC /EHsc assumes extern "C" functions don't throw).
+unsigned long extractQuadMeshOMLimited(TriMesh_t in_triMesh, const_UVVector_t in_uvs, const_ValenceVector_t in_vertexValences, QuadMesh_t out_quadMesh, unsigned long max_steps, unsigned long max_grid_vertices);
+
 
 /**
  * @brief Contains convenient declaration of property managers.

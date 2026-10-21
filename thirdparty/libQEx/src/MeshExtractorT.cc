@@ -17,6 +17,9 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with QEx.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ * Modified by the Quadami fork, 2026-10-21 (TODO 6.1b): connectivity checks, step budget and grid-vertex cap (Guards.hh); getNextConnectedLeiWithHE returns null instead of an edge without a halfedge; faces of more than 4 boundary grid vertices (boundary caps) are not added; no log output.
+ * See thirdparty/libQEx/PATCHES.md.
  */
 
 #define QEX_QUADMESHEXTRACTORT_C
@@ -105,7 +108,7 @@ void MeshExtractorT<TMeshT>::extract(std::vector<double>& _uv_coords,
 
 
 #ifndef NDEBUG
-    std::cout << "\x1b[1;32m"
+    QEX_LOG << "\x1b[1;32m"
             << (_external_valences ? "Using" : "Not using")
             << " externally supplied vertex valences.\x1b[0m" << std::endl;
 #endif
@@ -215,7 +218,7 @@ perturbate_degenerate_faces(std::vector<double>& _uv_coords) {
          */
         if (tri.orientation() != ORI_ZERO) continue;
 #ifndef NDEBUG
-        std::cout << "Perturbating face " << f_it->idx() << std::endl;
+        QEX_LOG << "Perturbating face " << f_it->idx() << std::endl;
 #endif
 
         if (uvs[0] == uvs[1] && uvs[1] == uvs[2]) {
@@ -297,26 +300,26 @@ void MeshExtractorT<TMeshT>::extract_transition_functions(const std::vector<doub
 
             tf_[e_it->idx()].transform_point(l0d);
             if (std::norm(l0d - r0) > 1e-6)
-                std::cerr << "ERROR in transition function: " << std::norm(l0d - r0) << std::endl;
+                QEX_LOG << "ERROR in transition function: " << std::norm(l0d - r0) << std::endl;
             else
                 ++n_valid;
             tf_[e_it->idx()].transform_point(l1d);
             if (std::norm(l1d - r1) > 1e-6)
-                std::cerr << "ERROR in transition function: " << std::norm(l1d - r1) << std::endl;
+                QEX_LOG << "ERROR in transition function: " << std::norm(l1d - r1) << std::endl;
             else
                 ++n_valid;
             // check inverse transition functions
             tf_[e_it->idx()].inverse().transform_point(r0d);
             if (std::norm(l0 - r0d) > 1e-6)
-                std::cerr << "ERROR in inverse transition function: " << std::norm(l0 - r0d) << std::endl;
+                QEX_LOG << "ERROR in inverse transition function: " << std::norm(l0 - r0d) << std::endl;
             tf_[e_it->idx()].inverse().transform_point(r1d);
             if (std::norm(l1 - r1d) > 1e-6)
-                std::cerr << "ERROR in inverse transition function: " << std::norm(l1 - r1d) << std::endl;
+                QEX_LOG << "ERROR in inverse transition function: " << std::norm(l1 - r1d) << std::endl;
 #endif
         }
 
 #if !defined(NDEBUG) && DEBUG_VERBOSITY >= 2
-    std::cerr << "constructed " << n_valid/2 << " valid transition functions -> " << tri_mesh_.n_edges() - n_valid/2 << " invalid ones" << std::endl;
+    QEX_LOG << "constructed " << n_valid/2 << " valid transition functions -> " << tri_mesh_.n_edges() - n_valid/2 << " invalid ones" << std::endl;
 #endif
 }
 
@@ -333,7 +336,7 @@ void MeshExtractorT<TMeshT>::consistent_truncation(
     // debug check
     {
         // for all edges
-        std::cerr << "test exactness of transition functions before preprocessing..." << std::endl;
+        QEX_LOG << "test exactness of transition functions before preprocessing..." << std::endl;
         int n_inexact(0);
         double max_abs_diff(0);
         for (EIter e_it = tri_mesh_.edges_sbegin(), e_end = tri_mesh_.edges_end(); e_it != e_end; ++e_it) {
@@ -359,8 +362,8 @@ void MeshExtractorT<TMeshT>::consistent_truncation(
                 }
             }
         }
-        std::cerr << "... done!" << std::endl;
-        std::cerr << "found " << n_inexact << " inexact transitions in input with max deviation "
+        QEX_LOG << "... done!" << std::endl;
+        QEX_LOG << "found " << n_inexact << " inexact transitions in input with max deviation "
                 << max_abs_diff << std::endl;
     }
 #endif
@@ -443,7 +446,7 @@ void MeshExtractorT<TMeshT>::consistent_truncation(
                     break;
                 default:
                     if (vtrans.r != 0 || abs(vtrans.tu) + abs(vtrans.tv) > 1)
-                        std::cerr
+                        QEX_LOG
                                 << "ERROR: non-identity transition function cannot have a different rotation than 1,2,3: "
                                 << vtrans.r << ", " << vtrans.tu << ", "
                                 << vtrans.tv << std::endl;
@@ -470,7 +473,7 @@ void MeshExtractorT<TMeshT>::consistent_truncation(
         }
 
         if (n_boundaries > 1)
-            std::cerr << "ERROR in Mesh Extraction: input triangle mesh has non-manifold vertex"
+            QEX_LOG << "ERROR in Mesh Extraction: input triangle mesh has non-manifold vertex"
                 << " which is adjacent to more than one boundary!" << std::endl;
     }
 
@@ -479,10 +482,10 @@ void MeshExtractorT<TMeshT>::consistent_truncation(
         double max_abs_diff(0);
         for (unsigned int i = 0; i < _uv_coords.size(); ++i)
             max_abs_diff = std::max(max_abs_diff, fabs(_uv_coords[i] - uv_bak[i]));
-        std::cerr << "QuadMeshExtraction Preprocess maxmial uv deviaton: " << max_abs_diff << std::endl;
+        QEX_LOG << "QuadMeshExtraction Preprocess maxmial uv deviaton: " << max_abs_diff << std::endl;
 
         // for all edges
-        std::cerr << "test exactness of transition functions..." << std::endl;
+        QEX_LOG << "test exactness of transition functions..." << std::endl;
         for (EIter e_it = tri_mesh_.edges_sbegin(), e_end = tri_mesh_.edges_end(); e_it != e_end; ++e_it)
             if (!tri_mesh_.is_boundary(*e_it)) {
                 HEH heh0 = tri_mesh_.halfedge_handle(*e_it, 0);
@@ -500,11 +503,11 @@ void MeshExtractorT<TMeshT>::consistent_truncation(
                 tf_[e_it->idx()].transform_point(l1);
 
                 if (l0 != r0 || l1 != r1) {
-                    std::cerr << "ERROR: values are not identical after preprocessing, diffs are "
+                    QEX_LOG << "ERROR: values are not identical after preprocessing, diffs are "
                             << l0 - r0 << " and " << l1 - r1 << std::endl;
                 }
             }
-        std::cerr << "... done!" << std::endl;
+        QEX_LOG << "... done!" << std::endl;
     }
 #endif
 }
@@ -561,7 +564,7 @@ std::string MeshExtractorT<TMeshT>::getParametrizationStats(std::vector<double>&
             << "  # needles: " << faces_needle << std::endl
             << "  # caps: " << faces_cap << std::endl
             << "  # points: " << faces_degen_point << std::endl;
-    std::cout << stats.str();
+    QEX_LOG << stats.str();
 
     return stats.str();
 }
@@ -654,7 +657,7 @@ void MeshExtractorT<TMeshT>::generate_vertices(
                 for (int y = y_min; y <= y_max; ++y) {
                     if (tri.has_on_bounded_side(Point_2(x, y))) {
 #if !defined(NDEBUG) && DEBUG_VERBOSITY >= 3
-                        std::cout << "(" << x << ", " << y << ") falls into " << tri << std::endl;
+                        QEX_LOG << "(" << x << ", " << y << ") falls into " << tri << std::endl;
 #endif
                         // point should be strictly inside the triangle
                         assert(!tri.has_on_boundary(Point_2(x, y)));
@@ -665,6 +668,7 @@ void MeshExtractorT<TMeshT>::generate_vertices(
                         face_gvertices_[fh.idx()].push_back(gvertices_.size());
                         // store new GridVertex
                         gvertices_.push_back(GridVertex(GridVertex::OnFace, heh0, Point_2(x, y), p3d, false));
+                        check_grid_vertex_count();
                         // construct local edge information
                         construct_local_edge_information_face(gvertices_.back(), _uv_coords);
                         ++n_face_gvertices;
@@ -690,7 +694,7 @@ void MeshExtractorT<TMeshT>::generate_vertices(
         const EH eh = *e_it;
         // get corresponding face
         if (!(edge_to_halfedge_[eh.idx()].is_valid())) {
-            std::cerr << "Warning: edge does not have a valid halfedge... " << eh.idx() << " - "
+            QEX_LOG << "Warning: edge does not have a valid halfedge... " << eh.idx() << " - "
                     << edge_to_halfedge_[eh.idx()].idx() << std::endl;
             continue;
         }
@@ -715,7 +719,7 @@ void MeshExtractorT<TMeshT>::generate_vertices(
             const Point pp1 = embedding(heh1);
 
 #if !defined(NDEBUG) && DEBUG_VERBOSITY >= 3
-            std::cout << "Checking edge (" << pp0 << ", " << pp1 << ")" << std::endl;
+            QEX_LOG << "Checking edge (" << pp0 << ", " << pp1 << ")" << std::endl;
 #endif
 
             const Matrix_3 M = get_mapping(seg, pp0, pp1);
@@ -745,12 +749,12 @@ void MeshExtractorT<TMeshT>::generate_vertices(
                     // valid?
                     if (y >= y_min && y <= y_max) {
 #if !defined(NDEBUG) && DEBUG_VERBOSITY >= 3
-                        std::cout << "Does (" << x << ", " << y << ") fall into segment?"
+                        QEX_LOG << "Does (" << x << ", " << y << ") fall into segment?"
                                 << std::endl;
 #endif
                         if (seg.has_on(Point_2(x, y))) {
 #if !defined(NDEBUG) && DEBUG_VERBOSITY >= 3
-                            std::cout << "Yes it does." << std::endl;
+                            QEX_LOG << "Yes it does." << std::endl;
 #endif
                             Point p3d(0, 0, 0);
                             for (unsigned int i = 0; i < 3; ++i)
@@ -760,13 +764,14 @@ void MeshExtractorT<TMeshT>::generate_vertices(
                             edge_gvertices_[eh.idx()].push_back(gvertices_.size());
                             // store new GridVertex
                             gvertices_.push_back(GridVertex(GridVertex::OnEdge, heh0, Point_2(x, y), p3d, false));
+                            check_grid_vertex_count();
                             // construct local edge information
                             construct_local_edge_information_edge(gvertices_.back(), _uv_coords);
                             ++n_edge_gvertices;
                         }
 #if !defined(NDEBUG) && DEBUG_VERBOSITY >= 3
                         else
-                            std::cout << "No it doesn't." << std::endl;
+                            QEX_LOG << "No it doesn't." << std::endl;
 #endif
                     }
                 }
@@ -795,6 +800,7 @@ void MeshExtractorT<TMeshT>::generate_vertices(
                             // store new GridVertex
                             gvertices_.push_back(
                                     GridVertex(GridVertex::OnEdge, heh0, Point_2(x, y), p3d, false));
+                            check_grid_vertex_count();
                             // construct local edge information
                             construct_local_edge_information_edge(gvertices_.back(), _uv_coords);
                             ++n_edge_gvertices;
@@ -828,7 +834,7 @@ void MeshExtractorT<TMeshT>::generate_vertices(
 
 #if DEBUG
         if(tri_mesh_.to_vertex_handle(heh) != vh)
-        std::cerr << "Warning: halfedge does not point to according vertex!!!" << std::endl;
+        QEX_LOG << "Warning: halfedge does not point to according vertex!!!" << std::endl;
 #endif
 
         // get uv-position of vertex
@@ -842,6 +848,7 @@ void MeshExtractorT<TMeshT>::generate_vertices(
             gvertices_.push_back(
                     GridVertex(GridVertex::OnVertex, heh, p,
                                embedding(tri_mesh_.opposite_halfedge_handle(tri_mesh_.halfedge_handle(vh))), false));
+            check_grid_vertex_count();
             // construct local edge information
             construct_local_edge_information_vertex(gvertices_.back(), _uv_coords, _external_valences);
 
@@ -856,10 +863,10 @@ void MeshExtractorT<TMeshT>::generate_vertices(
 
 #ifndef NDEBUG
     // ############ SUMMARIZE
-    std::cerr << "########### MeshExtractor #############" << std::endl;
-    std::cerr << "#Face  -GridVertices: " << n_face_gvertices << std::endl;
-    std::cerr << "#Edge  -GridVertices: " << n_edge_gvertices << std::endl;
-    std::cerr << "#Vertex-GridVertices: " << n_vertex_gvertices << std::endl;
+    QEX_LOG << "########### MeshExtractor #############" << std::endl;
+    QEX_LOG << "#Face  -GridVertices: " << n_face_gvertices << std::endl;
+    QEX_LOG << "#Edge  -GridVertices: " << n_edge_gvertices << std::endl;
+    QEX_LOG << "#Vertex-GridVertices: " << n_vertex_gvertices << std::endl;
 #endif
 }
 
@@ -1124,7 +1131,7 @@ construct_local_edge_information_vertex(GridVertex& _gv, const std::vector<doubl
 
 #if !defined(NDEBUG) && DEBUG_VERBOSITY >= 2
         if (verbose)
-            std::cerr << "Trying directions for GV (on vertex "
+            QEX_LOG << "Trying directions for GV (on vertex "
                 << tri_mesh_.to_vertex_handle(_gv.heh) << "):" << std::endl
                 << _gv << std::endl
                 << " face " << tri_mesh_.face_handle(heh).idx()
@@ -1141,13 +1148,13 @@ construct_local_edge_information_vertex(GridVertex& _gv, const std::vector<doubl
 
 #if !defined(NDEBUG) && DEBUG_VERBOSITY >= 2
           if (verbose)
-              std::cerr << "  Trying direction " << i << " (" << cartesian_orientations_[i] << ")" << std::endl;
+              QEX_LOG << "  Trying direction " << i << " (" << cartesian_orientations_[i] << ")" << std::endl;
 #endif
           if (is_left_opp_boundary && ori2 == ORI_COLLINEAR && cartesian_orientations_[i].dot(uv2-uv0) > 0) {
 
 #if !defined(NDEBUG) && DEBUG_VERBOSITY >= 2
               if (verbose)
-                  std::cerr << "  Accepted: On left edge and left is boundary." << std::endl;
+                  QEX_LOG << "  Accepted: On left edge and left is boundary." << std::endl;
 #endif
 
               // On left edge and no face to the left
@@ -1156,7 +1163,7 @@ construct_local_edge_information_vertex(GridVertex& _gv, const std::vector<doubl
 
 #if !defined(NDEBUG) && DEBUG_VERBOSITY >= 2
               if (verbose)
-                  std::cerr << "  Accepted: On right edge." << std::endl;
+                  QEX_LOG << "  Accepted: On right edge." << std::endl;
 #endif
 
               // On right edge
@@ -1165,7 +1172,7 @@ construct_local_edge_information_vertex(GridVertex& _gv, const std::vector<doubl
 
 #if !defined(NDEBUG) && DEBUG_VERBOSITY >= 2
               if (verbose)
-                  std::cerr << "  Accepted: Inside face." << std::endl;
+                  QEX_LOG << "  Accepted: Inside face." << std::endl;
 #endif
 
               // Inside triangle
@@ -1174,7 +1181,7 @@ construct_local_edge_information_vertex(GridVertex& _gv, const std::vector<doubl
               middleEl = leis_per_face.size();
 #if !defined(NDEBUG) && DEBUG_VERBOSITY >= 2
               if (verbose)
-                  std::cerr << "  Rejected." << std::endl;
+                  QEX_LOG << "  Rejected." << std::endl;
 #endif
           }
         }
@@ -1184,7 +1191,7 @@ construct_local_edge_information_vertex(GridVertex& _gv, const std::vector<doubl
 
 #if !defined(NDEBUG) && DEBUG_VERBOSITY >= 2
         if (leis_per_face.size() > 2)
-            std::cerr << "leis_per_face.size() == " << leis_per_face.size() << " > 2 which probably happened because inverted areas weren't handled appropriately." << std::endl;
+            QEX_LOG << "leis_per_face.size() == " << leis_per_face.size() << " > 2 which probably happened because inverted areas weren't handled appropriately." << std::endl;
 #endif
 
         /*
@@ -1217,7 +1224,7 @@ construct_local_edge_information_vertex(GridVertex& _gv, const std::vector<doubl
 #ifndef NDEBUG
     if (!_external_valences && !_gv.is_boundary &&
             fabs(ninetyJump - round(ninetyJump)) >= 1e-6) {
-        std::cerr << "\x1b[41mAssertion fabs(periodJump - round(periodJump)) < 1e-6 failed." << std::endl
+        QEX_LOG << "\x1b[41mAssertion fabs(periodJump - round(periodJump)) < 1e-6 failed." << std::endl
                 << "  This is more of a soft assertion since in the vicinity of degenerate" << std::endl
                 << "  or almost degenerate triangles the periodJump computed here can be" << std::endl
                 << "  arbitrarily far off. So before you start worrying, check if there are any" << std::endl
@@ -1227,7 +1234,7 @@ construct_local_edge_information_vertex(GridVertex& _gv, const std::vector<doubl
                 << "  fabs(periodJump - round(periodJump)) = " << fabs(ninetyJump - round(ninetyJump)) << std::endl
                 << "  GV " << std::distance(gvertices_.begin(), std::find_if(gvertices_.begin(), gvertices_.end(), GVPointerEquality<TMeshT>(_gv)))
                 << "\x1b[0m" << std::endl;
-        std::cerr << "Error log:" << std::endl << angleSumErrorLog.str();
+        QEX_LOG << "Error log:" << std::endl << angleSumErrorLog.str();
     }
 #endif
     /*
@@ -1251,14 +1258,14 @@ construct_local_edge_information_vertex(GridVertex& _gv, const std::vector<doubl
         const typename std::vector<GridVertex>::iterator gvit = std::find_if(gvertices_.begin(), gvertices_.end(), GVPointerEquality<TMeshT>(_gv));
         assert(gvit != gvertices_.end());
         const size_t dist = std::distance(gvertices_.begin(), gvit);
-        std::cout << "\x1b[44mGV " << dist
+        QEX_LOG << "\x1b[44mGV " << dist
                 << " (" << _gv.typeAsString() << ") "
                 << " on face " << tri_mesh_.face_handle(_gv.heh).idx() << ": expected_lei_count != _gv.local_edges.size(): "
                 << expected_lei_count << " != " << _gv.local_edges.size() << ", pos_angleSum: " << pos_angleSum << "\x1b[0m" << std::endl;
     }
 
     if (verbose) {
-        std::cout << angleSumErrorLog.str();
+        QEX_LOG << angleSumErrorLog.str();
     }
 #endif
   }
@@ -1339,6 +1346,7 @@ try_connect_incomplete_gvertices() {
             bool edgeCreated = false;
 
             do {
+                spend_step();
 
                 if (!current_outgoing_lei->isConnected()) break;
 
@@ -1443,7 +1451,7 @@ try_connect_incomplete_gvertices() {
 #ifndef NDEBUG
                     edges_created += 1;
                     gvInfo << "  Adding edge to this face." << std::endl;
-                    std::cerr << "Successfully connected previously unconnected GVs " << start_gv_idx << " and " << current_outgoing_lei->connected_to_idx << "." << std::endl;
+                    QEX_LOG << "Successfully connected previously unconnected GVs " << start_gv_idx << " and " << current_outgoing_lei->connected_to_idx << "." << std::endl;
 #endif
                 }
 
@@ -1455,13 +1463,13 @@ try_connect_incomplete_gvertices() {
 #ifndef NDEBUG
                 if (next_gv == &*start_gv_it) {
                     if (next_uv != pivot_uv || accumulated_tf != TF::IDENTITY) {
-                        std::cerr << "In face of GV " << start_gv_idx << " after having created " << edges_created << " edges in total: Assertion next_uv == pivot_uv && accumulated_tf == TF::IDENTITY is going to fail. next_uv = " << next_uv << ", pivot_uv = " << pivot_uv << std::endl
+                        QEX_LOG << "In face of GV " << start_gv_idx << " after having created " << edges_created << " edges in total: Assertion next_uv == pivot_uv && accumulated_tf == TF::IDENTITY is going to fail. next_uv = " << next_uv << ", pivot_uv = " << pivot_uv << std::endl
                                 << "  accumulated_tf: " << accumulated_tf << std::endl
                                 << "Verbose GV processing info:" << std::endl
                                 << gvInfo.str();
 #if !defined(NDEBUG) && DEBUG_VERBOSITY >= 3
                     } else {
-                        std::cerr << "Face of GV " << start_gv_idx << " traversed. UVs and accumulated_tf good." << std::endl;
+                        QEX_LOG << "Face of GV " << start_gv_idx << " traversed. UVs and accumulated_tf good." << std::endl;
 #endif
                     }
                 }
@@ -1486,10 +1494,10 @@ generate_connections(std::vector<double>& _uv_coords)
 {
   for(unsigned int i=0; i<gvertices_.size(); ++i) {
 #if !defined(NDEBUG) && DEBUG_VERBOSITY >= 3
-      std::cout << "GV " << i << " has " << gvertices_[i].local_edges.size() << " local edge(s)." << std::endl;
+      QEX_LOG << "GV " << i << " has " << gvertices_[i].local_edges.size() << " local edge(s)." << std::endl;
 #elif !defined(NDEBUG) && DEBUG_VERBOSITY >= 2
       if (gvertices_[i].verbose)
-          std::cout << "GV " << i << " has " << gvertices_[i].local_edges.size() << " local edge(s)." << std::endl;
+          QEX_LOG << "GV " << i << " has " << gvertices_[i].local_edges.size() << " local edge(s)." << std::endl;
 #endif
     for(unsigned int j=0; j<gvertices_[i].local_edges.size(); ++j)
       // unconnected ?
@@ -1513,16 +1521,16 @@ generate_connections(std::vector<double>& _uv_coords)
           FindPathResult target2 = find_path(gvertices_[target.connected_to_idx], gvertices_[target.connected_to_idx].local_edges[target.orientation_idx], _uv_coords);
           if(target2.connected_to_idx != (int)i || target2.orientation_idx != (int)j)
           {
-            std::cerr << "ERROR: found invalid connection which does not have a reverse..." << std::endl;
-            std::cerr << "vertex " << i << ", " << j << " found vertex " << target.connected_to_idx << ", " << target.orientation_idx << std::endl;
-            std::cerr << "vertex " << target.connected_to_idx << ", " << target.orientation_idx
+            QEX_LOG << "ERROR: found invalid connection which does not have a reverse..." << std::endl;
+            QEX_LOG << "vertex " << i << ", " << j << " found vertex " << target.connected_to_idx << ", " << target.orientation_idx << std::endl;
+            QEX_LOG << "vertex " << target.connected_to_idx << ", " << target.orientation_idx
                     << " found vertex " << target2.connected_to_idx << ", " << target2.orientation_idx << std::endl;
             if( target2.connected_to_idx >= 0)
-              std::cerr << "types are " << gvertices_[i].typeAsString()
+              QEX_LOG << "types are " << gvertices_[i].typeAsString()
                   << ", " << gvertices_[target.connected_to_idx].typeAsString()
                   << ", " << gvertices_[target2.connected_to_idx].typeAsString() << std::endl;
             else
-              std::cerr << "types are " << gvertices_[i].typeAsString()
+              QEX_LOG << "types are " << gvertices_[i].typeAsString()
                   << ", " << gvertices_[target.connected_to_idx].typeAsString() << std::endl;
           }
 #endif
@@ -1557,7 +1565,7 @@ generate_connections(std::vector<double>& _uv_coords)
           } else
           {
               const GridVertex &peer = gvertices_[target.connected_to_idx];
-              std::cerr << "\x1b[41mWarning: When tracing from GV " << i
+              QEX_LOG << "\x1b[41mWarning: When tracing from GV " << i
                       << ", LEI " << j << " I hit GV " << target.connected_to_idx
                       << ", LEI " << target.orientation_idx << "." << std::endl
                       << "  However, this GV is already connected to GV "
@@ -1568,7 +1576,7 @@ generate_connections(std::vector<double>& _uv_coords)
 #ifndef NDEBUG
               static const char *HRULE = "------------------------------------"
                       "--------------------------------------------\n";
-              std::cerr << HRULE << "Additional debug info" << std::endl
+              QEX_LOG << HRULE << "Additional debug info" << std::endl
                       << HRULE
                       << "Grid Vertex " << i << std::endl
                       << gvertices_[i]
@@ -1601,7 +1609,7 @@ void
 MeshExtractorT<TMeshT>::
 check_connections()
 {
-  std::cerr << "############# MeshExtractor check_connections ##############" << std::endl;
+  QEX_LOG << "############# MeshExtractor check_connections ##############" << std::endl;
 
   int n_correctly(0);
   int n_no_connection(0);
@@ -1628,11 +1636,11 @@ check_connections()
         if(gvertices_[lei.connected_to_idx].local_edges[lei.orientation_idx].connected_to_idx != (int)i ||
            gvertices_[lei.connected_to_idx].local_edges[lei.orientation_idx].orientation_idx != (int)j   )
         {
-          std::cerr << "Error: Connection not symmetric! with types "
+          QEX_LOG << "Error: Connection not symmetric! with types "
                     << gvertices_[i].type << ", " << gvertices_[lei.connected_to_idx].type << std::endl;
-          std::cerr << "(" << i << "," << j << ")->("
+          QEX_LOG << "(" << i << "," << j << ")->("
                     << lei.connected_to_idx << "," << lei.orientation_idx << ")" << std::endl;
-          std::cerr << "(" << gvertices_[lei.connected_to_idx].local_edges[lei.orientation_idx].connected_to_idx
+          QEX_LOG << "(" << gvertices_[lei.connected_to_idx].local_edges[lei.orientation_idx].connected_to_idx
                     << ","
                     << gvertices_[lei.connected_to_idx].local_edges[lei.orientation_idx].orientation_idx
                     << ")<-(" << lei.connected_to_idx << "," << lei.orientation_idx << ")"
@@ -1642,7 +1650,7 @@ check_connections()
         else
         // test self-connectedness
         if(gvertices_[i].local_edges[j].connected_to_idx  == (int)i)
-          std::cerr << "Error: Vertex is connected to itself..." << std::endl;
+          QEX_LOG << "Error: Vertex is connected to itself..." << std::endl;
         else
           ++n_correctly;
       }
@@ -1657,22 +1665,22 @@ check_connections()
         {
           ++n_error;
 
-          std::cerr << "Error at GridVertex of Type " << int(gvertices_[i].type) << std::endl;
+          QEX_LOG << "Error at GridVertex of Type " << int(gvertices_[i].type) << std::endl;
         }
 
 //      if(gvertices_[i].type == GridVertex::OnVertex)
 //      {
-//        std::cerr << "GVV connection from " << i << " to " << lei.connected_to.first << std::endl;
+//        QEX_LOG << "GVV connection from " << i << " to " << lei.connected_to.first << std::endl;
 //      }
     }
 
-  std::cerr << "*** Summary of local connections ***" << std::endl;
-  std::cerr << "#correctly connected: " << n_correctly     << std::endl;
-  std::cerr << "#not connected      : " << n_no_connection << std::endl;
-  std::cerr << "#to boundary        : " << n_boundary      << std::endl;
-  std::cerr << "#into degeneracy    : " << n_degeneracy    << std::endl;
-  std::cerr << "#error while tracing: " << n_error         << std::endl;
-  std::cerr << "#not symmetric      : " << n_not_symmetric << std::endl;
+  QEX_LOG << "*** Summary of local connections ***" << std::endl;
+  QEX_LOG << "#correctly connected: " << n_correctly     << std::endl;
+  QEX_LOG << "#not connected      : " << n_no_connection << std::endl;
+  QEX_LOG << "#to boundary        : " << n_boundary      << std::endl;
+  QEX_LOG << "#into degeneracy    : " << n_degeneracy    << std::endl;
+  QEX_LOG << "#error while tracing: " << n_error         << std::endl;
+  QEX_LOG << "#not symmetric      : " << n_not_symmetric << std::endl;
 }
 
 
@@ -1752,7 +1760,7 @@ find_path(const GridVertex& _gv, const LocalEdgeInfo& lei, std::vector<double>& 
         else if (path.intersects(Segment_2(uv1, uv2)))
             cur_heh = heh2;
         else {
-            std::cerr << "Warning: find_path, type OnFace with endpoint outside triangle must intersect one edge segment!!!" << std::endl;
+            QEX_LOG << "Warning: find_path, type OnFace with endpoint outside triangle must intersect one edge segment!!!" << std::endl;
             return FindPathResult::Error();
         }
 
@@ -1801,8 +1809,8 @@ find_path(const GridVertex& _gv, const LocalEdgeInfo& lei, std::vector<double>& 
         else if(tri_mesh_.to_vertex_handle(heh2) == vh)
             cur_heh = heh1;
         else {
-            std::cerr << "ERROR: triangle does not contain required vertex!!!" << std::endl;
-            std::cerr << "vh idx: " << vh.idx() << ", fh idx: " << cur_fh.idx() << std::endl;
+            QEX_LOG << "ERROR: triangle does not contain required vertex!!!" << std::endl;
+            QEX_LOG << "vh idx: " << vh.idx() << ", fh idx: " << cur_fh.idx() << std::endl;
             return FindPathResult::Error();
         }
       }break;
@@ -1811,7 +1819,7 @@ find_path(const GridVertex& _gv, const LocalEdgeInfo& lei, std::vector<double>& 
 
   if(!cur_heh.is_valid())
   {
-    std::cerr << "Warning: invalid heh after initialization!" << std::endl;
+    QEX_LOG << "Warning: invalid heh after initialization!" << std::endl;
     return FindPathResult::Error();
   }
 
@@ -1857,11 +1865,12 @@ find_path(const GridVertex& _gv, const LocalEdgeInfo& lei, std::vector<double>& 
   unsigned int walk_iterations = 0;
   for(; walk_iterations<100000; ++walk_iterations)
   {
+    spend_step();
     // ran into a boundary?
     if(tri_mesh_.is_boundary(cur_heh)) {
 #ifndef NDEBUG
       if (verbose)
-          std::cout << "Verbose mode activated. Trace history:"
+          QEX_LOG << "Verbose mode activated. Trace history:"
               << std::endl << traceHistory.str() << std::endl
               << "* Trace Result: Traced into boundary." << std::endl;
 #endif
@@ -1901,14 +1910,14 @@ find_path(const GridVertex& _gv, const LocalEdgeInfo& lei, std::vector<double>& 
 
     if (tri_ori == ORI_ZERO) {
         if (uv0 != uv1 && uv1 != uv2 && uv2 != uv0) {
-            std::cerr
+            QEX_LOG
                 << "\x1b[41mLogic error: Traced into degenerate triangle (a "
                    "cap). This shouldn't be possible.\x1b[0m"
                 << std::endl;
             //assert(false);
             //return FindPathResult::Signal(LocalEdgeInfo::LECI_Traced_Into_Degeneracy);
         } else {
-            std::cerr << "\x1b[41mEdges degenerated to a point should have "
+            QEX_LOG << "\x1b[41mEdges degenerated to a point should have "
                     << std::endl <<
                     "been removed during pre processing. This doesn't seem to "
                     << std::endl <<
@@ -1940,7 +1949,7 @@ find_path(const GridVertex& _gv, const LocalEdgeInfo& lei, std::vector<double>& 
       const FindPathResult res =
               find_local_connection(uv_from, uv_original_from, uv_to, tri, heh0, heh1, heh2, bs, accumulated_tf, _uv_coords);
       if (verbose)
-          std::cout << "Verbose mode activated. Trace history:"
+          QEX_LOG << "Verbose mode activated. Trace history:"
               << std::endl << traceHistory.str() << std::endl
               << "* Trace Result: Found connection to GV "
               << res.connected_to_idx << " at " << uv_to << "." << std::endl;
@@ -1988,14 +1997,14 @@ find_path(const GridVertex& _gv, const LocalEdgeInfo& lei, std::vector<double>& 
 
 #ifndef NDEBUG
         if (vis0 && vis1 && vis2) {
-            std::cerr << "Logic error: Tracing path coincides with all "
+            QEX_LOG << "Logic error: Tracing path coincides with all "
                     "three triangle vertices. This can only happen in "
                     "degenerate triangles. This case was handled earlier."
                     << std::endl;
             //assert(false);
         }
         if (!vis0 && !vis1 && !vis2) {
-            std::cerr << "Logic error: Tracing path does not intersect "
+            QEX_LOG << "Logic error: Tracing path does not intersect "
                     "triangle." << std::endl;
             assert(false);
         }
@@ -2018,13 +2027,13 @@ find_path(const GridVertex& _gv, const LocalEdgeInfo& lei, std::vector<double>& 
       }
       else if( !is1 && !is2)
       {
-        std::cerr
+        QEX_LOG
             << "\x1b[1;41m"
             << "Warning: find_path didn't find the point where the path "
                "leaves a triangle in step " << walk_iterations << "." << std::endl
             << "*********** DEBUG OUTPUT START ***********\x1b[0m" << std::endl;
-        std::cerr << "triangle-path intersection: " << int(path.intersects(tri)) << std::endl;
-        std::cerr << "Segment 1: " << s1 << "," << std::endl
+        QEX_LOG << "triangle-path intersection: " << int(path.intersects(tri)) << std::endl;
+        QEX_LOG << "Segment 1: " << s1 << "," << std::endl
                 << "Segment 2: " << s2 << "," << std::endl
                 << "Path: " << path << std::endl
                 << "Here's Tikz output for you so you can debug it more easily. You're welcome." << std::endl
@@ -2032,7 +2041,7 @@ find_path(const GridVertex& _gv, const LocalEdgeInfo& lei, std::vector<double>& 
         const bool vis0 = path.has_on(uv0);
         const bool vis1 = path.has_on(uv1);
         const bool vis2 = path.has_on(uv2);
-        std::cerr << "Debug info:" << std::endl
+        QEX_LOG << "Debug info:" << std::endl
                 << "vis{0,1,2} = " << vis0 << ", " << vis1
                     << ", " << vis2 << std::endl
                 << "is1, is2 = " << is1 << ", " << is2 << std::endl
@@ -2047,13 +2056,13 @@ find_path(const GridVertex& _gv, const LocalEdgeInfo& lei, std::vector<double>& 
                 ;
 
 #ifndef NDEBUG
-        std::cerr << "Trace history:" << std::endl << traceHistory.str() << std::endl;
+        QEX_LOG << "Trace history:" << std::endl << traceHistory.str() << std::endl;
 #endif
         #if DEBUG
-        std::cerr << debug_ss.str() << std::endl;
+        QEX_LOG << debug_ss.str() << std::endl;
         #endif
 
-        std::cerr
+        QEX_LOG
             << "\x1b[1;41m"
             << "*********** DEBUG OUTPUT END ***********\x1b[0m" << std::endl;
         // return error
@@ -2062,9 +2071,9 @@ find_path(const GridVertex& _gv, const LocalEdgeInfo& lei, std::vector<double>& 
 
       if(!heh_upd.is_valid())
       {
-        std::cerr << "Warning: marching lead to invalid next heh!" << std::endl;
+        QEX_LOG << "Warning: marching lead to invalid next heh!" << std::endl;
         #if DEBUG
-          std::cerr << debug_ss.str() << std::endl;
+          QEX_LOG << debug_ss.str() << std::endl;
         #endif
         return FindPathResult::Error();
       }
@@ -2074,7 +2083,7 @@ find_path(const GridVertex& _gv, const LocalEdgeInfo& lei, std::vector<double>& 
         // ran into degeneracy
 #ifndef NDEBUG
       if (verbose)
-          std::cout << "Verbose mode activated. Trace history:"
+          QEX_LOG << "Verbose mode activated. Trace history:"
               << std::endl << traceHistory.str() << std::endl
               << "* Trace Result: Traced into Degeneracy." << std::endl;
 #endif
@@ -2104,7 +2113,7 @@ find_path(const GridVertex& _gv, const LocalEdgeInfo& lei, std::vector<double>& 
     }
   }
 
-  std::cerr << "\x1b[41mWarning: Maximum number of iterations exceeded in "
+  QEX_LOG << "\x1b[41mWarning: Maximum number of iterations exceeded in "
             "find_path. Diagnostics follow." << std::endl
             << "\x1b[41m--------------------------------------------------"
             "------------------------------\x1b[0m" << std::endl
@@ -2118,37 +2127,37 @@ find_path(const GridVertex& _gv, const LocalEdgeInfo& lei, std::vector<double>& 
 #ifndef NDEBUG
   {
       size_t cnt = 150;
-      std::cerr << "Outputting first " << cnt << " faces: " << std::endl;
+      QEX_LOG << "Outputting first " << cnt << " faces: " << std::endl;
       for (std::vector<int>::const_iterator it = face_hist.begin(),
               it_end = face_hist.end(); it != it_end && cnt; --cnt, ++it) {
-          std::cerr << *it;
-          if (cnt > 1) std::cerr << ", ";
+          QEX_LOG << *it;
+          if (cnt > 1) QEX_LOG << ", ";
       }
   }
-  std::cerr << std::endl;
+  QEX_LOG << std::endl;
   {
       size_t cnt = 150;
-      std::cerr << "Outputting first " << cnt << " halfedges: " << std::endl;
+      QEX_LOG << "Outputting first " << cnt << " halfedges: " << std::endl;
       for (std::vector<int>::const_iterator it = he_hist.begin(),
               it_end = he_hist.end(); it != it_end && cnt; --cnt, ++it) {
-          std::cerr << *it;
-          if (cnt > 1) std::cerr << ", ";
+          QEX_LOG << *it;
+          if (cnt > 1) QEX_LOG << ", ";
       }
   }
-  std::cerr << std::endl;
+  QEX_LOG << std::endl;
   std::istringstream th(traceHistory.str());
-  std::cerr << "Outputting first 200 lines of trace history." << std::endl
+  QEX_LOG << "Outputting first 200 lines of trace history." << std::endl
             << "--------------------------------------------------"
             "------------------------------" << std::endl;
 
   for (int i = 0; i < 200 && !th.eof(); ++i) {
       std::string line;
       std::getline(th, line);
-      std::cerr << line << std::endl;
+      QEX_LOG << line << std::endl;
   }
-  std::cerr << "\x1b[0m";
+  QEX_LOG << "\x1b[0m";
 #endif
-  std::cerr << "\x1b[41m--------------------------------------------------"
+  QEX_LOG << "\x1b[41m--------------------------------------------------"
             "------------------------------\x1b[0m" << std::endl;
 
   // return error
@@ -2192,7 +2201,7 @@ find_local_connection(const Point_2& _uv_from, const Point_2& _uv_original_from,
           Point_2 from = _uv_original_from, to = _uv_to;
 #ifndef NDEBUG
           if (to != gvertices_[gvidx].position_uv) {
-              std::cerr << "\x1b[42mfind_local_connection: Transition function trouble when tracing to gvertex " << gvidx << "." << std::endl
+              QEX_LOG << "\x1b[42mfind_local_connection: Transition function trouble when tracing to gvertex " << gvidx << "." << std::endl
                       << "  to: (" << to << ") != gv.position_uv: (" <<  gvertices_[gvidx].position_uv << ")\x1b[0m" << std::endl;
           }
 #endif
@@ -2201,7 +2210,7 @@ find_local_connection(const Point_2& _uv_from, const Point_2& _uv_original_from,
       }
     }
 #if !defined(NDEBUG) && DEBUG_VERBOSITY >= 2
-    std::cerr << "Warning: find_local_connections found right face but not a grid-vertex to connect to" << std::endl;
+    QEX_LOG << "Warning: find_local_connections found right face but not a grid-vertex to connect to" << std::endl;
 #endif
   }
   else // on boundary
@@ -2224,11 +2233,11 @@ find_local_connection(const Point_2& _uv_from, const Point_2& _uv_original_from,
       return find_local_connection_at_edge(_uv_from, _uv_original_from, _uv_to, _heh2, accumulated_tf);
 
 #if !defined(NDEBUG) && DEBUG_VERBOSITY >= 2
-    std::cerr << "Warning: find_local_connections found triangle-boundary but not a grid-vertex to connect to" << std::endl;
+    QEX_LOG << "Warning: find_local_connections found triangle-boundary but not a grid-vertex to connect to" << std::endl;
 #endif
   }
 
-  std::cerr << "Warning: find_local_connection did not succeed!" << std::endl;
+  QEX_LOG << "Warning: find_local_connection did not succeed!" << std::endl;
   // return error
   return FindPathResult::Error();
 }
@@ -2284,7 +2293,7 @@ find_local_connection_at_edge(const Point_2& _uv_from, const Point_2& _uv_origin
             }
 #ifndef NDEBUG
             if (to != gvertices_[vidx].position_uv) {
-                std::cerr << "\x1b[42mfind_local_connection_at_edge: Transition function trouble when tracing to gvertex " << vidx << "." << std::endl
+                QEX_LOG << "\x1b[42mfind_local_connection_at_edge: Transition function trouble when tracing to gvertex " << vidx << "." << std::endl
                 << "  to: (" << to << ") != gv.position_uv: (" << gvertices_[vidx].position_uv << ")\x1b[0m" << std::endl;
             }
 #endif
@@ -2295,7 +2304,7 @@ find_local_connection_at_edge(const Point_2& _uv_from, const Point_2& _uv_origin
   }
 
 #if !defined(NDEBUG) && DEBUG_VERBOSITY >= 2
-    std::cerr << "Warning: find_local_connections_at_edge found edge but not a grid-vertex to connect to" << std::endl;
+    QEX_LOG << "Warning: find_local_connections_at_edge found edge but not a grid-vertex to connect to" << std::endl;
 #endif
 
   // return error
@@ -2393,7 +2402,7 @@ find_local_connection_at_vertex(const Point_2& _uv_from, const Point_2& _uv_orig
           intra_gv_trans.transform_point(to);
 #ifndef NDEBUG
           if (to != gvertices_[vidx].position_uv) {
-              std::cerr << "\x1b[42mfind_local_connection_at_vertex: Transition function trouble when tracing to gvertex " << vidx << "." << std::endl
+              QEX_LOG << "\x1b[42mfind_local_connection_at_vertex: Transition function trouble when tracing to gvertex " << vidx << "." << std::endl
                       << "  to: (" << to << ") != gv.position_uv: (" <<  gvertices_[vidx].position_uv << ")\x1b[0m" << std::endl;
           }
 #endif
@@ -2404,7 +2413,7 @@ find_local_connection_at_vertex(const Point_2& _uv_from, const Point_2& _uv_orig
   }
 
 #if !defined(NDEBUG) && DEBUG_VERBOSITY >= 2
-    std::cerr << "Warning: find_local_connections_at_vertex((" << _uv_from << "), (" << _uv_to << "), ...) to tri vertex #"
+    QEX_LOG << "Warning: find_local_connections_at_vertex((" << _uv_from << "), (" << _uv_to << "), ...) to tri vertex #"
             << vh.idx() << " found vertex but not a grid-vertex to connect to. Checked "
             << vertex_gvertices_[vh.idx()].size() << " candidates." << std::endl;
     abort();
@@ -2450,7 +2459,7 @@ generate_faces_and_store_quadmesh(PolyMeshT& _quad_mesh,
 #endif
 
 #ifndef NDEBUG
-  std::cerr << "Generating all " << gvertices_.size() << " gvertices." << std::endl;
+  QEX_LOG << "Generating all " << gvertices_.size() << " gvertices." << std::endl;
 #endif
 
   // add vertices and set boundary tag
@@ -2466,16 +2475,16 @@ generate_faces_and_store_quadmesh(PolyMeshT& _quad_mesh,
     const bool verbose = gvertices_[i].verbose;
 
     if (verbose) {
-        std::cout << "Verbose info for gvertex " << i << ":" << std::endl;
-        std::cout << "  n_edges(): " << gvertices_[i].n_edges() << std::endl;
+        QEX_LOG << "Verbose info for gvertex " << i << ":" << std::endl;
+        QEX_LOG << "  n_edges(): " << gvertices_[i].n_edges() << std::endl;
     }
 #endif
 
     for(unsigned int j=0; j<gvertices_[i].n_edges(); ++j) {
 #ifndef NDEBUG
       if (verbose) {
-          std::cout << "  Edge " << j << ":" << std::endl;
-          std::cout << "    face_constructed: " << gvertices_[i].local_edges[j].face_constructed << std::endl;
+          QEX_LOG << "  Edge " << j << ":" << std::endl;
+          QEX_LOG << "    face_constructed: " << gvertices_[i].local_edges[j].face_constructed << std::endl;
       }
 #endif
       // not already constructed? -> start new face
@@ -2517,8 +2526,17 @@ generate_faces_and_store_quadmesh(PolyMeshT& _quad_mesh,
             if(current_gvertex_idx == (int)i && face_vhs.size())
             {
 #if !defined(NDEBUG) && DEBUG_VERBOSITY >= 3
-                std::cout << "    Traced back to where I started. face_vhs.size() = " << face_vhs.size() << std::endl;
+                QEX_LOG << "    Traced back to where I started. face_vhs.size() = " << face_vhs.size() << std::endl;
 #endif
+              // Quadami fork: QEx closes each boundary loop of the input with
+              // one n-gon of boundary grid vertices; that would close the
+              // input's open boundary (the hand's wrist came out closed).
+              bool boundary_cap = face_vhs.size() > 4;
+              for (size_t bi = 0; boundary_cap && bi < outgoing_he_info.size(); ++bi)
+                  boundary_cap = gvertices_[outgoing_he_info[bi]->connected_to_idx].is_boundary;
+              if (boundary_cap)
+                  break;
+
               // valid face? -> add
               if(face_vhs.size() > 2)
               {
@@ -2532,7 +2550,7 @@ generate_faces_and_store_quadmesh(PolyMeshT& _quad_mesh,
                   typename PolyMeshT::FaceHandle fh = add_face<PolyMeshT>(_quad_mesh, outgoing_he_info);
 #endif
                   if (!fh.is_valid()) {
-                      std::cerr << "\x1b[41mSkipping face. (OpenMesh doesn't support non-manifold meshes. -> Might lead to a hole.)\x1b[0m" << std::endl
+                      QEX_LOG << "\x1b[41mSkipping face. (OpenMesh doesn't support non-manifold meshes. -> Might lead to a hole.)\x1b[0m" << std::endl
 #ifndef NDEBUG
                               << "Face stats:" << std::endl
                               << faceStats.str() << std::endl
@@ -2559,7 +2577,7 @@ generate_faces_and_store_quadmesh(PolyMeshT& _quad_mesh,
                       opp_validity_signature |= (_quad_mesh.prev_halfedge_handle(opp_heh).is_valid() ? 0 : 2) | (_quad_mesh.next_halfedge_handle(opp_heh).is_valid() ? 0 : 1);
                   }
                   if (validity_signature != 0 || opp_validity_signature != 0) {
-                      std::cout << "Some halfedge next- or prev-handles are invalid." << std::endl
+                      QEX_LOG << "Some halfedge next- or prev-handles are invalid." << std::endl
                               << "  heh validity signature:     " << toBinStr(validity_signature, face_vhs.size() * 2) << std::endl
                               << "  opp heh validity signature: " << toBinStr(opp_validity_signature, face_vhs.size() * 2) << std::endl;
                       abort();
@@ -2567,20 +2585,20 @@ generate_faces_and_store_quadmesh(PolyMeshT& _quad_mesh,
                   bool do_abort = false;
                   for (typename std::vector<LocalEdgeInfo*>::const_iterator it = outgoing_he_info.begin(); it != outgoing_he_info.end(); ++it) {
                       if (_quad_mesh.valence(_quad_mesh.vertex_handle((*it)->connected_to_idx)) <= 0) {
-                          std::cout << "Logic error: GV " << (*it)->connected_to_idx << ", one of the " << outgoing_he_info.size()
+                          QEX_LOG << "Logic error: GV " << (*it)->connected_to_idx << ", one of the " << outgoing_he_info.size()
                                   << " vertices I just connected to the " << _quad_mesh.n_faces() << "th face has valence "
                                   << _quad_mesh.valence(_quad_mesh.vertex_handle((*it)->connected_to_idx)) << "." << std::endl;
-                          std::cout << "Does this vertex have a valid outgoing halfedge handle? "
+                          QEX_LOG << "Does this vertex have a valid outgoing halfedge handle? "
                                   << _quad_mesh.halfedge_handle(_quad_mesh.vertex_handle((*it)->connected_to_idx)).is_valid() << std::endl;
-                          std::cout << "I'll abort once I'm done with this loop." << std::endl;
+                          QEX_LOG << "I'll abort once I'm done with this loop." << std::endl;
                           do_abort = true;
                       }
                       //assert(_quad_mesh.valence(_quad_mesh.vertex_handle((*it)->connected_to_idx)) > 0);
                   }
                   if (do_abort) {
-                      std::cout << "Before I abort, let me hook you up with the face stats." << std::endl;
-                      std::cout << faceStats.str() << std::endl;
-                      std::cout << "That's it. I'm aborting now. Bye." << std::endl;
+                      QEX_LOG << "Before I abort, let me hook you up with the face stats." << std::endl;
+                      QEX_LOG << faceStats.str() << std::endl;
+                      QEX_LOG << "That's it. I'm aborting now. Bye." << std::endl;
                       abort();
                   }
                   for (typename std::vector<typename PolyMeshT::VertexHandle>::const_iterator it = face_vhs.begin(); it != face_vhs.end(); ++it) {
@@ -2655,9 +2673,9 @@ generate_faces_and_store_quadmesh(PolyMeshT& _quad_mesh,
                        */
 
                       Point_2 uv((*lei_it)->uv_to);
-                      //std::cerr << "last_uv = (" << uv << ") * (" << accumulated_face_tf << ")^-1 = (" << uv << ") * (" << accumulated_face_tf.inverse() << ") = ";
+                      //QEX_LOG << "last_uv = (" << uv << ") * (" << accumulated_face_tf << ")^-1 = (" << uv << ") * (" << accumulated_face_tf.inverse() << ") = ";
                       accumulated_face_tf.inverse().transform_point(uv);
-                      //std::cerr << "(" << uv << ")" << std::endl;
+                      //QEX_LOG << "(" << uv << ")" << std::endl;
 
                       heLocalUvProp[*fhi_it] = Vec2i(uv[0], uv[1]);
 #ifndef NDEBUG
@@ -2669,7 +2687,7 @@ generate_faces_and_store_quadmesh(PolyMeshT& _quad_mesh,
                           Point_2 uv_from((*lei_it)->uv_from);
                           accumulated_face_tf.inverse().transform_point(uv_from);
                           if (last_lei && last_uv != uv_from) {
-                              std::cerr << "\x1b[41mAssertion failed: last_uv != uv_from => Inconsistency between last and current LEI.\x1b[0m" << std::endl
+                              QEX_LOG << "\x1b[41mAssertion failed: last_uv != uv_from => Inconsistency between last and current LEI.\x1b[0m" << std::endl
                                       << "  face: " << fh.idx() << ", itIdx: " << itIdx << std::endl
                                       << "  intra_vertex_tf: " << intra_vertex_tf << std::endl
                                       << "  last_uv: " << last_uv
@@ -2678,15 +2696,15 @@ generate_faces_and_store_quadmesh(PolyMeshT& _quad_mesh,
                                       << "  last_opp_lei: " << *last_opp_lei << std::endl
                                       << "  last_lei: " << *last_lei << std::endl << std::endl;
 
-                              std::cerr << "Source GV (idx = " << last_opp_lei->connected_to_idx << ", face = " << tri_mesh_.face_handle(gvertices_[last_opp_lei->connected_to_idx].heh).idx() << "):" << std::endl
+                              QEX_LOG << "Source GV (idx = " << last_opp_lei->connected_to_idx << ", face = " << tri_mesh_.face_handle(gvertices_[last_opp_lei->connected_to_idx].heh).idx() << "):" << std::endl
                                       << gvertices_[last_opp_lei->connected_to_idx] << std::endl
                                       << "Dest GV (idx = " << last_lei->connected_to_idx << ", face = " << tri_mesh_.face_handle(gvertices_[last_lei->connected_to_idx].heh).idx() << "): " << std::endl
                                       << gvertices_[last_lei->connected_to_idx] << std::endl;
 
-                              std::cerr << "Face stats: " << std::endl << faceStats.str() << std::endl;
-                              std::cerr << intra_vertex_tf_stats.str();
+                              QEX_LOG << "Face stats: " << std::endl << faceStats.str() << std::endl;
+                              QEX_LOG << intra_vertex_tf_stats.str();
 
-                              std::cerr << "\x1b[41mThis would have been an abort. [incnstntuv]\x1b[0m" << std::endl;
+                              QEX_LOG << "\x1b[41mThis would have been an abort. [incnstntuv]\x1b[0m" << std::endl;
 
                               //abort();
                               break;
@@ -2707,18 +2725,18 @@ generate_faces_and_store_quadmesh(PolyMeshT& _quad_mesh,
                   Point_2 firstLastUv = gvertices_[outgoing_he_info.back()->connected_to_idx].position_uv;
                   accumulated_face_tf.inverse().transform_point(firstLastUv);
                   if (Vec2i(firstLastUv[0], firstLastUv[1]) != heParamInfoProp[*fhi_it_begin].uv_from) {
-                      std::cerr << "Face " << fh.idx() << " doesn't close UV-Loop: First UV: ("
+                      QEX_LOG << "Face " << fh.idx() << " doesn't close UV-Loop: First UV: ("
                               << heParamInfoProp[*fhi_it_begin].uv_from << "), Last UV: ("
                               << firstLastUv[0] << " " << firstLastUv[1] << ")" << std::endl;
                       if (_quad_mesh.has_face_status())
                           _quad_mesh.status(fh).set_selected(true);
                       //abort();
                   } else if (accumulated_face_tf != TF::IDENTITY) {
-                      std::cerr << "Face " << fh.idx() << " doesn't have accumulated identity TF: " << accumulated_face_tf << std::endl;
+                      QEX_LOG << "Face " << fh.idx() << " doesn't have accumulated identity TF: " << accumulated_face_tf << std::endl;
                       if (_quad_mesh.has_face_status())
                           _quad_mesh.status(fh).set_selected(true);
                   } else {
-                      //std::cerr << "Face " << fh.idx() << ": UV Loop closed." << std::endl;
+                      //QEX_LOG << "Face " << fh.idx() << ": UV Loop closed." << std::endl;
                   }
 
 #endif
@@ -2727,7 +2745,7 @@ generate_faces_and_store_quadmesh(PolyMeshT& _quad_mesh,
                   faceStats << std::endl;
                   faceStats << intra_vertex_tf_stats.str();
                   if (outputFaceStats) {
-                      std::cerr << "\x1b[41mFace stats of face " << fh.idx() << " BEGIN\x1b[0m" << std::endl
+                      QEX_LOG << "\x1b[41mFace stats of face " << fh.idx() << " BEGIN\x1b[0m" << std::endl
                               << faceStats.str()
                               << "\x1b[41mEND Face stats of face " << fh.idx() << "\x1b[0m" << std::endl;
                   }
@@ -2735,14 +2753,14 @@ generate_faces_and_store_quadmesh(PolyMeshT& _quad_mesh,
 
 #ifndef NDEBUG
               } else {
-                std::cerr << "< 3 vertices face: Attempted face included the following gvertices: ";
+                QEX_LOG << "< 3 vertices face: Attempted face included the following gvertices: ";
                 for (std::vector<int>::const_iterator it = face_gvs.begin(), it_end = face_gvs.end();
                         it != it_end; ++it) {
                     if (it != face_gvs.begin())
-                        std::cerr << ", ";
-                    std::cerr << *it;
+                        QEX_LOG << ", ";
+                    QEX_LOG << *it;
                 }
-                std::cerr << std::endl;
+                QEX_LOG << std::endl;
 #endif
               }
               break;
@@ -2753,10 +2771,10 @@ generate_faces_and_store_quadmesh(PolyMeshT& _quad_mesh,
               if(gvertices_[current_gvertex_idx].local_edge(current_orientation_idx).face_constructed)
               {
                 // removed output since this can happen on incomplete boundaries or degeneracies
-                //                std::cerr << "Warning: construction entered a halfedge belonging to an already constructed face..." << std::endl;
+                //                QEX_LOG << "Warning: construction entered a halfedge belonging to an already constructed face..." << std::endl;
 #ifndef NDEBUG
                 if (verbose) {
-                    std::cout << "    Weird already constructed condition." << std::endl;
+                    QEX_LOG << "    Weird already constructed condition." << std::endl;
                 }
 #endif
                 break;
@@ -2767,7 +2785,7 @@ generate_faces_and_store_quadmesh(PolyMeshT& _quad_mesh,
 
 #ifndef NDEBUG
               if (tri_mesh_.has_vertex_status() && tri_mesh_.status(tri_mesh_.to_vertex_handle(gvertices_[current_gvertex_idx].heh)).selected()) {
-                  std::cerr << "Vertex " << tri_mesh_.to_vertex_handle(gvertices_[current_gvertex_idx].heh).idx() << " selected. Outputting face stats." << std::endl;
+                  QEX_LOG << "Vertex " << tri_mesh_.to_vertex_handle(gvertices_[current_gvertex_idx].heh).idx() << " selected. Outputting face stats." << std::endl;
                   outputFaceStats = true;
               }
 #if !defined(NDEBUG) && DEBUG_VERBOSITY >= 3
@@ -2780,20 +2798,20 @@ generate_faces_and_store_quadmesh(PolyMeshT& _quad_mesh,
 #ifdef DISCARD_FACES_WITH_DOUBLE_VERTICES
               if(std::find(face_vhs.begin(), face_vhs.end(), new_vh) != face_vhs.end()) {
 #ifndef NDEBUG
-                std::cerr << "\x1b[41mWarning: face should not have a double vertex.\x1b[0m" << std::endl;
+                QEX_LOG << "\x1b[41mWarning: face should not have a double vertex.\x1b[0m" << std::endl;
 
-                std::cerr << "  Face so far:";
+                QEX_LOG << "  Face so far:";
                 for (typename std::vector<typename PolyMeshT::VertexHandle>::const_iterator it = face_vhs.begin(); it != face_vhs.end(); ++it) {
-                    std::cerr << " " << it->idx();
+                    QEX_LOG << " " << it->idx();
                 }
-                std::cerr << std::endl << "  New (duplicate) vertex: " << new_vh.idx() << std::endl;
-                std::cerr << "Face stats: " << std::endl << faceStats.str() << std::endl;
-                std::cerr << "\x1b[41mThis would have been an abort. [dblvtx]\x1b[0m" << std::endl;
+                QEX_LOG << std::endl << "  New (duplicate) vertex: " << new_vh.idx() << std::endl;
+                QEX_LOG << "Face stats: " << std::endl << faceStats.str() << std::endl;
+                QEX_LOG << "\x1b[41mThis would have been an abort. [dblvtx]\x1b[0m" << std::endl;
                 break;
                 //abort();
 #endif
                 //throw std::logic_error("Warning: face should not have a double vertex.");
-                std::cerr << "Warning: face should not have a double vertex." << std::endl;
+                QEX_LOG << "Warning: face should not have a double vertex." << std::endl;
                 break;
               }
 #endif
@@ -2824,10 +2842,10 @@ generate_faces_and_store_quadmesh(PolyMeshT& _quad_mesh,
 
 #ifndef NDEBUG
                   if (verbose) {
-                      std::cout << "    Advancing to gvertex " << current_gvertex_idx;
+                      QEX_LOG << "    Advancing to gvertex " << current_gvertex_idx;
                       if (current_gvertex_idx >= 0)
-                          std::cout << " (uv: " << gvertices_[current_gvertex_idx].position_uv << ")";
-                      std::cout << std::endl;
+                          QEX_LOG << " (uv: " << gvertices_[current_gvertex_idx].position_uv << ")";
+                      QEX_LOG << std::endl;
                   }
 #endif
 
@@ -2856,14 +2874,14 @@ generate_faces_and_store_quadmesh(PolyMeshT& _quad_mesh,
 #ifndef NDEBUG
               if (current_gvertex_idx == -2) {
                   if (verbose)
-                      std::cout << "    Ran into boundary." << std::endl;
+                      QEX_LOG << "    Ran into boundary." << std::endl;
               } else {
                   if (verbose) {
-                      std::cout << "    ";
-                      std::cout << "Warning: Connection missing while constructing a face. Reason:"
+                      QEX_LOG << "    ";
+                      QEX_LOG << "Warning: Connection missing while constructing a face. Reason:"
                               << LocalEdgeInfo::connected_to_idx_failure_string(current_gvertex_idx) << std::endl;
                   } else
-                      std::cerr << "Warning: Connection missing while constructing a face. Reason:"
+                      QEX_LOG << "Warning: Connection missing while constructing a face. Reason:"
                               << LocalEdgeInfo::connected_to_idx_failure_string(current_gvertex_idx) << std::endl;
 
               }
@@ -2874,6 +2892,8 @@ generate_faces_and_store_quadmesh(PolyMeshT& _quad_mesh,
       }
     }
   }
+
+  checkCirculatorsTerminate(_quad_mesh, "after face generation");
 
   //count number of unwanted holes and print information
   int n_undesired_holes(0);
@@ -2935,7 +2955,7 @@ generate_faces_and_store_quadmesh(PolyMeshT& _quad_mesh,
      if( ! _quad_mesh.status(*v_it).deleted() && _quad_mesh.valence(*v_it) == 0)
      {
 #if !defined(NDEBUG) && DEBUG_VERBOSITY >= 2
-         std::cout << "Removing vertex " << v_it->idx() << ". Valence: " << _quad_mesh.valence(*v_it) << "." << std::endl;
+         QEX_LOG << "Removing vertex " << v_it->idx() << ". Valence: " << _quad_mesh.valence(*v_it) << "." << std::endl;
 #endif
        // remove isolated vertex
        _quad_mesh.delete_vertex(*v_it, true);
@@ -2959,13 +2979,13 @@ generate_faces_and_store_quadmesh(PolyMeshT& _quad_mesh,
 
   _quad_mesh.update_normals();
 #ifndef NDEBUG
-  std::cerr << "###### Mesh Extractor Info ######" << std::endl;
-  std::cerr << "#vertices                 : " << _quad_mesh.n_vertices()     << std::endl;
-  std::cerr << "#edges                    : " << _quad_mesh.n_edges()        << std::endl;
-  std::cerr << "#faces                    : " << _quad_mesh.n_faces()        << std::endl;
-  std::cerr << "#desired holes            : " << n_desired_holes             << std::endl;
-  std::cerr << "#undesired holes          : " << n_undesired_holes           << std::endl;
-  std::cerr << "#isolated vertices removed: " << n_isolated_vertices_removed << std::endl;
+  QEX_LOG << "###### Mesh Extractor Info ######" << std::endl;
+  QEX_LOG << "#vertices                 : " << _quad_mesh.n_vertices()     << std::endl;
+  QEX_LOG << "#edges                    : " << _quad_mesh.n_edges()        << std::endl;
+  QEX_LOG << "#faces                    : " << _quad_mesh.n_faces()        << std::endl;
+  QEX_LOG << "#desired holes            : " << n_desired_holes             << std::endl;
+  QEX_LOG << "#undesired holes          : " << n_undesired_holes           << std::endl;
+  QEX_LOG << "#isolated vertices removed: " << n_isolated_vertices_removed << std::endl;
 #endif
 }
 
@@ -3064,13 +3084,13 @@ print_quad_mesh_metrics(const PolyMeshT& _quad_mesh) {
         valence_histogram[valence] += 1;
     }
 
-    std::cout << "Face valence histogram:" << std::endl;
+    QEX_LOG << "Face valence histogram:" << std::endl;
     for (std::map<unsigned int, int>::const_iterator it = valence_histogram.begin(); it != valence_histogram.end(); ++it) {
-        std::cout << "  Valence " << it->first << ": " << it->second << std::endl;
+        QEX_LOG << "  Valence " << it->first << ": " << it->second << std::endl;
     }
 
     if (valence_histogram.size() > 1 || valence_histogram.find(4) == valence_histogram.end()) {
-        std::cout << "  \x1b[41mThis is not a quad mesh!\x1b[0m" << std::endl;
+        QEX_LOG << "  \x1b[41mThis is not a quad mesh!\x1b[0m" << std::endl;
     }
 }
 
@@ -3092,7 +3112,7 @@ typename MeshExtractorT<TMeshT>::TF MeshExtractorT<TMeshT>::intra_gv_transition(
             return (from_fh == to_fh ? transition(gv.heh) : TF::IDENTITY) * transition(tri_mesh_.opposite_halfedge_handle(gv.heh));
         } else {
 #ifndef NDEBUG
-            std::cerr << "Grid Vertex' halfedge is not the one between requested faces." << std::endl;
+            QEX_LOG << "Grid Vertex' halfedge is not the one between requested faces." << std::endl;
             abort();
 #endif
             throw std::logic_error("Grid Vertex' halfedge is not the one between requested faces.");
@@ -3120,7 +3140,7 @@ typename MeshExtractorT<TMeshT>::TF MeshExtractorT<TMeshT>::intra_gv_transition(
         return result;
     } else {
 #ifndef NDEBUG
-        std::cerr << "Requested transition for neither OnEdge nor OnVertex Grid Vertex. Aborting." << std::endl;
+        QEX_LOG << "Requested transition for neither OnEdge nor OnVertex Grid Vertex. Aborting." << std::endl;
         abort();
 #endif
         throw std::logic_error("Requested transition for neither OnEdge nor OnVertex Grid Vertex.");
@@ -3148,6 +3168,10 @@ typename MeshExtractorT<TMeshT>::LocalEdgeInfo *MeshExtractorT<TMeshT>::getNextC
 
     //if (lei == last) return 0;
 
+    // Quadami fork: after a full turn without a connected local edge that has
+    // a halfedge, `last` came back here, and add_face wrote `next` through
+    // halfedge index -1 (heap overflow, then crashes and runaway memory).
+    if (!lei || !lei->isConnected() || lei->halfedgeIndex == -1) return 0;
     return lei;
 }
 
@@ -3189,14 +3213,14 @@ typename PolyMeshT::FaceHandle MeshExtractorT<TMeshT>::add_face(PolyMeshT &qmesh
      * Add halfedges
      */
 #if !defined(NDEBUG) && DEBUG_VERBOSITY >= 3
-    std::cout << "Adding Face " << newFh.idx() << std::endl;
+    QEX_LOG << "Adding Face " << newFh.idx() << std::endl;
 #endif
     for (typename LEI_VEC::iterator lei_it = leis.begin(), lei_end = leis.end(); lei_it != lei_end; ++lei_it) {
         typename PolyMeshT::HalfedgeHandle heh0;
         if ((*lei_it)->halfedgeIndex == -1) {
             LocalEdgeInfo * const opposite_lei = &gvertices_[(*lei_it)->connected_to_idx].local_edge((*lei_it)->orientation_idx);
 #if !defined(NDEBUG) && DEBUG_VERBOSITY >= 3
-            std::cout << "  * Generating he for LEI " << (*lei_it)->getIdHeIdx()
+            QEX_LOG << "  * Generating he for LEI " << (*lei_it)->getIdHeIdx()
                     << " connecting \x1b[96m" << opposite_lei->connected_to_idx
                     << "\x1b[0m to \x1b[96m" << (*lei_it)->connected_to_idx << "\x1b[0m." << std::endl;
 #endif
@@ -3210,7 +3234,7 @@ typename PolyMeshT::FaceHandle MeshExtractorT<TMeshT>::add_face(PolyMeshT &qmesh
 
             if (!qmesh.halfedge_handle(from_vh).is_valid()) {
 //#if !defined(NDEBUG) && DEBUG_VERBOSITY >= 2
-//                std::cout << "    Setting heh of vh " << from_vh.idx() << " to heh " << heh0.idx() << std::endl;
+//                QEX_LOG << "    Setting heh of vh " << from_vh.idx() << " to heh " << heh0.idx() << std::endl;
 //#endif
                 qmesh.set_halfedge_handle(from_vh, heh0);
             }
@@ -3234,7 +3258,7 @@ typename PolyMeshT::FaceHandle MeshExtractorT<TMeshT>::add_face(PolyMeshT &qmesh
             assert(!qmesh.next_halfedge_handle(heh1).is_valid());
             assert(!qmesh.prev_halfedge_handle(heh1).is_valid());
 #if !defined(NDEBUG) && DEBUG_VERBOSITY >= 3
-            std::cout << "    opp_next, opp, opp_prev: "
+            QEX_LOG << "    opp_next, opp, opp_prev: "
                     << opposite_next_lei->getIdHeIdx()
                     << ", " << opposite_lei->getIdHeIdx()
                     << ", " << opposite_prev_lei->getIdHeIdx()
@@ -3244,7 +3268,7 @@ typename PolyMeshT::FaceHandle MeshExtractorT<TMeshT>::add_face(PolyMeshT &qmesh
             if (opposite_next_lei) {
                 assert(!qmesh.face_handle(qmesh.halfedge_handle(opposite_next_lei->halfedgeIndex)).is_valid());
 #if !defined(NDEBUG) && DEBUG_VERBOSITY >= 3
-                std::cout << "    opp_next available. set_next_halfedge_handle " << heh1.idx() << " ->" << opposite_next_lei->halfedgeIndex << std::endl;
+                QEX_LOG << "    opp_next available. set_next_halfedge_handle " << heh1.idx() << " ->" << opposite_next_lei->halfedgeIndex << std::endl;
 #endif
                 qmesh.set_next_halfedge_handle(heh1, qmesh.halfedge_handle(opposite_next_lei->halfedgeIndex));
             }
@@ -3252,8 +3276,8 @@ typename PolyMeshT::FaceHandle MeshExtractorT<TMeshT>::add_face(PolyMeshT &qmesh
             if (opposite_prev_lei) {
                 assert(!qmesh.face_handle(qmesh.halfedge_handle(opposite_prev_lei->halfedgeIndex)).is_valid());
 #if !defined(NDEBUG) && DEBUG_VERBOSITY >= 3
-                std::cout << "    opp_prev available. set_next_halfedge_handle " << opposite_prev_lei->halfedgeIndex << " -> " << heh1.idx() << std::endl;
-                std::cout << "    opp_prev available. Connecting." << std::endl;
+                QEX_LOG << "    opp_prev available. set_next_halfedge_handle " << opposite_prev_lei->halfedgeIndex << " -> " << heh1.idx() << std::endl;
+                QEX_LOG << "    opp_prev available. Connecting." << std::endl;
 #endif
                 qmesh.set_next_halfedge_handle(qmesh.halfedge_handle(opposite_prev_lei->halfedgeIndex), heh1);
             }
@@ -3266,12 +3290,12 @@ typename PolyMeshT::FaceHandle MeshExtractorT<TMeshT>::add_face(PolyMeshT &qmesh
             LocalEdgeInfo * const opposite_prev_lei = opposite_opp_prev_lei == 0 ? 0 :
                     &gvertices_[opposite_opp_prev_lei->connected_to_idx].local_edge(opposite_opp_prev_lei->orientation_idx);
 
-            std::cout << "  * He already exists for LEI " << (*lei_it)->getIdHeIdx()
+            QEX_LOG << "  * He already exists for LEI " << (*lei_it)->getIdHeIdx()
                     << " connecting \x1b[96m" << opposite_lei->connected_to_idx
                     << "\x1b[0m to \x1b[96m" << (*lei_it)->connected_to_idx
                     << "\x1b[0m." << std::endl;
 
-            std::cout << "    opp_next, opp, opp_prev: "
+            QEX_LOG << "    opp_next, opp, opp_prev: "
                     << opposite_next_lei->getIdHeIdx()
                     << ", " << opposite_lei->getIdHeIdx()
                     << ", " << opposite_prev_lei->getIdHeIdx()
@@ -3287,7 +3311,7 @@ typename PolyMeshT::FaceHandle MeshExtractorT<TMeshT>::add_face(PolyMeshT &qmesh
 
     qmesh.set_next_halfedge_handle(qmesh.halfedge_handle(leis.back()->halfedgeIndex), qmesh.halfedge_handle(leis.front()->halfedgeIndex));
 #if !defined(NDEBUG) && DEBUG_VERBOSITY >= 3
-    std::cout << "  * set_next_halfedge_handle " << leis.back()->halfedgeIndex << " -> " << leis.front()->halfedgeIndex << std::endl;
+    QEX_LOG << "  * set_next_halfedge_handle " << leis.back()->halfedgeIndex << " -> " << leis.front()->halfedgeIndex << std::endl;
 #endif
 
     assert(!qmesh.face_handle(qmesh.halfedge_handle(leis.front()->halfedgeIndex)).is_valid() || qmesh.face_handle(qmesh.halfedge_handle(leis.front()->halfedgeIndex)) == newFh);
@@ -3296,7 +3320,7 @@ typename PolyMeshT::FaceHandle MeshExtractorT<TMeshT>::add_face(PolyMeshT &qmesh
         for (typename LEI_VEC::iterator lei_it = leis.begin(), prev_lei_it = lei_it++, lei_end = leis.end(); lei_it != lei_end; ++lei_it, ++prev_lei_it) {
             qmesh.set_next_halfedge_handle(qmesh.halfedge_handle((*prev_lei_it)->halfedgeIndex), qmesh.halfedge_handle((*lei_it)->halfedgeIndex));
 #if !defined(NDEBUG) && DEBUG_VERBOSITY >= 3
-            std::cout << "  * set_next_halfedge_handle " << (*prev_lei_it)->halfedgeIndex << " -> " << (*lei_it)->halfedgeIndex << std::endl;
+            QEX_LOG << "  * set_next_halfedge_handle " << (*prev_lei_it)->halfedgeIndex << " -> " << (*lei_it)->halfedgeIndex << std::endl;
 #endif
 
             assert(!qmesh.face_handle(qmesh.halfedge_handle((*lei_it)->halfedgeIndex)).is_valid() || qmesh.face_handle(qmesh.halfedge_handle((*lei_it)->halfedgeIndex)) == newFh);

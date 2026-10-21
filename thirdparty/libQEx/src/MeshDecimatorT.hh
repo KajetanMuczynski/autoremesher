@@ -16,6 +16,9 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with QEx.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ * Modified by the Quadami fork, 2026-10-21 (TODO 6.1b): no log output.
+ * See thirdparty/libQEx/PATCHES.md.
  */
 
 
@@ -122,11 +125,11 @@ class MeshDecimator {
                             mesh.to_vertex_handle(he0n),
                             mesh.to_vertex_handle(he1n))) {
 #ifndef NDEBUG
-                        std::cout << "\x1b[41mDecimation: Got one ring "
+                        QEX_LOG << "\x1b[41mDecimation: Got one ring "
                                 "intersection case.\x1b[0m" << std::endl;
 #endif
                     } else if (!mesh.is_collapse_ok(he0)) {
-                        std::cout << "\x1b[41mSkipping non-ok collapse.\x1b[0m" << std::endl;
+                        QEX_LOG << "\x1b[41mSkipping non-ok collapse.\x1b[0m" << std::endl;
                     } else {
                         ++dec_counter;
 
@@ -161,7 +164,7 @@ class MeshDecimator {
 #ifndef NDEBUG
                         if ((uv0-uv0p).sqrnorm() > 0 ||
                                 (uv1-uv1p).sqrnorm() > 0) {
-                            std::cout << "\x1b[43mCollapsing inconsistent edge. "
+                            QEX_LOG << "\x1b[43mCollapsing inconsistent edge. "
                                     "Length of he0 = "
                                     << (uv0-uv0p).sqrnorm()
                                     << ", length of he1 = "
@@ -180,7 +183,7 @@ class MeshDecimator {
                 }
             }
 #ifndef NDEBUG
-            std::cout << "\x1b[1;32m"
+            QEX_LOG << "\x1b[1;32m"
                     "MeshDecimator::decimate() collapsed " << dec_counter
                     << " edges.\x1b[0m" << std::endl;
 #endif

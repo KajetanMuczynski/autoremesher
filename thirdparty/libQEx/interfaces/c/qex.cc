@@ -16,6 +16,9 @@
  * 
  * You should have received a copy of the GNU General Public License
  * along with QEx.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ * Modified by the Quadami fork, 2026-10-21 (TODO 6.1b): extractQuadMeshOMLimited; connectivity check before merging; no log output.
+ * See thirdparty/libQEx/PATCHES.md.
  */
 
 #include "qex.h"
@@ -29,8 +32,10 @@
 #include <cassert>
 
 namespace QEx {
-void extractPolyMesh(TriMesh_t in_triMesh, const_UVVector_t in_uvs, const_ValenceVector_t in_vertexValences,
-                     QuadMesh_t out_quadMesh, QEx::PropMgr<QuadMesh>::LocalUvsPropertyManager &heLocalUvProp) {
+// Quadami fork: extractPolyMesh with limits, returning the tracing steps used.
+static size_t extractPolyMeshLimited(TriMesh_t in_triMesh, const_UVVector_t in_uvs, const_ValenceVector_t in_vertexValences,
+                     QuadMesh_t out_quadMesh, QEx::PropMgr<QuadMesh>::LocalUvsPropertyManager &heLocalUvProp,
+                     const QEx::Limits& limits) {
 
     /*
      * Convert UV representation.
@@ -48,11 +53,19 @@ void extractPolyMesh(TriMesh_t in_triMesh, const_UVVector_t in_uvs, const_Valenc
     out_quadMesh->request_vertex_status();
 
     QEx::MeshExtractorT<TriMesh> qme(*in_triMesh);
+    qme.set_limits(limits);
     qme.extract<QuadMesh>(uvs, heLocalUvProp, *out_quadMesh, in_vertexValences);
+    return qme.steps();
+}
+
+void extractPolyMesh(TriMesh_t in_triMesh, const_UVVector_t in_uvs, const_ValenceVector_t in_vertexValences,
+                     QuadMesh_t out_quadMesh, QEx::PropMgr<QuadMesh>::LocalUvsPropertyManager &heLocalUvProp) {
+    extractPolyMeshLimited(in_triMesh, in_uvs, in_vertexValences, out_quadMesh, heLocalUvProp, QEx::Limits());
 }
 
 void mergePolyToQuad(QuadMesh_t inout_polyMesh, QEx::PropMgr<QuadMesh>::LocalUvsPropertyManager &heLocalUvProp) {
     QEx::QuadExtractorPostprocT<QuadMesh> qexPp(*inout_polyMesh, heLocalUvProp);
+    QEx::checkCirculatorsTerminate(*inout_polyMesh, "before merging");
     qexPp.ngons_to_quads();
 
     inout_polyMesh->garbage_collection();
@@ -76,6 +89,7 @@ void extractQuadMeshOM(TriMesh_t in_triMesh, const_UVVector_t in_uvs, const_Vale
     extractPolyMesh(in_triMesh, in_uvs, in_vertexValences, out_quadMesh, heLocalUvProp);
     mergePolyToQuad(out_quadMesh, heLocalUvProp);
 }
+
 
 }
 
@@ -171,7 +185,21 @@ void qex_extractQuadMesh(qex_TriMesh const * in_triMesh, qex_Valence *in_vertexV
     }
 
     if (nonQuadFaces > 0)
-        std::cerr << "Skipped " << nonQuadFaces << " non-quad faces." << std::endl;
+        QEX_LOG << "Skipped " << nonQuadFaces << " non-quad faces." << std::endl;
 }
 
 } /* extern "C" */
+
+namespace QEx {
+unsigned long extractQuadMeshOMLimited(TriMesh_t in_triMesh, const_UVVector_t in_uvs, const_ValenceVector_t in_vertexValences, QuadMesh_t out_quadMesh,
+                                       unsigned long max_steps, unsigned long max_grid_vertices) {
+    QEx::PropMgr<QuadMesh>::LocalUvsPropertyManager heLocalUvProp(
+            *out_quadMesh, QEx::QExGlobals::LOCAL_UVS_HANDLE_NAME());
+    QEx::Limits limits;
+    limits.max_steps = max_steps;
+    limits.max_grid_vertices = max_grid_vertices;
+    const size_t steps = extractPolyMeshLimited(in_triMesh, in_uvs, in_vertexValences, out_quadMesh, heLocalUvProp, limits);
+    mergePolyToQuad(out_quadMesh, heLocalUvProp);
+    return (unsigned long)steps;
+}
+}

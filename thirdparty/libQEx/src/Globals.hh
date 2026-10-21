@@ -16,10 +16,15 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with QEx.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ * Modified by the Quadami fork, 2026-10-21 (TODO 6.1b): includes Guards.hh.
+ * See thirdparty/libQEx/PATCHES.md.
  */
 
 #ifndef GLOBALS_HH_
 #define GLOBALS_HH_
+
+#include "Guards.hh"
 
 #include <OpenMesh/Core/Utils/Property.hh>
 #include <OpenMesh/Core/Utils/PropertyManager.hh>

@@ -17,6 +17,9 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with QEx.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ * Modified by the Quadami fork, 2026-10-21 (TODO 6.1b): limits (steps, grid vertices); no log output.
+ * See thirdparty/libQEx/PATCHES.md.
  */
 
 /// @file
@@ -59,7 +62,7 @@ class ExactPredicatesInitializer {
         ExactPredicatesInitializer() {
             exactinit();
 #ifndef NDEBUG
-            std::cout << "Exact predicates initialized." << std::endl;
+            QEX_LOG << "Exact predicates initialized." << std::endl;
 #endif
         }
 
@@ -119,6 +122,10 @@ class MeshExtractorT {
          * @param _tri_mesh The triangle mesh which to construct a quad mesh from.
          */
         MeshExtractorT(const TMesh& _tri_mesh);
+
+        /// Quadami fork: limits checked during extract() (Guards.hh).
+        void set_limits(const Limits& _limits) { limits_ = _limits; }
+        size_t steps() const { return steps_; }
 
         /// Destructor
         ~MeshExtractorT();
@@ -635,6 +642,18 @@ class MeshExtractorT {
 
         // reference to triangle mesh
         TMesh tri_mesh_;
+
+        // Quadami fork: deterministic limits (Guards.hh).
+        Limits limits_;
+        size_t steps_ = 0;
+        void spend_step() {
+            if (limits_.max_steps && ++steps_ > limits_.max_steps)
+                throw Abort("tracing step budget exceeded");
+        }
+        void check_grid_vertex_count() const {
+            if (limits_.max_grid_vertices && gvertices_.size() > limits_.max_grid_vertices)
+                throw Abort("grid vertex cap exceeded");
+        }
 
         // transition functions per edge
         // convention: from face(first_halfedge) -> face(second_halfedge)

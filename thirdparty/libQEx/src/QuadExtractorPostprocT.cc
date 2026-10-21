@@ -16,6 +16,9 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with QEx.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ * Modified by the Quadami fork, 2026-10-21 (TODO 6.1b): connectivity checks before vertex deletion (Guards.hh); no log output.
+ * See thirdparty/libQEx/PATCHES.md.
  */
 
 #define QEX_QUADEXTRACTORPOSTPROCT_C
@@ -59,7 +62,7 @@ void QuadExtractorPostprocT<MeshT>::generate_collapse_graph(Graph &out_collapseG
 
 #ifndef NDEBUG
             if (!(cg_it->second.idx() >= 0 && (size_t)cg_it->second.idx() < out_collapseGraph.size())) {
-                std::cerr << "Assertion cg_it->second.idx() > 0 && (size_t)cg_it->second.idx() < collapseGraph.size() is going to fail." << std::endl
+                QEX_LOG << "Assertion cg_it->second.idx() > 0 && (size_t)cg_it->second.idx() < collapseGraph.size() is going to fail." << std::endl
                         << "cg_it->second.idx(): " << cg_it->second.idx() << ", collapseGraph.size(): " << out_collapseGraph.size() << std::endl;
             }
 #endif
@@ -238,13 +241,13 @@ bool QuadExtractorPostprocT<MeshT>::simplify_face(const std::vector<std::pair<VH
             assert(static_cast<size_t>(sequenceLength) == currentFace.size());
 #ifndef XNDEBUG
             if (sequenceLength != 4 && sequenceLength > 2) {
-                std::cerr << "WARNING: Subsequence length was " << sequenceLength << " out of " << currentFace.size() << std::endl;
-                std::cerr << "Entire sequence: ";
+                QEX_LOG << "WARNING: Subsequence length was " << sequenceLength << " out of " << currentFace.size() << std::endl;
+                QEX_LOG << "Entire sequence: ";
                 for (typename VEC_PVH2I::iterator v1_it = currentFace.begin(), v1_end = currentFace.end(); v1_it != v1_end; v1_it++) {
-                    std::cerr << " " << v1_it->first.idx();
+                    QEX_LOG << " " << v1_it->first.idx();
                 }
-                std::cerr << std::endl;
-                std::cerr << "Subsequence: [" << std::distance(currentFace.begin(), seq_begin)
+                QEX_LOG << std::endl;
+                QEX_LOG << "Subsequence: [" << std::distance(currentFace.begin(), seq_begin)
                     << ", " << std::distance(currentFace.begin(), seq_end) << ")" << std::endl;
             }
 #endif
@@ -502,11 +505,11 @@ size_t QuadExtractorPostprocT<MeshT>::remove_isolated_vertices(std::vector<std::
             used[fv_it->idx()] = true;
 #ifndef NDEBUG
             if (++innerCnt == 10) {
-                std::cerr << "Face " << f_it->idx() << " with >= 10 vertices? That seems rather unlikely." << std::endl;
+                QEX_LOG << "Face " << f_it->idx() << " with >= 10 vertices? That seems rather unlikely." << std::endl;
             }
 
             if (innerCnt >= 10 && innerCnt <= 20) {
-                std::cerr << "fv_it->idx(): " << fv_it->idx() << std::endl;
+                QEX_LOG << "fv_it->idx(): " << fv_it->idx() << std::endl;
             } else if (innerCnt > 20) {
                 abort();
             }
@@ -581,7 +584,7 @@ size_t QuadExtractorPostprocT<MeshT>::create_faces(std::vector<std::vector<std::
                 edge_incidents.insert(std::pair<EDGE, INCIDENT_FACES>(EDGE(v0, v1), INCIDENT_FACES(f0, f1)));
         if (insertRes.second == false) {
 #ifndef NDEBUG
-            std::cerr << "Double edge case." << std::endl;
+            QEX_LOG << "Double edge case." << std::endl;
 #endif
             if (!insertRes.first->second.first.is_valid())
                 insertRes.first->second = INCIDENT_FACES(f0, f1);
@@ -604,7 +607,7 @@ size_t QuadExtractorPostprocT<MeshT>::create_faces(std::vector<std::vector<std::
 
         if (f_it->size() <= 1) {
             assert(f_it->size() > 1);
-            std::cerr << __FILE__": Warning: New face with less than two vertices. Skipping." << std::endl;
+            QEX_LOG << __FILE__": Warning: New face with less than two vertices. Skipping." << std::endl;
             ++skippedFaces;
             continue;
         }
@@ -639,7 +642,7 @@ size_t QuadExtractorPostprocT<MeshT>::create_faces(std::vector<std::vector<std::
                     mesh_.set_color(v0, typename MeshT::Color(1.0, 0.0, 0.0, 1.0));
                 else
                     mesh_.set_color(v1, typename MeshT::Color(1.0, 0.0, 0.0, 1.0));
-                std::cerr << "create_faces: Skipping. Reason: Non-boundary vertex." << std::endl;
+                QEX_LOG << "create_faces: Skipping. Reason: Non-boundary vertex." << std::endl;
                 break;
             }
 
@@ -681,10 +684,10 @@ size_t QuadExtractorPostprocT<MeshT>::create_faces(std::vector<std::vector<std::
 #endif
 
                 skip = true;
-                std::cerr << "create_faces: Skipping. Reason: Non-boundary edge." << std::endl;
+                QEX_LOG << "create_faces: Skipping. Reason: Non-boundary edge." << std::endl;
                 break;
             } else if (skip) {
-                std::cerr << "First check recognized non-manifold, second one didn't!" << std::endl;
+                QEX_LOG << "First check recognized non-manifold, second one didn't!" << std::endl;
             }
 
             /*
@@ -701,7 +704,7 @@ size_t QuadExtractorPostprocT<MeshT>::create_faces(std::vector<std::vector<std::
         }
 #ifndef NDEBUG
         if (!skip && edge_count != f_it->size()) {
-            std::cerr << "Assertion is going to fail. edge_count = " << edge_count << ", f_it->size() = " << f_it->size() << std::endl;
+            QEX_LOG << "Assertion is going to fail. edge_count = " << edge_count << ", f_it->size() = " << f_it->size() << std::endl;
         }
 #endif
         assert(skip || edge_count == f_it->size());
@@ -714,13 +717,13 @@ size_t QuadExtractorPostprocT<MeshT>::create_faces(std::vector<std::vector<std::
         } else {
             FH newFh = create_face(*f_it);
             if (!newFh.is_valid()) {
-                std::cerr << "\x1b[41mcreate_face() failed. Most probable reason: Non-manifold face not filtered out.\x1b[0m" << std::endl;
-                std::cerr << "Failing face vertices were: ";
+                QEX_LOG << "\x1b[41mcreate_face() failed. Most probable reason: Non-manifold face not filtered out.\x1b[0m" << std::endl;
+                QEX_LOG << "Failing face vertices were: ";
                 for (typename FACE::const_iterator v_it = f_it->begin(), v_end = f_it->end(); v_it != v_end; ++v_it) {
-                    if (v_it != f_it->begin()) std::cerr << ", ";
-                    std::cerr << v_it->first.idx();
+                    if (v_it != f_it->begin()) QEX_LOG << ", ";
+                    QEX_LOG << v_it->first.idx();
                 }
-                std::cerr << std::endl;
+                QEX_LOG << std::endl;
                 continue;
             }
             assert(newFh.is_valid());
@@ -762,7 +765,7 @@ size_t QuadExtractorPostprocT<MeshT>::create_faces(std::vector<std::vector<std::
                     } else if (!edge_incident_it->second.second.is_valid()) {
                         edge_incident_it->second.second = newFh;
                     } else {
-                        std::cerr << __FILE__": Logic error." << std::endl;
+                        QEX_LOG << __FILE__": Logic error." << std::endl;
                         abort();
                     }
                 }
@@ -828,6 +831,7 @@ void QuadExtractorPostprocT<MeshT>::ngons_to_quads() {
     size_t deletedFaces_cleanup = 0;
     size_t deletedVertices_cleanup = 0;
 
+    checkCirculatorsTerminate(mesh_, "after deleting obsolete faces");
     for (size_t facesDeleted = 1337; facesDeleted > 0; deletedFaces_cleanup += facesDeleted) {
         facesDeleted = remove_double_faces(newFaces);
         deletedVertices_cleanup += remove_isolated_vertices(newFaces);
@@ -844,10 +848,10 @@ void QuadExtractorPostprocT<MeshT>::ngons_to_quads() {
 #ifndef NDEBUG
     const size_t deletedVertices =
 #endif
-            delete_old_vertices(vertex_map);
+            (checkCirculatorsTerminate(mesh_, "before deleting merged vertices"), delete_old_vertices(vertex_map));
 
 #ifndef NDEBUG
-    std::cout
+    QEX_LOG
             << "perform_initial_collapses:" << std::endl
             << "  Initially deleted " << deletedVertices << " vertices, created " << createdVertices << " vertices." << std::endl
             << "  Initially deleted " << deletedFaces_initial << " faces, updated " << updatedFaces_initial << " faces." << std::endl
@@ -859,7 +863,7 @@ void QuadExtractorPostprocT<MeshT>::ngons_to_quads() {
     mesh_.update_normals();
 
 #ifndef NDEBUG
-    std::cout << "Garbage collection done." << std::endl;
+    QEX_LOG << "Garbage collection done." << std::endl;
 #endif
 }
 
@@ -867,12 +871,12 @@ template<class MeshT>
 void QuadExtractorPostprocT<MeshT>::output_localuvs_of_selected_faces() {
     for (typename MeshT::FaceIter f_it = mesh_.faces_begin(), f_end = mesh_.faces_end(); f_it != f_end; ++f_it) {
         if (mesh_.status(*f_it).selected()) {
-            std::cout << "Face " << f_it->idx() << " [<vertex idx>(<local uv>)]: ";
+            QEX_LOG << "Face " << f_it->idx() << " [<vertex idx>(<local uv>)]: ";
             for (typename MeshT::FHIter fh_begin = mesh_.fh_begin(*f_it), fh_it = fh_begin, fh_end = mesh_.fh_end(*f_it); fh_it != fh_end; ++fh_it) {
-                if (fh_it != fh_begin) std::cout << ", ";
-                std::cout << mesh_.to_vertex_handle(*fh_it) << "(" << localUvsProp[*fh_it] << ")";
+                if (fh_it != fh_begin) QEX_LOG << ", ";
+                QEX_LOG << mesh_.to_vertex_handle(*fh_it) << "(" << localUvsProp[*fh_it] << ")";
             }
-            std::cout << std::endl;
+            QEX_LOG << std::endl;
         }
     }
 }
