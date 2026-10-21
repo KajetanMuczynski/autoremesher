@@ -366,10 +366,12 @@ MapCheck checkIntegerGridMap(const std::vector<Vector3>& vertices,
         std::vector<char> inDualTree(edgeCorner.size(), 0);
         std::vector<GridMap> toRoot(faces);
         std::vector<char> reached(faces, 0);
+        std::vector<size_t> component(faces, 0);
         for (size_t root = 0; root < faces; ++root) {
             if (reached[root])
                 continue;
             reached[root] = 1;
+            component[root] = root;
             std::deque<size_t> queue { root };
             while (!queue.empty()) {
                 const size_t f = queue.front();
@@ -382,6 +384,7 @@ MapCheck checkIntegerGridMap(const std::vector<Vector3>& vertices,
                     if (reached[g])
                         continue;
                     reached[g] = 1;
+                    component[g] = root;
                     inDualTree[edgeOf[c]] = 1;
                     // chart(g) -> chart(f) -> root chart
                     toRoot[g] = toRoot[f].after(transition[c]);
@@ -400,6 +403,11 @@ MapCheck checkIntegerGridMap(const std::vector<Vector3>& vertices,
         for (size_t edge = 0; edge < edgeCorner.size(); ++edge)
             if (!inDualTree[edge] && mesh.isBoundaryCorner(edgeCorner[edge]))
                 join(edge);
+        // Unrotated loop translations per component: they add up under
+        // concatenation, so they span a lattice whose shortest vector is the
+        // narrowest ring of quads around any combination of these handles,
+        // whichever basis the trees picked.
+        std::unordered_map<size_t, std::vector<Vector2>> translations;
         for (size_t edge = 0; edge < edgeCorner.size(); ++edge) {
             const size_t c = edgeCorner[edge];
             if (inDualTree[edge] || mesh.isBoundaryCorner(c) || join(edge))
@@ -411,13 +419,46 @@ MapCheck checkIntegerGridMap(const std::vector<Vector3>& vertices,
             if (holonomy.k != 0)
                 continue;
             ++check.handleLoopsUnrotated;
-            const double size = std::max(std::fabs(holonomy.t.x()), std::fabs(holonomy.t.y()));
-            if (check.handleTranslation < 0.0 || size < check.handleTranslation)
-                check.handleTranslation = size;
-            if (size < 0.5)
+            translations[component[a]].push_back(holonomy.t);
+        }
+        const auto size = [](const Vector2& t) { return std::max(std::fabs(t.x()), std::fabs(t.y())); };
+        for (const auto& item : translations) {
+            const std::vector<Vector2>& vectors = item.second;
+            double shortest = -1.0;
+            bool collapsed = false;
+            const auto consider = [&](const Vector2& t) {
+                if (size(t) < 0.5) {
+                    collapsed = true;
+                    return;
+                }
+                if (shortest < 0.0 || size(t) < shortest)
+                    shortest = size(t);
+            };
+            for (size_t i = 0; i < vectors.size(); ++i) {
+                consider(vectors[i]);
+                for (size_t j = i + 1; j < vectors.size(); ++j) {
+                    // Lagrange-Gauss reduction of the pair.
+                    Vector2 u = vectors[i], v = vectors[j];
+                    if (u.lengthSquared() < v.lengthSquared())
+                        std::swap(u, v);
+                    for (size_t step = 0; step < 64 && v.lengthSquared() > 0.25; ++step) {
+                        const double m = std::round((u.x() * v.x() + u.y() * v.y()) / v.lengthSquared());
+                        u = u - m * v;
+                        std::swap(u, v);
+                        if (v.lengthSquared() >= u.lengthSquared())
+                            break;
+                    }
+                    consider(u);
+                    consider(v);
+                }
+            }
+            if (collapsed)
                 ++check.handleLoopsCollapsed;
-            else if (size < 2.5)
+            else if (shortest >= 0.0 && shortest < 2.5)
                 ++check.handleLoopsThin;
+            const double value = collapsed ? 0.0 : shortest;
+            if (value >= 0.0 && (check.handleTranslation < 0.0 || value < check.handleTranslation))
+                check.handleTranslation = value;
         }
     }
     return check;

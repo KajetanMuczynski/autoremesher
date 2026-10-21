@@ -71,12 +71,16 @@ struct MapCheck {
     // Loops whose transition has no rotation; only their translation is a
     // property of the loop's homotopy class.
     size_t handleLoopsUnrotated = 0;
-    // Unrotated loops with zero translation: collapsed handles.
+    // Translations of the unrotated loops of one component add up under
+    // concatenation and span a lattice. Components whose lattice has a
+    // zero vector (a loop, or a combination of loops, with zero
+    // translation): collapsed handles.
     size_t handleLoopsCollapsed = 0;
-    // Unrotated loops with a translation of at most one seam period (two
-    // grid units): a ring of at most two quads.
+    // Components whose shortest lattice vector is at most one seam period
+    // (two grid units): a ring of at most two quads.
     size_t handleLoopsThin = 0;
-    // Smallest translation (max norm) of an unrotated loop; -1 without one.
+    // Shortest lattice vector (max norm) over components; -1 without
+    // unrotated loops.
     double handleTranslation = -1.0;
     size_t boundaryLoops = 0;
     // Boundary edges of zero length in the map.
