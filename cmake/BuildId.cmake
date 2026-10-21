@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 AutoRemesher fork contributors
+# Copyright (C) 2026 Quadami contributors
 #
 # The build id: the one place it is worked out, for autoremesher-cli
 # (--version) and the Blender add-on (addon/package.py). Script mode:

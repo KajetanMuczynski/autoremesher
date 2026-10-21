@@ -1,4 +1,4 @@
-# AutoRemesher upgrade: plan
+# Quadami: plan
 
 One prioritized, dependency-ordered plan, merged on 2026-10-14 from the earlier TODO ([archive/TODO-2026-10-14-pre-merge.md](archive/TODO-2026-10-14-pre-merge.md)) and every research report in [research/](research/).
 Update this file and add a session file in [sessions/](sessions/README.md) every session.

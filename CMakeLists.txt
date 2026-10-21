@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 AutoRemesher fork contributors
+# Copyright (C) 2026 Quadami contributors
 #
 # Qt-free build of the remeshing core and its command line, autoremesher-cli
 # (the Blender add-on's worker). The Qt app is still built with qmake
