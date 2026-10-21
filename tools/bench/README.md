@@ -69,7 +69,9 @@ $P tools/bench/ab.py run HEAD --set closed   # genus check; also --set suzanne
   report's UV flips (continuous, rounded, final), degenerate UV triangles, non-quads, SJ ≤ 0 quads,
   irregular vertices, in→out p99 distance (the fidelity target of docs/TARGETS.md), Hausdorff and mean distance, quad count error, rounded/continuous energy and
   time, the runs that fail, and topology (Euler characteristic, components and boundary loops equal to
-  the input, no non-manifold edge). `--per-run` adds one row per run.
+  the input, no non-manifold edge). `t_non_manifold` and `t_opened` count T's own defects from the
+  core's run record: non-manifold edges after isotropic remeshing, and closed input islands that T
+  left open or non-manifold (blank for cores before 2026-10-20). `--per-run` adds one row per run.
 - **Timing.** The `time` row is the CLI's own total under `--jobs` load. Use it for effects of 20 % or
   more; for anything finer run `--jobs 1` on an idle machine, or `ar_bench` with `--repeat`.
 

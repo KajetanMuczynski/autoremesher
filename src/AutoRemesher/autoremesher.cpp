@@ -69,6 +69,7 @@
 #endif
 #include <cfloat>
 #include <meshoptimizer.h>
+#include <numeric>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -110,42 +111,43 @@ namespace {
     const size_t maximumIslandRetries = 4;
     const double maximumRetriedIslandTriangleCount = 1024.0;
 
-    struct SurfaceTopology {
-        size_t components = 0;
-        size_t boundaryEdges = 0;
-        size_t nonManifoldEdges = 0;
-        long long eulerCharacteristic = 0;
-    };
+    using SurfaceTopology = AutoRemesher::SurfaceTopology;
 
-    // Counted on the vertex indices the faces use, whatever their numbering.
-    SurfaceTopology surfaceTopology(const std::vector<std::vector<size_t>>& faces)
+    // Faces is indexable, and so is each face; their corners index vertices
+    // 0..vertexCount-1.  Vertices no face uses are not counted.
+    template <typename Faces>
+    SurfaceTopology surfaceTopology(const Faces& faces, size_t vertexCount)
     {
         SurfaceTopology topology;
-        std::unordered_map<size_t, size_t> compactIndex;
-        std::vector<size_t> parent;
+        const size_t unused = std::numeric_limits<size_t>::max();
+        std::vector<size_t> parent(vertexCount, unused);
         const auto root = [&](size_t v) {
             while (parent[v] != v)
                 v = parent[v] = parent[parent[v]];
             return v;
         };
+        size_t usedVertices = 0;
         std::vector<std::pair<size_t, size_t>> edges;
-        for (const auto& face : faces) {
+        for (size_t f = 0; f < faces.size(); ++f) {
+            const auto& face = faces[f];
             for (size_t i = 0; i < face.size(); ++i) {
-                if (compactIndex.insert({ face[i], parent.size() }).second)
-                    parent.push_back(parent.size());
+                if (unused == parent[face[i]]) {
+                    parent[face[i]] = face[i];
+                    ++usedVertices;
+                }
             }
-            const size_t first = root(compactIndex[face[0]]);
+            const size_t first = root(face[0]);
             for (size_t i = 0; i < face.size(); ++i) {
-                parent[root(compactIndex[face[i]])] = first;
+                parent[root(face[i])] = first;
                 const size_t a = face[i], b = face[(i + 1) % face.size()];
                 edges.push_back({ std::min(a, b), std::max(a, b) });
             }
         }
-        for (size_t v = 0; v < parent.size(); ++v) {
-            if (root(v) == v)
+        for (size_t v = 0; v < vertexCount; ++v) {
+            if (parent[v] == v)
                 ++topology.components;
         }
-        std::sort(edges.begin(), edges.end());
+        tbb::parallel_sort(edges.begin(), edges.end());
         size_t edgeCount = 0;
         for (size_t i = 0; i < edges.size();) {
             size_t j = i;
@@ -158,8 +160,32 @@ namespace {
                 ++topology.nonManifoldEdges;
             i = j;
         }
-        topology.eulerCharacteristic = (long long)parent.size() - (long long)edgeCount + (long long)faces.size();
+        topology.eulerCharacteristic = (long long)usedVertices - (long long)edgeCount + (long long)faces.size();
         return topology;
+    }
+
+    // A flat triangle index buffer as surfaceTopology() reads faces.
+    struct FlatTriangles {
+        struct Triangle {
+            const unsigned int* corners;
+            size_t size() const { return 3; }
+            size_t operator[](size_t i) const { return corners[i]; }
+        };
+        const std::vector<unsigned int>& indices;
+        size_t size() const { return indices.size() / 3; }
+        Triangle operator[](size_t f) const { return { indices.data() + 3 * f }; }
+    };
+
+    // Whether decimating a surface of topology `input` to `output` kept it:
+    // one piece, no new non-manifold edge, and a closed surface stays closed.
+    // On a manifold input the Euler characteristic, so the genus, is kept too
+    // (a valid edge collapse keeps it, also on a border).
+    bool keepsTopology(const SurfaceTopology& input, const SurfaceTopology& output)
+    {
+        return output.components == input.components
+            && output.nonManifoldEdges <= input.nonManifoldEdges
+            && (0 != input.boundaryEdges || 0 == output.boundaryEdges)
+            && (0 != input.nonManifoldEdges || output.eulerCharacteristic == input.eulerCharacteristic);
     }
 
     // Whether a run gave the island a usable surface: one piece with some
@@ -167,11 +193,12 @@ namespace {
     // closed, a closed result of the same Euler characteristic (so the same
     // genus). Open islands are not held to their boundary: extraction still
     // caps short boundary loops (REFERENCE M15).
-    bool isHealthyIslandResult(const SurfaceTopology& input, const std::vector<std::vector<size_t>>& quads)
+    bool isHealthyIslandResult(const SurfaceTopology& input, const std::vector<Vector3>& vertices,
+        const std::vector<std::vector<size_t>>& quads)
     {
         if (quads.empty())
             return false;
-        const SurfaceTopology output = surfaceTopology(quads);
+        const SurfaceTopology output = surfaceTopology(quads, vertices.size());
         if (1 != output.components || 0 != output.nonManifoldEdges)
             return false;
         if (0 == input.boundaryEdges && 0 == input.nonManifoldEdges) {
@@ -276,6 +303,7 @@ double AutoRemesher::calculateMeshArea(const std::vector<Vector3>& vertices,
 
 bool AutoRemesher::decimateIfTooDense(std::vector<Vector3>& vertices,
     std::vector<std::vector<size_t>>& triangles,
+    const SurfaceTopology& topology,
     double voxelSize,
     double sharpEdgeDegrees,
     size_t islandIndex,
@@ -311,6 +339,48 @@ bool AutoRemesher::decimateIfTooDense(std::vector<Vector3>& vertices,
             indices.push_back((unsigned int)triangle[i]);
     }
 
+    // Marching-cubes output has zero-length edges between coincident vertices
+    // (blob_sym: 115, with 134 zero-area triangles on them).  meshopt takes
+    // every collapse next to a zero-area triangle for a flip and refuses it,
+    // so these edges are collapsed first: their ends merged and the triangles
+    // on them dropped.  Coincident vertices that no edge joins (the cat's 50
+    // pairs, where the surface touches itself) stay apart.  Before, welding
+    // every coincident pair also merged those, into non-manifold edges.
+    {
+        std::vector<unsigned int> parent(vertices.size());
+        std::iota(parent.begin(), parent.end(), 0u);
+        const auto root = [&](unsigned int v) {
+            while (parent[v] != v)
+                v = parent[v] = parent[parent[v]];
+            return v;
+        };
+        bool merged = false;
+        for (size_t i = 0; i < indices.size(); ++i) {
+            const unsigned int a = indices[i], b = indices[i - i % 3 + (i + 1) % 3];
+            const Vector3& p = vertices[a];
+            const Vector3& q = vertices[b];
+            if (p.x() != q.x() || p.y() != q.y() || p.z() != q.z())
+                continue;
+            const unsigned int ra = root(a), rb = root(b);
+            if (ra != rb) {
+                parent[std::max(ra, rb)] = std::min(ra, rb);
+                merged = true;
+            }
+        }
+        if (merged) {
+            size_t kept = 0;
+            for (size_t i = 0; i + 2 < indices.size(); i += 3) {
+                const unsigned int a = root(indices[i]), b = root(indices[i + 1]), c = root(indices[i + 2]);
+                if (a == b || b == c || c == a)
+                    continue;
+                indices[kept++] = a;
+                indices[kept++] = b;
+                indices[kept++] = c;
+            }
+            indices.resize(kept);
+        }
+    }
+
     Vector3 lowerBound = vertices.front();
     Vector3 upperBound = vertices.front();
     for (const auto& position : vertices) {
@@ -329,52 +399,56 @@ bool AutoRemesher::decimateIfTooDense(std::vector<Vector3>& vertices,
         positions.push_back((float)(position.z() - center.z()));
     }
 
-    std::vector<unsigned int> remap(vertices.size());
-    const size_t weldedVertexCount = meshopt_generateVertexRemap(remap.data(),
-        indices.data(), indices.size(),
-        positions.data(), vertices.size(), sizeof(float) * 3);
-    std::vector<Vector3> weldedVertices(weldedVertexCount);
-    std::vector<float> weldedPositions(weldedVertexCount * 3);
-    meshopt_remapIndexBuffer(indices.data(), indices.data(), indices.size(), remap.data());
-    meshopt_remapVertexBuffer(weldedPositions.data(), positions.data(),
-        vertices.size(), sizeof(float) * 3, remap.data());
-    for (size_t i = 0; i < vertices.size(); ++i) {
-        if (~0u != remap[i])
-            weldedVertices[remap[i]] = vertices[i];
-    }
-
     std::vector<unsigned char> vertexLock;
     if (sharpEdgeDegrees > 0.0) {
-        vertexLock.assign(weldedVertexCount, 0);
-        markSharpEdgeVertices(weldedVertices, indices,
+        vertexLock.assign(vertices.size(), 0);
+        markSharpEdgeVertices(vertices, indices,
             sharpEdgeDegrees * (M_PI / 180.0), vertexLock);
     }
 
+    // T must keep the input's topology: a non-manifold edge in it becomes a
+    // hole or a wrong genus in the output.  Plain meshopt merges vertices by
+    // position (on the cat 50 coincident pairs made 100 non-manifold edges)
+    // and checks collapses for flipped triangles but not for the link
+    // condition, so on a thin shell or a noisy scan a collapse could join two
+    // sheets into a non-manifold edge, which the isotropic remesher then
+    // opened into a hole.  meshopt_SimplifyKeepTopology, our addition to the
+    // vendored copy (thirdparty/meshoptimizer/README.md), does neither.
     std::vector<unsigned int> decimated(indices.size());
     float resultError = 0.0f;
     decimated.resize(meshopt_simplifyWithAttributes(decimated.data(),
         indices.data(), indices.size(),
-        weldedPositions.data(), weldedVertexCount, sizeof(float) * 3,
+        positions.data(), vertices.size(), sizeof(float) * 3,
         nullptr, 0, nullptr, 0,
         vertexLock.empty() ? nullptr : vertexLock.data(),
-        decimateTriangleCount * 3, FLT_MAX, meshopt_SimplifyRegularize, &resultError));
+        decimateTriangleCount * 3, FLT_MAX,
+        meshopt_SimplifyRegularize | meshopt_SimplifyKeepTopology, &resultError));
 
     if (decimated.size() < 3 || decimated.size() >= indices.size())
         return false;
 
-    std::vector<size_t> outputIndexOfWelded(weldedVertexCount, std::numeric_limits<size_t>::max());
+    // The link condition keeps the topology of a manifold input.  If it
+    // changed all the same (a non-manifold input), the island goes to the
+    // isotropic remesher as it is: slower, but T keeps the input's topology.
+    if (!keepsTopology(topology, surfaceTopology(FlatTriangles { decimated }, vertices.size()))) {
+        if (nullptr != stats)
+            ++stats->islandsKeptUndecimated;
+        return false;
+    }
+
+    std::vector<size_t> outputIndexOfInput(vertices.size(), std::numeric_limits<size_t>::max());
     std::vector<Vector3> decimatedVertices;
     std::vector<std::vector<size_t>> decimatedTriangles;
     decimatedTriangles.reserve(decimated.size() / 3);
     for (size_t i = 0; i + 2 < decimated.size(); i += 3) {
         std::vector<size_t> triangle(3);
         for (size_t j = 0; j < 3; ++j) {
-            const unsigned int weldedIndex = decimated[i + j];
-            if (std::numeric_limits<size_t>::max() == outputIndexOfWelded[weldedIndex]) {
-                outputIndexOfWelded[weldedIndex] = decimatedVertices.size();
-                decimatedVertices.push_back(weldedVertices[weldedIndex]);
+            const unsigned int inputIndex = decimated[i + j];
+            if (std::numeric_limits<size_t>::max() == outputIndexOfInput[inputIndex]) {
+                outputIndexOfInput[inputIndex] = decimatedVertices.size();
+                decimatedVertices.push_back(vertices[inputIndex]);
             }
-            triangle[j] = outputIndexOfWelded[weldedIndex];
+            triangle[j] = outputIndexOfInput[inputIndex];
         }
         decimatedTriangles.push_back(triangle);
     }
@@ -403,6 +477,7 @@ bool AutoRemesher::decimateIfTooDense(std::vector<Vector3>& vertices,
 
 void AutoRemesher::resample(std::vector<Vector3>& vertices,
     std::vector<std::vector<size_t>>& triangles,
+    const SurfaceTopology& topology,
     double voxelSize,
     double adaptivity,
     double sharpEdgeDegrees,
@@ -415,7 +490,7 @@ void AutoRemesher::resample(std::vector<Vector3>& vertices,
     std::vector<std::vector<size_t>>* decimatedTrianglesOut)
 {
     auto t_decimateStart = std::chrono::high_resolution_clock::now();
-    decimateIfTooDense(vertices, triangles, voxelSize, sharpEdgeDegrees, islandIndex, decimationStats);
+    decimateIfTooDense(vertices, triangles, topology, voxelSize, sharpEdgeDegrees, islandIndex, decimationStats);
     if (nullptr != decimationStats) {
         decimationStats->timeUs += std::chrono::duration_cast<std::chrono::microseconds>(
             std::chrono::high_resolution_clock::now() - t_decimateStart)
@@ -728,6 +803,7 @@ bool AutoRemesher::remeshIslands()
         std::vector<std::vector<size_t>> triangles;
         // Taken before resampling replaces vertices and triangles.
         QuadExtractor::Boundary inputBoundary;
+        SurfaceTopology inputTopology;
         double voxelSize;
         double area;
         double targetQuadCount;
@@ -758,6 +834,7 @@ bool AutoRemesher::remeshIslands()
             context.triangles.push_back(std::move(triangle));
         }
         context.area = calculateMeshArea(context.vertices, context.triangles);
+        context.inputTopology = surfaceTopology(context.triangles, context.vertices.size());
         context.inputBoundary = QuadExtractor::findBoundary(context.vertices, context.triangles);
 
         context.scaling = m_scaling;
@@ -837,6 +914,9 @@ bool AutoRemesher::remeshIslands()
         std::vector<Vector3> remeshedVertices;
         std::vector<std::vector<size_t>> remeshedQuads;
         std::vector<DiagnosticRecord> diagnostics;
+        // Of the island after decimation and after isotropic remeshing.
+        SurfaceTopology decimatedTopology;
+        SurfaceTopology isotropicTopology;
         bool parameterized = false;
         bool extracted = false;
         long long resampleUs = 0;
@@ -854,7 +934,7 @@ bool AutoRemesher::remeshIslands()
             0.0f, islandResampleEnd, -1.0f);
 
         auto t0 = std::chrono::high_resolution_clock::now();
-        resample(ctx.vertices, ctx.triangles, ctx.voxelSize, ctx.adaptivity, ctx.sharpEdgeDegrees, ctx.smoothNormalDegrees, islandIndex, stats,
+        resample(ctx.vertices, ctx.triangles, ctx.inputTopology, ctx.voxelSize, ctx.adaptivity, ctx.sharpEdgeDegrees, ctx.smoothNormalDegrees, islandIndex, stats,
             &adaptiveFieldTime, &isotropicProgress,
             &run.decimatedVertices, &run.decimatedTriangles);
         auto t1 = std::chrono::high_resolution_clock::now();
@@ -863,6 +943,8 @@ bool AutoRemesher::remeshIslands()
 
         run.isotropicVertices = ctx.vertices;
         run.isotropicTriangles = ctx.triangles;
+        run.decimatedTopology = surfaceTopology(run.decimatedTriangles, run.decimatedVertices.size());
+        run.isotropicTopology = surfaceTopology(run.isotropicTriangles, run.isotropicVertices.size());
 
         updateProgress(islandIndex, islandResampleEnd);
     };
@@ -968,15 +1050,13 @@ bool AutoRemesher::remeshIslands()
     // even at the minimum size above. Such an island is run again at a
     // slightly higher count, a few times; it is small, so this costs little.
     auto t_retryStart = std::chrono::high_resolution_clock::now();
-    std::vector<SurfaceTopology> inputTopologies(trianglesIslands.size());
     std::vector<size_t> islandsToRetry;
     for (size_t i = 0; i < islandContexes.size(); ++i) {
         const auto& ctx = islandContexes[i];
         if ((double)trianglesIslands[i].size() < minimumIslandTriangleCount
             || 2.0 * ctx.targetQuadCount > maximumRetriedIslandTriangleCount)
             continue;
-        inputTopologies[i] = surfaceTopology(trianglesIslands[i]);
-        if (!isHealthyIslandResult(inputTopologies[i], islandRuns[i].remeshedQuads))
+        if (!isHealthyIslandResult(ctx.inputTopology, islandRuns[i].remeshedVertices, islandRuns[i].remeshedQuads))
             islandsToRetry.push_back(i);
     }
     std::vector<size_t> islandRetryAttemptCounts(islandContexes.size(), 0);
@@ -1000,7 +1080,7 @@ bool AutoRemesher::remeshIslands()
                     IslandRun run;
                     resampleIsland(i, ctx, run, &retryDecimationStats);
                     parameterizeIsland(i, ctx, run);
-                    const bool healthy = isHealthyIslandResult(inputTopologies[i], run.remeshedQuads);
+                    const bool healthy = isHealthyIslandResult(ctx.inputTopology, run.remeshedVertices, run.remeshedQuads);
                     // Prefer a torn island to a missing one.
                     if (healthy || (islandRuns[i].remeshedQuads.empty() && !run.remeshedQuads.empty())) {
                         islandContexes[i] = std::move(ctx);
@@ -1155,12 +1235,15 @@ bool AutoRemesher::remeshIslands()
         phase("Build island contexts", t_buildUs);
 
         line.str(std::string());
-        if (decimatedIslands > 0) {
+        const size_t undecimatedIslands = decimationStats.islandsKeptUndecimated.load();
+        if (decimatedIslands > 0 || undecimatedIslands > 0) {
             line << "Mesh simplifier: RAN on " << decimatedIslands << " of "
                  << decimationStats.islandsConsidered.load() << " islands, "
                  << decimationStats.trianglesBefore.load() << " -> "
-                 << decimationStats.trianglesAfter.load() << " triangles, "
-                 << milliseconds(t_decimateUs);
+                 << decimationStats.trianglesAfter.load() << " triangles, ";
+            if (undecimatedIslands > 0)
+                line << undecimatedIslands << " kept undecimated (decimating changed their topology), ";
+            line << milliseconds(t_decimateUs);
         } else {
             line << "Mesh simplifier: SKIPPED (no island above "
                  << (long long)decimateTriggerRatio << "x target triangle count), "
@@ -1252,6 +1335,26 @@ bool AutoRemesher::remeshIslands()
         run.set("decimated_islands", (double)decimatedIslands);
         run.set("decimated_triangles_before", (double)decimationStats.trianglesBefore.load());
         run.set("decimated_triangles_after", (double)decimationStats.trianglesAfter.load());
+        run.set("undecimated_islands", (double)decimationStats.islandsKeptUndecimated.load());
+        {
+            // T's defects beyond the input's: a non-manifold edge or a hole in
+            // T becomes a hole or a wrong genus in the output.
+            size_t decimatedNonManifoldEdges = 0;
+            size_t isotropicNonManifoldEdges = 0;
+            size_t openedClosedIslands = 0;
+            for (size_t i = 0; i < islandRuns.size(); ++i) {
+                decimatedNonManifoldEdges += islandRuns[i].decimatedTopology.nonManifoldEdges;
+                isotropicNonManifoldEdges += islandRuns[i].isotropicTopology.nonManifoldEdges;
+                const auto& input = islandContexes[i].inputTopology;
+                const auto& isotropic = islandRuns[i].isotropicTopology;
+                if (0 == input.boundaryEdges && 0 == input.nonManifoldEdges
+                    && (0 != isotropic.boundaryEdges || 0 != isotropic.nonManifoldEdges))
+                    ++openedClosedIslands;
+            }
+            run.set("decimated_non_manifold_edges", (double)decimatedNonManifoldEdges);
+            run.set("isotropic_non_manifold_edges", (double)isotropicNonManifoldEdges);
+            run.set("isotropic_opened_closed_islands", (double)openedClosedIslands);
+        }
         run.set("retried_islands", (double)islandsToRetry.size());
         run.set("repaired_islands", (double)islandsRepaired.load());
         m_diagnostics.push_back(std::move(run));
@@ -1280,6 +1383,13 @@ bool AutoRemesher::remeshIslands()
             record.set("input_triangles", (double)trianglesIslands[i].size());
             record.set("target_quads", islandContexes[i].targetQuadCount);
             record.set("isotropic_triangles", (double)islandContexes[i].triangles.size());
+            record.set("input_boundary_edges", (double)islandContexes[i].inputTopology.boundaryEdges);
+            record.set("input_non_manifold_edges", (double)islandContexes[i].inputTopology.nonManifoldEdges);
+            record.set("decimated_boundary_edges", (double)islandRun.decimatedTopology.boundaryEdges);
+            record.set("decimated_non_manifold_edges", (double)islandRun.decimatedTopology.nonManifoldEdges);
+            record.set("isotropic_boundary_edges", (double)islandRun.isotropicTopology.boundaryEdges);
+            record.set("isotropic_non_manifold_edges", (double)islandRun.isotropicTopology.nonManifoldEdges);
+            record.set("isotropic_euler_characteristic", (double)islandRun.isotropicTopology.eulerCharacteristic);
             record.set("resample_ms", milliseconds(islandRun.resampleUs));
             record.set("parameterize_ms", milliseconds(islandRun.parameterizeUs));
             record.set("extract_ms", milliseconds(islandRun.extractUs));

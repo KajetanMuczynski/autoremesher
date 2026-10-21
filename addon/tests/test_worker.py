@@ -23,6 +23,7 @@ Needs numpy and a built CLI (CMakeLists.txt; the Qt app's headless mode works to
 
 import math
 import os
+import re
 import shutil
 import stat
 import sys
@@ -89,6 +90,18 @@ class NamesTest(unittest.TestCase):
         self.assertEqual(manifest["id"], names.ID)
         self.assertEqual(manifest["name"], names.NAME)
         self.assertEqual(manifest["license"], ["SPDX:GPL-3.0-or-later"])
+
+
+class TargetLimitTest(unittest.TestCase):
+    def test_limits_match_the_core(self):
+        path = os.path.join(os.path.dirname(__file__), "..", "..", "src", "AutoRemesher", "remesh.h")
+        with open(path, encoding="utf-8") as f:
+            header = f.read()
+        maximum = re.search(r"MaximumTargetQuadCount = (\d+);", header)
+        per_quad = re.search(r"ApproximatePeakBytesPerQuad = ([0-9.e]+);", header)
+        self.assertEqual(int(maximum.group(1)), worker.MAXIMUM_TARGET_QUADS)
+        self.assertEqual(float(per_quad.group(1)), worker.PEAK_BYTES_PER_QUAD)
+        self.assertLess(worker.LARGE_TARGET_QUADS, worker.MAXIMUM_TARGET_QUADS)
 
 
 class ReportTest(unittest.TestCase):
@@ -187,6 +200,13 @@ class CliTest(unittest.TestCase):
         # The output lies on the unit sphere.
         radii = np.linalg.norm(outcome.positions, axis=1)
         self.assertLess(float(np.abs(radii - 1.0).max()), 0.01)
+
+    def test_target_above_maximum(self):
+        positions, triangles = uv_sphere(16, 32)
+        outcome = worker.remesh(EXECUTABLE, positions, triangles,
+                                {"target_quads": worker.MAXIMUM_TARGET_QUADS + 1})
+        self.assertEqual(outcome.status, "invalid_input", outcome.message + "\n" + outcome.log)
+        self.assertIn("maximum", outcome.message)
 
     def test_non_ascii_temp_folder(self):
         # A Windows user name such as "Łucja" ends up in the temporary folder's path.

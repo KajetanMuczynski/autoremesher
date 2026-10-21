@@ -479,6 +479,8 @@ enum
 	meshopt_SimplifyPermissive = 1 << 5,
 	/* Produce more regular triangle sizes and shapes during simplification, at a small cost to geometric and attribute quality. */
 	meshopt_SimplifyRegularizeLight = 1 << 6,
+	/* AutoRemesher local addition, not in upstream meshoptimizer: keep the topology the indices define. Vertices with identical positions are not merged, and only collapses that satisfy the link condition are made, so a manifold mesh stays manifold (no edge gets more than two triangles, e.g. across a thin shell) and keeps its genus. */
+	meshopt_SimplifyKeepTopology = 1 << 24,
 };
 
 /**

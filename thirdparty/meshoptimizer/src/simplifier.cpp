@@ -1231,6 +1231,54 @@ static bool hasTriangleFlips(const EdgeAdjacency& adjacency, const Vector3* vert
 	return false;
 }
 
+// AutoRemesher local addition (meshopt_SimplifyKeepTopology): does collapsing i0 onto i1 break the link condition,
+// i.e. do i0 and i1 share a neighbor that isn't the apex of a triangle on edge i0-i1? Such a collapse merges two
+// edges into one that more than two triangles share, or pinches a handle, which changes the topology.
+static bool hasLinkViolation(const EdgeAdjacency& adjacency, const unsigned int* collapse_remap, const unsigned int* remap, unsigned int i0, unsigned int i1)
+{
+	const EdgeAdjacency::Edge* edges0 = &adjacency.data[adjacency.offsets[i0]];
+	size_t count0 = adjacency.offsets[i0 + 1] - adjacency.offsets[i0];
+	const EdgeAdjacency::Edge* edges1 = &adjacency.data[adjacency.offsets[i1]];
+	size_t count1 = adjacency.offsets[i1 + 1] - adjacency.offsets[i1];
+
+	for (size_t i = 0; i < count1; ++i)
+	{
+		unsigned int a1 = remap[collapse_remap[edges1[i].next]];
+		unsigned int b1 = remap[collapse_remap[edges1[i].prev]];
+
+		// skip triangles that already got collapsed previously
+		if (a1 == b1)
+			continue;
+
+		for (int k = 0; k < 2; ++k)
+		{
+			unsigned int w = k == 0 ? a1 : b1;
+
+			if (w == i0)
+				continue;
+
+			bool neighbor = false, apex = false;
+
+			for (size_t j = 0; j < count0; ++j)
+			{
+				unsigned int a0 = remap[collapse_remap[edges0[j].next]];
+				unsigned int b0 = remap[collapse_remap[edges0[j].prev]];
+
+				if (a0 == b0 || (a0 != w && b0 != w))
+					continue;
+
+				neighbor = true;
+				apex |= (a0 == i1 || b0 == i1);
+			}
+
+			if (neighbor && !apex)
+				return true;
+		}
+	}
+
+	return false;
+}
+
 static bool hasTriangleFlips(const EdgeAdjacency& adjacency, const Vector3* vertex_positions, unsigned int i0, const Vector3& v1)
 {
 	const Vector3& v0 = vertex_positions[i0];
@@ -1495,7 +1543,7 @@ static void sortEdgeCollapses(unsigned int* sort_order, const Collapse* collapse
 	}
 }
 
-static size_t performEdgeCollapses(unsigned int* collapse_remap, unsigned char* collapse_locked, const Collapse* collapses, size_t collapse_count, const unsigned int* collapse_order, const unsigned int* remap, const unsigned int* wedge, const unsigned char* vertex_kind, const unsigned int* loop, const unsigned int* loopback, const Vector3* vertex_positions, const EdgeAdjacency& adjacency, size_t triangle_collapse_goal, float error_limit, float& result_error)
+static size_t performEdgeCollapses(unsigned int* collapse_remap, unsigned char* collapse_locked, const Collapse* collapses, size_t collapse_count, const unsigned int* collapse_order, const unsigned int* remap, const unsigned int* wedge, const unsigned char* vertex_kind, const unsigned int* loop, const unsigned int* loopback, const Vector3* vertex_positions, const EdgeAdjacency& adjacency, size_t triangle_collapse_goal, float error_limit, float& result_error, bool link_condition)
 {
 	size_t edge_collapses = 0;
 	size_t triangle_collapses = 0;
@@ -1558,6 +1606,14 @@ static size_t performEdgeCollapses(unsigned int* collapse_remap, unsigned char* 
 		if (hasTriangleFlips(adjacency, vertex_positions, collapse_remap, r0, r1))
 		{
 			// adjust collapse goal since this collapse is invalid and shouldn't factor into error goal
+			edge_collapse_goal++;
+
+			TRACESTATS(2);
+			continue;
+		}
+
+		if (link_condition && hasLinkViolation(adjacency, collapse_remap, remap, r0, r1))
+		{
 			edge_collapse_goal++;
 
 			TRACESTATS(2);
@@ -2377,7 +2433,14 @@ size_t meshopt_simplifyEdge(unsigned int* destination, const unsigned int* indic
 	// wedge table stores next vertex with identical position for each vertex
 	unsigned int* remap = allocator.allocate<unsigned int>(vertex_count);
 	unsigned int* wedge = allocator.allocate<unsigned int>(vertex_count);
-	buildPositionRemap(remap, wedge, vertex_positions_data, vertex_count, vertex_positions_stride, sparse_remap, allocator);
+	if (options & meshopt_SimplifyKeepTopology)
+	{
+		// AutoRemesher local addition: vertices with identical positions stay distinct, as the indices say
+		for (size_t i = 0; i < vertex_count; ++i)
+			remap[i] = wedge[i] = unsigned(i);
+	}
+	else
+		buildPositionRemap(remap, wedge, vertex_positions_data, vertex_count, vertex_positions_stride, sparse_remap, allocator);
 
 	// classify vertices; vertex kind determines collapse rules, see kCanCollapse
 	unsigned char* vertex_kind = allocator.allocate<unsigned char>(vertex_count);
@@ -2517,7 +2580,7 @@ size_t meshopt_simplifyEdge(unsigned int* destination, const unsigned int* indic
 
 		memset(collapse_locked, 0, vertex_count);
 
-		size_t collapses = performEdgeCollapses(collapse_remap, collapse_locked, edge_collapses, edge_collapse_count, collapse_order, remap, wedge, vertex_kind, loop, loopback, vertex_positions, adjacency, triangle_collapse_goal, error_limit, result_error);
+		size_t collapses = performEdgeCollapses(collapse_remap, collapse_locked, edge_collapses, edge_collapse_count, collapse_order, remap, wedge, vertex_kind, loop, loopback, vertex_positions, adjacency, triangle_collapse_goal, error_limit, result_error, (options & meshopt_SimplifyKeepTopology) != 0);
 
 		// no edges can be collapsed any more due to hitting the error limit or triangle collapse limit
 		if (collapses == 0)
