@@ -21,13 +21,17 @@
  */
 #include <AutoRemesher/ConstrainedLeastSquares>
 #include <AutoRemesher/MixedIntegerLeastSquares>
+#include <AutoRemesher/Predicates>
 #include <AutoRemesher/QuadParameterizer>
 #include <AutoRemesher/SurfaceMesh>
+#include <AutoRemesher/Untangler>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
+#include <limits>
 #include <queue>
 #include <tbb/blocked_range.h>
 #include <tbb/parallel_for.h>
@@ -437,6 +441,200 @@ namespace {
         return seam;
     }
 
+    // Face f is mapped into the plane of its cross field direction u and the
+    // quarter turn v of it about the normal, one quad edge being su long
+    // along u and sv along v.
+    struct FaceFrame {
+        Vector3 u, v;
+        double su = 1.0, sv = 1.0;
+        Vector2 map(const Vector3& e) const
+        {
+            return Vector2(Vector3::dotProduct(u, e) / su, Vector3::dotProduct(v, e) / sv);
+        }
+    };
+
+    std::vector<FaceFrame> computeFaceFrames(const CoverContext& ctx)
+    {
+        const SurfaceMesh& mesh = ctx.mesh;
+        const bool hasFaceScaling = ctx.faceScaling && ctx.faceScaling->size() == mesh.faceCount();
+        std::vector<FaceFrame> frames(mesh.faceCount());
+        for (size_t f = 0; f < mesh.faceCount(); ++f) {
+            FaceFrame& frame = frames[f];
+            frame.u = ctx.field[f];
+            frame.v = unit(Vector3::crossProduct(ctx.normals[f], frame.u), mesh.edgeVector(3 * f));
+            const double faceScale = hasFaceScaling ? std::max(1e-12, (*ctx.faceScaling)[f]) : 1.0;
+            frame.su = ctx.scale * faceScale * std::max(1e-12, ctx.scalingU[f]);
+            frame.sv = ctx.scale * faceScale * std::max(1e-12, ctx.scalingV[f]);
+        }
+        return frames;
+    }
+
+    // The angle that turns `from` onto `to`, counter-clockwise positive.
+    double signedAngle(const Vector2& from, const Vector2& to)
+    {
+        return std::atan2(from.x() * to.y() - from.y() * to.x(), from.x() * to.x() + from.y() * to.y());
+    }
+
+    // `v` turned by r quarter turns counter-clockwise.
+    Vector2 turnedQuarters(const Vector2& v, int r)
+    {
+        switch ((r % 4 + 4) % 4) {
+        case 1:
+            return Vector2(-v.y(), v.x());
+        case 2:
+            return Vector2(-v.x(), -v.y());
+        case 3:
+            return Vector2(v.y(), -v.x());
+        default:
+            return v;
+        }
+    }
+
+    // How the map winds around interior vertices compared with what the cross
+    // field asks for. Walking around a vertex, the direction of an edge out of
+    // it turns by minus the corner angle inside each face and by rotation[c]
+    // quarter turns across each edge (the cover maps face f to Q g + t, with
+    // Q the quarter turn by -rotation[c]), and returns to itself. So the
+    // map's angle sum is 2 pi w + R pi / 2 for an integer w and the fan's
+    // rotation sum R. The target triangles (each face in its frame) give the
+    // field's own sum in the same way, where the frames also turn a little
+    // across edges besides the quarter turns. A vertex whose two sums differ,
+    // necessarily by a multiple of 2 pi, is wound wrongly: a cone at -pi / 2
+    // instead of 3 pi / 2 is one turn short, a regular vertex at 0 is folded
+    // over. Boundary vertices are skipped.
+    struct Winding {
+        size_t interiorVertices = 0;
+        size_t cones = 0;
+        size_t miswoundCones = 0;
+        // Cones whose map angle is smaller than the field's (one turn or more).
+        size_t shortCones = 0;
+        size_t miswoundRegular = 0;
+        // Cones the field asks to have an angle other than 3 pi / 2 or 5 pi / 2.
+        size_t unusualCones = 0;
+        size_t conesWithFlips = 0;
+        // Vertices with an edge of zero length in the map: their winding is
+        // not defined, so they are not classified.
+        size_t degenerateFans = 0;
+        size_t flipped = 0;
+        size_t flippedNearCones = 0;
+        size_t flippedNearMiswound = 0;
+        size_t flippedNearUnusual = 0;
+        // The largest turn of a mapped edge across a seam besides its quarter
+        // turns: zero up to rounding while the transitions hold.
+        double transitionError = 0.0;
+    };
+
+    Winding measureWinding(const SurfaceMesh& mesh, const std::vector<int>& rotation,
+        const std::vector<FaceFrame>& frames, const std::vector<double>& uvs)
+    {
+        Winding winding;
+        const auto uvOf = [&](size_t c) { return Vector2(uvs[2 * c], uvs[2 * c + 1]); };
+        std::vector<char> flipped(mesh.faceCount(), 0), nearCone(mesh.faceCount(), 0), nearMiswound(mesh.faceCount(), 0),
+            nearUnusual(mesh.faceCount(), 0);
+        for (size_t f = 0; f < mesh.faceCount(); ++f)
+            if (Predicates::orient2d(uvOf(3 * f), uvOf(3 * f + 1), uvOf(3 * f + 2)) < 0) {
+                flipped[f] = 1;
+                ++winding.flipped;
+            }
+        const double quarter = .5 * M_PI;
+        for (size_t vertex = 0; vertex < mesh.vertexCount(); ++vertex) {
+            const auto& incident = mesh.cornersAroundVertex(vertex);
+            if (incident.empty())
+                continue;
+            const size_t start = incident.front();
+            size_t c = start, steps = 0;
+            int rotationSum = 0;
+            double mapSum = 0.0, fieldSum = 0.0;
+            bool closed = true, degenerate = false, starFlipped = false;
+            do {
+                const size_t oc = mesh.oppositeCorner(c);
+                if (oc == SurfaceMesh::npos) {
+                    closed = false;
+                    break;
+                }
+                const size_t f = mesh.cornerFace(c), g = mesh.cornerFace(oc), other = mesh.nextCorner(oc);
+                const size_t n = mesh.nextCorner(c), p = mesh.previousCorner(c);
+                const int r = (rotation[c] % 4 + 4) % 4;
+                const Vector2 out = uvOf(n) - uvOf(c), in = uvOf(p) - uvOf(c);
+                if (out.lengthSquared() == 0.0 || in.lengthSquared() == 0.0)
+                    degenerate = true;
+                starFlipped = starFlipped || flipped[f];
+                // Angle sums net of the extra turn across the edge, so that
+                // each is exactly 2 pi w + R pi / 2.
+                const double mapTurn = signedAngle(turnedQuarters(out, r), uvOf(oc) - uvOf(other));
+                winding.transitionError = std::max(winding.transitionError, std::fabs(mapTurn));
+                mapSum += signedAngle(out, in) - mapTurn;
+                const Vector3 e = mesh.edgeVector(c);
+                const Vector2 fieldOut = frames[f].map(e), fieldIn = frames[f].map(-mesh.edgeVector(p));
+                fieldSum += signedAngle(fieldOut, fieldIn) - signedAngle(turnedQuarters(fieldOut, r), frames[g].map(e));
+                rotationSum += r;
+                c = other;
+            } while (c != start && ++steps <= incident.size());
+            if (!closed || c != start)
+                continue;
+            ++winding.interiorVertices;
+            const bool cone = rotationSum % 4 != 0;
+            const double base = quarter * rotationSum;
+            const long mapTurns = std::lround((mapSum - base) / (2.0 * M_PI));
+            const long fieldTurns = std::lround((fieldSum - base) / (2.0 * M_PI));
+            const double fieldAngle = base + 2.0 * M_PI * fieldTurns;
+            if (cone) {
+                ++winding.cones;
+                if (std::fabs(fieldAngle - 3.0 * quarter) > 1.0 && std::fabs(fieldAngle - 5.0 * quarter) > 1.0) {
+                    ++winding.unusualCones;
+                    for (size_t corner : incident)
+                        nearUnusual[mesh.cornerFace(corner)] = 1;
+                }
+                if (starFlipped)
+                    ++winding.conesWithFlips;
+            }
+            if (degenerate) {
+                ++winding.degenerateFans;
+                continue;
+            }
+            const bool miswound = mapTurns != fieldTurns;
+            if (miswound) {
+                if (cone) {
+                    ++winding.miswoundCones;
+                    if (mapTurns < fieldTurns)
+                        ++winding.shortCones;
+                } else {
+                    ++winding.miswoundRegular;
+                }
+            }
+            if (cone || miswound)
+                for (size_t corner : incident) {
+                    if (cone)
+                        nearCone[mesh.cornerFace(corner)] = 1;
+                    if (miswound)
+                        nearMiswound[mesh.cornerFace(corner)] = 1;
+                }
+        }
+        for (size_t f = 0; f < mesh.faceCount(); ++f)
+            if (flipped[f]) {
+                winding.flippedNearCones += nearCone[f];
+                winding.flippedNearMiswound += nearMiswound[f];
+                winding.flippedNearUnusual += nearUnusual[f];
+            }
+        return winding;
+    }
+
+    void appendWinding(DiagnosticRecord* record, const std::string& prefix, const Winding& winding)
+    {
+        record->set(prefix + "_interior_vertices", (double)winding.interiorVertices);
+        record->set(prefix + "_cones", (double)winding.cones);
+        record->set(prefix + "_miswound_cones", (double)winding.miswoundCones);
+        record->set(prefix + "_short_cones", (double)winding.shortCones);
+        record->set(prefix + "_miswound_regular", (double)winding.miswoundRegular);
+        record->set(prefix + "_unusual_cones", (double)winding.unusualCones);
+        record->set(prefix + "_cones_with_flips", (double)winding.conesWithFlips);
+        record->set(prefix + "_degenerate_fans", (double)winding.degenerateFans);
+        record->set(prefix + "_flipped_near_cones", (double)winding.flippedNearCones);
+        record->set(prefix + "_flipped_near_miswound", (double)winding.flippedNearMiswound);
+        record->set(prefix + "_flipped_near_unusual", (double)winding.flippedNearUnusual);
+        record->set(prefix + "_transition_error", winding.transitionError);
+    }
+
     void addRotationConstraints(MixedIntegerLeastSquares& s, size_t ax, size_t bx, int r, double sign)
     {
         r = (r % 4 + 4) % 4;
@@ -499,7 +697,9 @@ namespace {
     // r = log of the requested edge, both area weighted and centred. Records
     // the RMS of a - r and the slope of a against r: 1 when every requested
     // size change is realised, 0 for uniform quads. Flipped faces count with
-    // their absolute uv area; degenerate ones are skipped.
+    // their absolute uv area; degenerate ones are skipped. The spread of
+    // the requested sizes and the measured area, which do not depend on the
+    // map much, are recorded only for the continuous map.
     void appendSizeFidelity(DiagnosticRecord* record, const std::string& prefix, const SurfaceMesh& mesh,
         const MixedIntegerLeastSquares& s, const std::vector<double>* faceScaling, double scale)
     {
@@ -533,6 +733,8 @@ namespace {
         }
         record->set(prefix + "_size_error_rms", std::sqrt(error / totalWeight));
         record->set(prefix + "_size_slope", variance > 0.0 ? covariance / variance : 0.0);
+        if (prefix != "continuous")
+            return;
         record->set("requested_size_spread", std::sqrt(variance / totalWeight));
         record->set("size_measured_area", totalWeight);
     }
@@ -547,6 +749,288 @@ namespace {
         return uvs;
     }
 
+    // How far around an inverted face untangling moves the map, in vertex
+    // rings, and how strongly it holds the map to the frames' rotation
+    // (Untangler::Options::alignment). On 20 corpus runs (2k and 10k quads,
+    // Quality) 1, 2 and 4 rings without alignment left 0.24, 0.16 and 0.08
+    // times the final flips but did not lower folded quads and SJ <= 0; with
+    // alignment 10, 2 rings gave flips x0.29, non-quads x0.64, folded quads
+    // x0.80 and SJ <= 0 x0.79 (geometric means) for about 4 % of the run.
+    const size_t untangleRings = 2;
+    const double untangleAlignment = 10.0;
+
+    // Untangles the rounded cover where it is inverted. The faces within
+    // `rings` vertex rings of an inverted or degenerate face give the
+    // continuous kernel variables that move; every integer stays fixed, and
+    // so do the variables of faces farther out. Every face that depends on a
+    // moving variable enters Untangler's energy, with itself in its frame as
+    // the target. The result is kept only if fewer faces end up inverted or
+    // degenerate.
+    //
+    // Faces whose three corners share a coordinate whatever the free
+    // variables are (all three on one hard-feature isoline, say) are
+    // degenerate by the constraints alone; they are counted, and left out.
+    void untangleCover(const SurfaceMesh& mesh, const std::vector<FaceFrame>& frames, size_t rings,
+        MixedIntegerLeastSquares* s, DiagnosticRecord* result)
+    {
+        const size_t faceCount = mesh.faceCount();
+        const size_t coordinates = 2 * mesh.cornerCount();
+        const auto badFace = [&](size_t f) {
+            const auto uv = [&](size_t c) { return Vector2(s->value(2 * c), s->value(2 * c + 1)); };
+            return Predicates::orient2d(uv(3 * f), uv(3 * f + 1), uv(3 * f + 2)) <= 0;
+        };
+        std::vector<char> bad(faceCount, 0);
+        size_t badCount = 0;
+        for (size_t f = 0; f < faceCount; ++f)
+            if (badFace(f)) {
+                bad[f] = 1;
+                ++badCount;
+            }
+        if (0 == badCount)
+            return;
+
+        // Every uv coordinate in kernel terms.
+        std::vector<size_t> termOffset(coordinates + 1, 0);
+        std::vector<std::pair<size_t, double>> terms, line;
+        for (size_t i = 0; i < coordinates; ++i) {
+            s->kernelTerms(i, &line);
+            terms.insert(terms.end(), line.begin(), line.end());
+            termOffset[i + 1] = terms.size();
+        }
+        // Whether coordinates i and j are the same affine function of the
+        // free kernel variables.
+        const auto sameCoordinate = [&](size_t i, size_t j) {
+            std::vector<std::pair<size_t, double>> difference;
+            double constant = 0.0, magnitude = 0.0;
+            const auto collect = [&](size_t coordinate, double sign) {
+                for (size_t k = termOffset[coordinate]; k < termOffset[coordinate + 1]; ++k) {
+                    const size_t variable = terms[k].first;
+                    const double a = sign * terms[k].second;
+                    magnitude = std::max(magnitude, std::fabs(a));
+                    if (s->kernelVariableFixed(variable))
+                        constant += a * s->kernelValue(variable);
+                    else
+                        difference.push_back({ variable, a });
+                }
+            };
+            collect(i, 1.0);
+            collect(j, -1.0);
+            if (std::fabs(constant) > 1e-9)
+                return false;
+            std::sort(difference.begin(), difference.end());
+            for (size_t k = 0; k < difference.size();) {
+                double sum = 0.0;
+                size_t next = k;
+                for (; next < difference.size() && difference[next].first == difference[k].first; ++next)
+                    sum += difference[next].second;
+                if (std::fabs(sum) > 1e-12 * magnitude)
+                    return false;
+                k = next;
+            }
+            return true;
+        };
+        std::vector<char> pinned(faceCount, 0), region(faceCount, 0);
+        size_t pinnedCount = 0, seeds = 0;
+        for (size_t f = 0; f < faceCount; ++f) {
+            if (!bad[f])
+                continue;
+            for (size_t row = 0; row < 2 && !pinned[f]; ++row)
+                pinned[f] = sameCoordinate(6 * f + row, 6 * f + 2 + row) && sameCoordinate(6 * f + row, 6 * f + 4 + row);
+            pinnedCount += pinned[f];
+            if (!pinned[f]) {
+                region[f] = 1;
+                ++seeds;
+            }
+        }
+        result->set("untangle_seed_faces", (double)seeds);
+        result->set("untangle_pinned_faces", (double)pinnedCount);
+        if (0 == seeds)
+            return;
+        std::vector<char> marked(mesh.vertexCount(), 0);
+        for (size_t ring = 0; ring <= rings; ++ring) {
+            for (size_t f = 0; f < faceCount; ++f)
+                if (region[f])
+                    for (size_t l = 0; l < 3; ++l)
+                        marked[mesh.cornerVertex(3 * f + l)] = 1;
+            if (ring == rings)
+                break;
+            for (size_t f = 0; f < faceCount; ++f)
+                for (size_t l = 0; l < 3 && !region[f]; ++l)
+                    if (marked[mesh.cornerVertex(3 * f + l)])
+                        region[f] = 1;
+        }
+
+        // The kernel variables that move: the free ones of the region.
+        const size_t none = std::numeric_limits<size_t>::max();
+        std::vector<size_t> moving(s->kernelSize(), none);
+        size_t variableCount = 0, regionFaces = 0;
+        for (size_t f = 0; f < faceCount; ++f) {
+            if (!region[f] || pinned[f])
+                continue;
+            ++regionFaces;
+            for (size_t i = 6 * f; i < 6 * f + 6; ++i)
+                for (size_t k = termOffset[i]; k < termOffset[i + 1]; ++k) {
+                    const size_t variable = terms[k].first;
+                    if (moving[variable] == none && !s->kernelVariableFixed(variable))
+                        moving[variable] = variableCount++;
+                }
+        }
+        std::vector<size_t> faces;
+        for (size_t f = 0; f < faceCount; ++f) {
+            bool depends = false;
+            for (size_t k = termOffset[6 * f]; k < termOffset[6 * f + 6] && !depends; ++k)
+                depends = moving[terms[k].first] != none;
+            if (depends && !pinned[f])
+                faces.push_back(f);
+        }
+        result->set("untangle_region_faces", (double)regionFaces);
+        result->set("untangle_faces", (double)faces.size());
+        result->set("untangle_variables", (double)variableCount);
+        if (0 == variableCount)
+            return;
+
+        // Faces linked by a moving variable form a component, and each
+        // component is untangled on its own, with its own eps: a spot where
+        // no inversion-free map exists keeps eps up, and would hold back the
+        // others if they shared it. Components are numbered by their first
+        // face, so the result does not depend on the threads.
+        std::vector<size_t> parent(variableCount);
+        for (size_t i = 0; i < variableCount; ++i)
+            parent[i] = i;
+        const auto root = [&](size_t i) {
+            while (parent[i] != i)
+                i = parent[i] = parent[parent[i]];
+            return i;
+        };
+        const auto faceVariable = [&](size_t f) {
+            for (size_t k = termOffset[6 * f]; k < termOffset[6 * f + 6]; ++k)
+                if (moving[terms[k].first] != none)
+                    return moving[terms[k].first];
+            return none;
+        };
+        for (size_t f : faces) {
+            const size_t first = root(faceVariable(f));
+            for (size_t k = termOffset[6 * f]; k < termOffset[6 * f + 6]; ++k)
+                if (moving[terms[k].first] != none) {
+                    const size_t other = root(moving[terms[k].first]);
+                    if (other != first)
+                        parent[other] = first;
+                }
+        }
+        std::vector<size_t> componentOf(variableCount, none);
+        std::vector<std::vector<size_t>> componentFaces;
+        for (size_t f : faces) {
+            const size_t r = root(faceVariable(f));
+            if (componentOf[r] == none) {
+                componentOf[r] = componentFaces.size();
+                componentFaces.emplace_back();
+            }
+            componentFaces[componentOf[r]].push_back(f);
+        }
+        // Variables of each component, numbered from 0 within it.
+        std::vector<std::vector<size_t>> componentVariables(componentFaces.size());
+        std::vector<size_t> local(s->kernelSize(), none);
+        for (size_t variable = 0; variable < moving.size(); ++variable)
+            if (moving[variable] != none) {
+                std::vector<size_t>& list = componentVariables[componentOf[root(moving[variable])]];
+                local[variable] = list.size();
+                list.push_back(variable);
+            }
+
+        std::vector<std::vector<double>> solutions(componentFaces.size());
+        std::vector<Untangler::Stats> stats(componentFaces.size());
+        tbb::parallel_for(tbb::blocked_range<size_t>(0, componentFaces.size()), [&](const tbb::blocked_range<size_t>& range) {
+            for (size_t component = range.begin(); component != range.end(); ++component) {
+                const std::vector<size_t>& variables = componentVariables[component];
+                Untangler::Options options;
+                options.alignment = untangleAlignment;
+                Untangler untangler(variables.size(), options);
+                for (size_t f : componentFaces[component]) {
+                    const FaceFrame& frame = frames[f];
+                    const std::array<Vector2, 3> target = { Vector2(0.0, 0.0), frame.map(mesh.edgeVector(3 * f)),
+                        -1.0 * frame.map(mesh.edgeVector(3 * f + 2)) };
+                    const double area = .5 * (target[1].x() * target[2].y() - target[1].y() * target[2].x());
+                    std::array<Untangler::Coordinate, 6> corners;
+                    for (size_t i = 0; i < 6; ++i)
+                        for (size_t k = termOffset[6 * f + i]; k < termOffset[6 * f + i + 1]; ++k) {
+                            const size_t variable = terms[k].first;
+                            if (moving[variable] != none)
+                                corners[i].terms.push_back({ local[variable], terms[k].second });
+                            else
+                                corners[i].constant += terms[k].second * s->kernelValue(variable);
+                        }
+                    untangler.addTriangle(target, area, corners);
+                }
+                std::vector<double>& x = solutions[component];
+                x.resize(variables.size());
+                for (size_t i = 0; i < variables.size(); ++i)
+                    x[i] = s->kernelValue(variables[i]);
+                untangler.untangle(&x, &stats[component]);
+            }
+        });
+
+        // Keeps a component's result only if fewer of its faces are bad.
+        size_t badBefore = 0, badAfter = 0, accepted = 0, solved = 0;
+        size_t iterations = 0, newtonSteps = 0, factorizations = 0, largest = 0;
+        double minimumDeterminant = std::numeric_limits<double>::infinity();
+        for (size_t component = 0; component < componentFaces.size(); ++component) {
+            const std::vector<size_t>& variables = componentVariables[component];
+            std::vector<double> previous(variables.size());
+            size_t before = 0, after = 0;
+            for (size_t f : componentFaces[component])
+                before += badFace(f);
+            for (size_t i = 0; i < variables.size(); ++i) {
+                previous[i] = s->kernelValue(variables[i]);
+                s->setKernelValue(variables[i], solutions[component][i]);
+            }
+            for (size_t f : componentFaces[component])
+                after += badFace(f);
+            if (after < before) {
+                ++accepted;
+            } else {
+                for (size_t i = 0; i < variables.size(); ++i)
+                    s->setKernelValue(variables[i], previous[i]);
+                after = before;
+            }
+            badBefore += before;
+            badAfter += after;
+            solved += 0 == after;
+            const Untangler::Stats& st = stats[component];
+            iterations = std::max(iterations, st.iterations);
+            newtonSteps += st.newtonSteps;
+            factorizations += st.factorizations;
+            largest = std::max(largest, variables.size());
+            minimumDeterminant = std::min(minimumDeterminant, st.minimumDeterminantAfter);
+        }
+        {
+            std::vector<char> nearPinned(mesh.vertexCount(), 0);
+            for (size_t f = 0; f < faceCount; ++f)
+                if (pinned[f])
+                    for (size_t l = 0; l < 3; ++l)
+                        nearPinned[mesh.cornerVertex(3 * f + l)] = 1;
+            size_t leftNearPinned = 0;
+            for (size_t f = 0; f < faceCount; ++f) {
+                if (pinned[f] || !badFace(f))
+                    continue;
+                bool near = false;
+                for (size_t l = 0; l < 3; ++l)
+                    near = near || nearPinned[mesh.cornerVertex(3 * f + l)];
+                leftNearPinned += near;
+            }
+            result->set("untangle_left_near_pinned", (double)leftNearPinned);
+        }
+        result->set("untangle_components", (double)componentFaces.size());
+        result->set("untangle_components_accepted", (double)accepted);
+        result->set("untangle_components_solved", (double)solved);
+        result->set("untangle_largest_component", (double)largest);
+        result->set("untangle_inverted_before", (double)badBefore);
+        result->set("untangle_inverted_after", (double)badAfter);
+        result->set("untangle_min_det_after", minimumDeterminant);
+        result->set("untangle_iterations_max", (double)iterations);
+        result->set("untangle_newton_steps", (double)newtonSteps);
+        result->set("untangle_factorizations", (double)factorizations);
+    }
+
     // Appends "cover_system" and one "rounding_iteration" per pass to
     // `diagnostics`, and fills `result` with the residuals and map validity.
     bool solveQuadCover(const CoverContext& ctx, std::vector<double>* values,
@@ -554,13 +1038,9 @@ namespace {
         std::vector<DiagnosticRecord>* diagnostics, DiagnosticRecord* result)
     {
         const SurfaceMesh& mesh = ctx.mesh;
-        const std::vector<Vector3>& field = ctx.field;
-        const std::vector<Vector3>& normals = ctx.normals;
         const std::vector<int>& rotation = ctx.rotation;
         const std::vector<char>& seam = ctx.seam;
         const std::vector<signed char>& cornerConstraints = ctx.cornerConstraints;
-        const std::vector<double>& activeScalingU = ctx.scalingU;
-        const std::vector<double>& activeScalingV = ctx.scalingV;
         const std::vector<double>* faceScaling = ctx.faceScaling;
         const double scale = ctx.scale;
         const size_t corners = mesh.cornerCount();
@@ -574,24 +1054,18 @@ namespace {
         MixedIntegerLeastSquares s(variables);
         for (size_t t = 0; t < 2 * corners; ++t)
             s.setVariablePeriod(uvVariables + t, 2);
+        const std::vector<FaceFrame> frames = computeFaceFrames(ctx);
         double expectedCells = 0.0;
         for (size_t f = 0; f < mesh.faceCount(); ++f) {
-            const Vector3 u = field[f], v = unit(Vector3::crossProduct(normals[f], u), mesh.edgeVector(3 * f));
-            const double faceScale = faceScaling && faceScaling->size() == mesh.faceCount()
-                ? std::max(1e-12, (*faceScaling)[f])
-                : 1.0;
-            const double directionalU = std::max(1e-12, activeScalingU[f]);
-            const double directionalV = std::max(1e-12, activeScalingV[f]);
-            const double su = scale * faceScale * directionalU;
-            const double sv = scale * faceScale * directionalV;
+            const FaceFrame& frame = frames[f];
             const double faceArea = .5 * Vector3::crossProduct(mesh.edgeVector(3 * f), -mesh.edgeVector(3 * f + 2)).length();
-            expectedCells += faceArea / (su * sv);
+            expectedCells += faceArea / (frame.su * frame.sv);
             for (size_t l = 0; l < 3; ++l) {
                 size_t c = 3 * f + l, n = mesh.nextCorner(c);
-                Vector3 e = mesh.edgeVector(c);
-                const double weight = su * sv;
-                s.addEnergy(2 * n, 1, 2 * c, -1, Vector3::dotProduct(u, e) / su, weight);
-                s.addEnergy(2 * n + 1, 1, 2 * c + 1, -1, Vector3::dotProduct(v, e) / sv, weight);
+                const Vector2 target = frame.map(mesh.edgeVector(c));
+                const double weight = frame.su * frame.sv;
+                s.addEnergy(2 * n, 1, 2 * c, -1, target.x(), weight);
+                s.addEnergy(2 * n + 1, 1, 2 * c + 1, -1, target.y(), weight);
             }
         }
         s.addConstraint(0, 1);
@@ -738,12 +1212,14 @@ namespace {
                 // Nothing is fixed in the first pass, so its solution is the
                 // continuous relaxation: flips there are not caused by
                 // rounding.
-                appendUvOrientation(result, "continuous", measureUvOrientation(cornerUvs(s, uvVariables)));
+                const std::vector<double> uvs = cornerUvs(s, uvVariables);
+                appendUvOrientation(result, "continuous", measureUvOrientation(uvs));
+                appendWinding(result, "continuous", measureWinding(mesh, rotation, frames, uvs));
             }
             if (s.converged())
                 break;
         }
-        report(0.98f, "Rounding cover to integers");
+        report(0.96f, "Rounding cover to integers");
         size_t violatedConstraints = 0;
         const double constraintResidual = s.constraintResidual(1e-6, &violatedConstraints);
         result->set("converged", s.converged() ? 1.0 : 0.0);
@@ -751,7 +1227,25 @@ namespace {
         result->set("rounded_energy", s.energy());
         result->set("constraint_residual", constraintResidual);
         result->set("violated_constraints", (double)violatedConstraints);
-        appendUvOrientation(result, "rounded", measureUvOrientation(cornerUvs(s, uvVariables)));
+        {
+            const std::vector<double> uvs = cornerUvs(s, uvVariables);
+            appendUvOrientation(result, "rounded", measureUvOrientation(uvs));
+            appendSizeFidelity(result, "rounded", mesh, s, faceScaling, scale);
+            result->set("rounded_cells", coverCellArea(mesh, s));
+            appendWinding(result, "rounded", measureWinding(mesh, rotation, frames, uvs));
+        }
+        report(0.97f, "Untangling cover");
+        {
+            const auto untangleStart = std::chrono::steady_clock::now();
+            untangleCover(mesh, frames, untangleRings, &s, result);
+            result->set("untangle_seconds", std::chrono::duration<double>(std::chrono::steady_clock::now() - untangleStart).count());
+            const std::vector<double> uvs = cornerUvs(s, uvVariables);
+            appendUvOrientation(result, "untangled", measureUvOrientation(uvs));
+            appendSizeFidelity(result, "untangled", mesh, s, faceScaling, scale);
+            result->set("untangled_cells", coverCellArea(mesh, s));
+            appendWinding(result, "untangled", measureWinding(mesh, rotation, frames, uvs));
+            result->set("untangled_energy", s.energy());
+        }
         values->resize(variables);
         for (size_t i = 0; i < variables; ++i)
             (*values)[i] = s.value(i);
@@ -762,11 +1256,66 @@ namespace {
         const std::vector<double>& allValues,
         size_t uvVariables, QuadParameterizer::Result* result, DiagnosticRecord* diagnostics)
     {
-        std::vector<double> uv(allValues.begin(), allValues.begin() + uvVariables);
+        const std::vector<double> unsnapped(allValues.begin(), allValues.begin() + uvVariables);
+        std::vector<double> uv = unsnapped;
         for (double& coordinate : uv) {
             const double integer = std::round(coordinate);
             if (std::fabs(coordinate - integer) < 0.01)
                 coordinate = integer;
+        }
+        // A snap moves a corner by up to 0.01, enough to invert a thin
+        // triangle the map had right (untangling leaves some), though it
+        // also rights some that were inverted by less. A vertex next to a
+        // triangle the snap inverted keeps its unsnapped uv, at all its
+        // corners so that the charts stay consistent, where that leaves
+        // fewer of its triangles inverted; repeated until nothing changes,
+        // which ends because each change lowers the count.
+        {
+            const auto bad = [&](size_t f) {
+                const auto at = [&](size_t c) { return Vector2(uv[2 * c], uv[2 * c + 1]); };
+                return Predicates::orient2d(at(3 * f), at(3 * f + 1), at(3 * f + 2)) <= 0;
+            };
+            const auto badUnsnapped = [&](size_t f) {
+                const auto at = [&](size_t c) { return Vector2(unsnapped[2 * c], unsnapped[2 * c + 1]); };
+                return Predicates::orient2d(at(3 * f), at(3 * f + 1), at(3 * f + 2)) <= 0;
+            };
+            const auto setVertex = [&](size_t vertex, const std::vector<double>& from, std::vector<double>* to) {
+                for (size_t c : mesh.cornersAroundVertex(vertex)) {
+                    (*to)[2 * c] = from[2 * c];
+                    (*to)[2 * c + 1] = from[2 * c + 1];
+                }
+            };
+            const auto badAround = [&](size_t vertex) {
+                size_t count = 0;
+                for (size_t c : mesh.cornersAroundVertex(vertex))
+                    count += bad(mesh.cornerFace(c));
+                return count;
+            };
+            std::vector<char> kept(mesh.vertexCount(), 0);
+            const std::vector<double> snapped = uv;
+            size_t keptCount = 0;
+            for (bool changed = true; changed;) {
+                changed = false;
+                for (size_t f = 0; f < mesh.faceCount(); ++f) {
+                    if (!bad(f) || badUnsnapped(f))
+                        continue;
+                    for (size_t l = 0; l < 3 && bad(f); ++l) {
+                        const size_t vertex = mesh.cornerVertex(3 * f + l);
+                        if (kept[vertex])
+                            continue;
+                        const size_t before = badAround(vertex);
+                        setVertex(vertex, unsnapped, &uv);
+                        if (badAround(vertex) < before) {
+                            kept[vertex] = 1;
+                            ++keptCount;
+                            changed = true;
+                        } else {
+                            setVertex(vertex, snapped, &uv);
+                        }
+                    }
+                }
+            }
+            diagnostics->set("snap_kept_vertices", (double)keptCount);
         }
         // The map quad extraction actually sees, after the snap above.
         appendUvOrientation(diagnostics, "snapped", measureUvOrientation(uv));
