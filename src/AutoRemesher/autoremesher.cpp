@@ -24,6 +24,7 @@
 #include <AutoRemesher/MeshSeparator>
 #include <AutoRemesher/Parameterizer>
 #include <AutoRemesher/QuadExtractor>
+#include <AutoRemesher/SurfaceProjector>
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -1022,6 +1023,21 @@ bool AutoRemesher::remeshIslands()
                 run.capturedExtractedConnectionMoved = extractor.extractedConnectionMoved();
                 run.remeshedVertices = extractor.remeshedVertices();
                 run.remeshedQuads = extractor.remeshedQuads();
+                // The extractor leaves the output on T; this puts it on the
+                // island's own input faces (TODO 2.8).
+                const auto projectStart = std::chrono::high_resolution_clock::now();
+                SurfaceProjector projector(&m_vertices, &trianglesIslands[islandIndex]);
+                const auto projection = projector.project(&run.remeshedVertices, run.remeshedQuads);
+                DiagnosticRecord record("surface_projection");
+                record.set("vertices", (double)projection.vertices);
+                record.set("projected", (double)projection.projected);
+                record.set("kept_unmatched", (double)projection.keptUnmatched);
+                record.set("kept_far", (double)projection.keptFar);
+                record.set("kept_folding", (double)projection.keptFolding);
+                record.set("mean_move_edges", projection.meanMove);
+                record.set("max_move_edges", projection.maxMove);
+                record.set("seconds", std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - projectStart).count());
+                run.diagnostics.push_back(std::move(record));
             }
         }
         updateProgress(islandIndex, 1.0f);

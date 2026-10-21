@@ -4,7 +4,7 @@
 
     ab.py run REF [--set corpus] [--targets 2000,10000] [--resolutions fast,quality]
                   [--only a,b | --skip a,b] [--replicates N] [--cli-arg=--adaptivity=0 ...]
-                  [--jobs 2] [--no-metrics] [--timeout S] [--work DIR]
+                  [--jobs 2] [--no-metrics] [--remeasure] [--timeout S] [--work DIR]
     ab.py compare A B [--set corpus] [--per-run] [--work DIR]
     ab.py build REF [--work DIR]
 
@@ -123,6 +123,24 @@ def perturbed(src, k, work):
     return dst
 
 
+def measure(rec, d, mesh, target, src):
+    mj = os.path.join(d, "metrics.json")
+    cmd = [sys.executable, METRICS, "--input", src, "--output", os.path.join(d, "out.obj"),
+           "--target-quads", str(target), "--samples", "100000", "--json", mj]
+    if mesh.get("sym"):
+        axis, center = mesh["sym"]
+        if center == "auto":  # bounding-box centre on that axis, as run_corpus.py does
+            col = "xyz".index(axis) + 1
+            xs = [float(line.split()[col]) for line in open(src) if line.startswith("v ")]
+            center = (min(xs) + max(xs)) / 2
+        cmd += ["--sym-axis", axis, "--sym-center", repr(float(center))]
+    subprocess.call(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        rec["metrics"] = json.load(open(mj))
+    except (OSError, ValueError):
+        rec["metrics"] = None
+
+
 def call_measured(cmd, log, timeout):
     """Run cmd; return (exit status, peak RSS in MB of that child). On timeout the child is killed
     and the status is "timeout". wait4 gives this child's own rusage, unlike RUSAGE_CHILDREN, which
@@ -142,13 +160,19 @@ def call_measured(cmd, log, timeout):
         time.sleep(0.05)
 
 
-def run_one(cli, mesh, setname, target, res, k, out, cli_args, work, metrics, timeout=None):
+def run_one(cli, mesh, setname, target, res, k, out, cli_args, work, metrics, remeasure=False, timeout=None):
     d = os.path.join(out, setname, mesh["id"], f"{res}-t{target}", f"u{k}")
     record_path = os.path.join(d, "record.json")
-    if os.path.exists(record_path):
-        return json.load(open(record_path))
-    os.makedirs(d, exist_ok=True)
     src = os.path.join(work, "meshes", mesh["file"])
+    if os.path.exists(record_path):
+        rec = json.load(open(record_path))
+        # A finished run is never repeated, but its metrics can be recomputed after metrics.py changed.
+        if remeasure and rec["rc"] == 0 and os.path.exists(os.path.join(d, "out.obj")):
+            measure(rec, d, mesh, target, src)
+            with open(record_path, "w") as fp:
+                json.dump(rec, fp, indent=1)
+        return rec
+    os.makedirs(d, exist_ok=True)
     inp = perturbed(src, k, work)
     cmd = [cli, "--input", inp, "--output", os.path.join(d, "out.obj"), "--target-quads", str(target),
            "--resolution", res, "--report-json", os.path.join(d, "report.json"),
@@ -175,21 +199,7 @@ def run_one(cli, mesh, setname, target, res, k, out, cli_args, work, metrics, ti
     except (OSError, ValueError) as ex:
         rec["stage_error"] = str(ex)
     if metrics and rc == 0 and os.path.exists(os.path.join(d, "out.obj")):
-        mj = os.path.join(d, "metrics.json")
-        cmd = [sys.executable, METRICS, "--input", src, "--output", os.path.join(d, "out.obj"),
-               "--target-quads", str(target), "--samples", "100000", "--json", mj]
-        if mesh.get("sym"):
-            axis, center = mesh["sym"]
-            if center == "auto":  # bounding-box centre on that axis, as run_corpus.py does
-                col = "xyz".index(axis) + 1
-                xs = [float(line.split()[col]) for line in open(src) if line.startswith("v ")]
-                center = (min(xs) + max(xs)) / 2
-            cmd += ["--sym-axis", axis, "--sym-center", repr(float(center))]
-        subprocess.call(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        try:
-            rec["metrics"] = json.load(open(mj))
-        except (OSError, ValueError):
-            rec["metrics"] = None
+        measure(rec, d, mesh, target, src)
     with open(record_path, "w") as fp:
         json.dump(rec, fp, indent=1)
     return rec
@@ -237,7 +247,8 @@ def cmd_run(a):
     jobs = [(m, t, r, k) for m in meshes for t in targets for r in resolutions for k in range(a.replicates + 1)]
     print(f"{len(jobs)} runs into {out}", flush=True)
     with cf.ThreadPoolExecutor(max_workers=a.jobs) as pool:
-        futs = [pool.submit(run_one, cli, m, a.set, t, r, k, out, a.cli_arg, a.work, not a.no_metrics, a.timeout)
+        futs = [pool.submit(run_one, cli, m, a.set, t, r, k, out, a.cli_arg, a.work, not a.no_metrics,
+                            a.remeasure, a.timeout)
                 for m, t, r, k in jobs]
         for f in futs:
             rec = f.result()
@@ -280,24 +291,29 @@ def value(r, k):
     if k == "degenerate": return d.get("uv_degenerate_triangles")
     if k == "non_quads": return o.get("non_quads")
     if k == "sj_le_0": return (m.get("quads") or {}).get("sj_le_0")
+    if k == "flipped_vs_input": return (m.get("flipped") or {}).get("faces_vs_input")
     if k == "irregular_1k": return (m.get("valence") or {}).get("irregular_per_1k_quads")
     if k == "hausdorff": return (m.get("distance") or {}).get("hausdorff")
     if k == "in_out_mean": return (m.get("distance") or {}).get("in_to_out_mean")
     if k == "in_out_p99": return (m.get("distance") or {}).get("in_to_out_p99")
+    if k == "vertex_dist": return (m.get("distance") or {}).get("vertex_to_in_median")
+    if k == "normal_dev": return (m.get("normal_deviation_deg") or {}).get("mean")
     if k == "count_err": return abs(o["quads"] / r["target"] - 1) if o.get("quads") else None
     if k == "energy_ratio":
         e = [(c["continuous_energy"], c["rounded_energy"]) for c in r.get("cover") or []
              if c.get("continuous_energy") and c.get("rounded_energy") is not None]
         return sum(b for _, b in e) / sum(a for a, _ in e) if e else None
     if k == "time": return r.get("time")
+    if k == "peak_rss_mb": return r.get("peak_rss_mb")
     if k == "t_non_manifold": return (r.get("t_topology") or {}).get("isotropic_non_manifold_edges")
     if k == "t_opened": return (r.get("t_topology") or {}).get("isotropic_opened_closed_islands")
-    if k == "peak_rss_mb": return r.get("peak_rss_mb")
     raise KeyError(k)
 
 
-COUNTS = ["flips_cont", "flips_round", "flips", "degenerate", "non_quads", "sj_le_0", "t_non_manifold", "t_opened"]
-MEANS = ["irregular_1k", "in_out_p99", "hausdorff", "in_out_mean", "count_err", "energy_ratio", "time", "peak_rss_mb"]
+COUNTS = ["flips_cont", "flips_round", "flips", "degenerate", "non_quads", "sj_le_0", "flipped_vs_input",
+          "t_non_manifold", "t_opened"]
+MEANS = ["irregular_1k", "in_out_p99", "hausdorff", "in_out_mean", "normal_dev", "vertex_dist", "count_err",
+         "energy_ratio", "time", "peak_rss_mb"]
 
 
 def resolve(spec, work):
@@ -435,6 +451,8 @@ def main():
                    help="extra CLI argument, repeatable; write it as --cli-arg=--adaptivity=0")
     r.add_argument("--jobs", type=int, default=2, help="parallel runs and build jobs (default 2)")
     r.add_argument("--no-metrics", action="store_true")
+    r.add_argument("--remeasure", action="store_true",
+                   help="recompute metrics.json of finished runs (after metrics.py changed); outputs are kept")
     r.add_argument("--timeout", type=float, help="kill a run after this many seconds; recorded as rc \"timeout\"")
     c = sub.add_parser("compare", help="compare run folder (or ref) A with B")
     c.add_argument("a")

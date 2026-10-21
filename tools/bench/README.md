@@ -70,11 +70,13 @@ $P tools/bench/ab.py run HEAD --set closed   # genus check; also --set suzanne
 - **What it records.** Per run in `<set>/<mesh>/<resolution>-t<target>/u<k>/`: the output OBJ, the CLI's
   `report.json` and `stages.jsonl`, `metrics.json` and a `record.json` summary. `compare` reports the
   report's UV flips (continuous, rounded, final), degenerate UV triangles, non-quads, SJ ≤ 0 quads,
-  irregular vertices, in→out p99 distance (the fidelity target of docs/TARGETS.md), Hausdorff and mean distance, quad count error, rounded/continuous energy and
+  faces flipped against the input, irregular vertices, in→out p99 distance (the fidelity target of docs/TARGETS.md), Hausdorff and mean distance, normal deviation (D3), median vertex-to-input distance, quad count error, rounded/continuous energy and
   time, the runs that fail, and topology (Euler characteristic, components and boundary loops equal to
   the input, no non-manifold edge). `t_non_manifold` and `t_opened` count T's own defects from the
   core's run record: non-manifold edges after isotropic remeshing, and closed input islands that T
   left open or non-manifold (blank for cores before 2026-10-20). `--per-run` adds one row per run.
+- **Re-measuring.** After a change to `metrics.py`, `run <ref> --remeasure` recomputes `metrics.json` of the
+  finished runs without running the CLI again.
 - **Timing.** The `time` row is the CLI's own total under `--jobs` load. Use it for effects of 20 % or
   more; for anything finer run `--jobs 1` on an idle machine, or `ar_bench` with `--repeat`.
 
