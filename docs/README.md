@@ -2,6 +2,8 @@
 
 Goal: upgrade AutoRemesher (huxingyi/autoremesher, MIT) into a GPL-3.0-or-later fork whose output is faithful to the input, valid (all quads, no folds or malformed poles) and predictable, usable from Blender; targets and what we don't compete on in [TARGETS.md](TARGETS.md). Stage-by-stage upgrade, not a rewrite. Index last updated 2026-10-20.
 
+**Using the Blender add-on?** Read [USER-GUIDE.md](USER-GUIDE.md): install, settings, result rows, warnings, troubleshooting, for non-technical Blender users.
+
 **New here?** Read TODO.md "Order at a glance", then the latest entry in [sessions/](sessions/README.md), then REFERENCE.md §3 (pipeline) and §5 (issues).
 
 ## Working files
@@ -12,6 +14,7 @@ Goal: upgrade AutoRemesher (huxingyi/autoremesher, MIT) into a GPL-3.0-or-later 
 | [TODO.md](TODO.md) | The plan: one dependency-ordered list (Waves 0–8 + Blender track G) with status, effort and a license flag per item. Start here. |
 | [REFERENCE.md](REFERENCE.md) | Technical reference: repos and commits, build, pipeline map with line numbers, performance issues P1–P10, math issues M1–M16, Blender integration, ZRemesher-like features F1–F15, papers, and the log of the 21 code-to-math corrections (§9). §4.1 holds the measured baseline. |
 | [TARGETS.md](TARGETS.md) | Quality targets (TODO 0.7): positioning, structural gates H1–H8 and validity ratchet V1–V6, per-family minimum and stretch goals with their evidence, priority order when goals conflict, Kajetan's decisions (2026-10-20; provisional V1 for sculpts 2026-10-21). Judge every output-changing PR against it. |
+| [USER-GUIDE.md](USER-GUIDE.md) | User guide for the Blender add-on, for Blender beginners: install and update, every panel setting, the result rows and warnings, what works on sculpts and what struggles, troubleshooting. Its fold-repair section is a placeholder until that button merges. |
 | [ENVELOPE.md](ENVELOPE.md) | Supported-input envelope (proposal, 2026-10-21): which inputs and settings the TARGETS gates apply to, each limit with its measurement, evidence, test and canary mesh; what is never exempt; how the harness would tell a bug from an expected limit. |
 | [SPECIALIST-BRIEF.md](SPECIALIST-BRIEF.md) | The 9 "Ask first" questions, ready to forward: self-contained for a reader who has seen none of these files, in four parts by recipient, with full references. Not sent yet (TODO 0.8). |
 | [SPECIALIST-QUESTIONS.md](SPECIALIST-QUESTIONS.md) | 39 open math questions (SQ-X, Z, P, L, F, S, E, M), each self-contained so it can be forwarded alone, with an "Ask first" list and suggested experts. |
