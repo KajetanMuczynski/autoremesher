@@ -13,8 +13,10 @@ directory you choose.
 | `bench/CMakeLists.txt` | Builds `ar_bench` from a source tree (`-DAR_SOURCE_DIR`) with the `.pro` release flags (`-O3 -flto -funroll-loops -march=x86-64-v2`). |
 | `fetch_meshes.sh <meshes>` + `meshes.tsv` | Downloads the 12 external meshes (pinned commit of github.com/odedstein/meshes, ~170 MB) and verifies SHA-256. Per-mesh license and attribution are in `meshes.tsv`. |
 | `make_synthetic.py` | Generates the procedural meshes (CSG part, symmetric blob, cloth sheet, thin leaf, noisy spot, 8 islands, the closed set, subdivision ladder). |
+| `make_sculpt.py` | Generates the `sculpt` set: one creature with sub-quad detail in seven tessellations a sculpting tool leaves behind (voxel remesh, voxel terraces, the same with 21 % zero-area triangles, dyntopo, quadric-decimated, joined intersecting parts and crumbs, export damage). Needs scikit-image. |
+| `sculpt_report.py` | What a sculptor gets, over `ab.py` or `run_compare.py` runs: triangles/pentagons and their clusters, where non-quads and folds sit (smooth, curved, sharp/thin at quad scale), one Catmull-Clark step (folds survive it, isolated n-gons become poles), non-manifold vertices; summary per mesh and tool, replicate table. |
 | `make_suzanne.py` | Generates the Suzanne set with Blender's Python module (`pip install bpy`, Python 3.13) or inside Blender. |
-| `corpus.json` | Mesh sets with their default targets and resolutions: `corpus` (the 18-mesh baseline corpus, 72 runs), `closed` (13 thin ellipsoids and tori, 78 runs; genus regressions show here first), `suzanne` (Suzanne + Subdivision 1–3, 9 runs; open, the add-on's first bug report). Categories and symmetry planes per mesh. |
+| `corpus.json` | Mesh sets with their default targets and resolutions: `corpus` (the 18-mesh baseline corpus, 72 runs), `closed` (13 thin ellipsoids and tori, 78 runs; genus regressions show here first), `suzanne` (Suzanne + Subdivision 1–3, 9 runs; open, the add-on's first bug report), `sculpt` (7 sculpt stand-ins from `make_sculpt.py` at 2k/5k/15k, 42 runs). Categories and symmetry planes per mesh. |
 | `run_corpus.py` | Runs `ar_bench` (+ metrics) per mesh and target over the `corpus` set; writes `record.json` per run and `summary.json`. For time and memory; quality A/B goes through `ab.py`. |
 | `metrics.py` | Output quality: face/valence statistics, corner angles, scaled Jacobian, degenerate and flipped faces, non-manifold edges, topology against the input (Euler characteristic, components, boundary loops), two-sided Hausdorff, geometric and topological mirror symmetry. |
 | `summarize.py` | Markdown tables + CSV from `summary.json`. |
@@ -62,7 +64,8 @@ $P tools/bench/ab.py run HEAD --set closed   # genus check; also --set suzanne
   `thirdparty/` and `CMakeLists.txt`, not by the commit, so a rebase or a docs commit reuses them, and
   a finished run is never repeated (delete its folder under `$AR_WORK/runs` to force it).
 - **Options.** `--only a,b`, `--skip`, `--targets`, `--resolutions` override the set's defaults;
-  `--cli-arg=--adaptivity=0` (repeatable) passes CLI options, and those runs get their own folder, so
+  `--timeout S` kills a run after S seconds (recorded as `rc: "timeout"`); every record has the run's
+  own peak RSS (`peak_rss_mb`). `--cli-arg=--adaptivity=0` (repeatable) passes CLI options, and those runs get their own folder, so
   compare folders, not refs: `compare $AR_WORK/runs/<key> $AR_WORK/runs/<key>+<hash>`.
 - **Speed.** `--jobs N` (default 2) runs N meshes at once. The CLI uses one core per island (TBB
   splits work by island only), so most corpus runs keep one core busy and `--jobs 2` leaves half of
@@ -70,7 +73,8 @@ $P tools/bench/ab.py run HEAD --set closed   # genus check; also --set suzanne
   container: corpus set with `--replicates 5` 35 min → 20 min, closed set 59 s → 41 s per replicate
   (`--jobs 2` before this change → `--jobs 4` with the input cache below). Outputs don't depend on
   `--jobs` or the thread count (72 of 72 `out.obj` byte-identical), only the `time` row does
-  (+20 % CLI time at 4 jobs), so `compare` flags a time row whose sides ran with different `--jobs`.
+  (+20 % CLI time at 4 jobs), so `compare` flags a time row whose sides ran with different `--jobs`; keep `--jobs` equal on both
+  sides with `--timeout` too, since a run near the limit can time out under heavier load.
   On Kajetan's laptop keep the default, or `--jobs 1` when it runs hot. metrics.py caches the
   input's share of its work (reading the OBJ, input topology; most of its time on large meshes) in
   `$AR_WORK/inputs/metrics`, keyed by the input's content and metrics.py's own hash, so the cached

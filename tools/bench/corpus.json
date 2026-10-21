@@ -1,9 +1,10 @@
 {
- "_comment": "Mesh sets for run_corpus.py (set corpus) and ab.py (any set). 'file' is relative to the meshes folder: downloads/ from fetch_meshes.sh, synthetic/ from make_synthetic.py, suzanne/ from make_suzanne.py. 'set' defaults to corpus. sym = mirror plane for symmetry metrics (axis, center); 'auto' center = input bbox centre on that axis. sets: default targets and resolutions per set for ab.py.",
+ "_comment": "Mesh sets for run_corpus.py (set corpus) and ab.py (any set). 'file' is relative to the meshes folder: downloads/ from fetch_meshes.sh, synthetic/ from make_synthetic.py, suzanne/ from make_suzanne.py, sculpt/ from make_sculpt.py. 'set' defaults to corpus. sym = mirror plane for symmetry metrics (axis, center); 'auto' center = input bbox centre on that axis. sets: default targets and resolutions per set for ab.py.",
  "sets": {
   "corpus": {"targets": [2000, 10000], "resolutions": ["fast", "quality"]},
   "closed": {"targets": [150, 500, 2000], "resolutions": ["fast", "quality"]},
-  "suzanne": {"targets": [2000, 5000, 10000], "resolutions": ["quality"]}
+  "suzanne": {"targets": [2000, 5000, 10000], "resolutions": ["quality"]},
+  "sculpt": {"targets": [2000, 5000, 15000], "resolutions": ["fast", "quality"]}
  },
  "meshes": [
   {"id": "spot", "file": "downloads/spot.obj", "category": "organic, clean, genus 0"},
@@ -39,6 +40,13 @@
   {"id": "torus_0.4", "file": "synthetic/torus_0.4.obj", "category": "closed, torus R=1", "set": "closed"},
   {"id": "suzanne_sub1", "file": "suzanne/suzanne_sub1.obj", "category": "Blender Suzanne + Subdivision, open (eyes)", "set": "suzanne"},
   {"id": "suzanne_sub2", "file": "suzanne/suzanne_sub2.obj", "category": "Blender Suzanne + Subdivision, open (eyes)", "set": "suzanne"},
-  {"id": "suzanne_sub3", "file": "suzanne/suzanne_sub3.obj", "category": "Blender Suzanne + Subdivision, open (eyes)", "set": "suzanne"}
+  {"id": "suzanne_sub3", "file": "suzanne/suzanne_sub3.obj", "category": "Blender Suzanne + Subdivision, open (eyes)", "set": "suzanne"},
+  {"id": "sculpt_voxel", "file": "sculpt/sculpt_voxel.obj", "category": "sculpt, voxel remesh (0.45M tris, uniform)", "set": "sculpt"},
+  {"id": "sculpt_steps", "file": "sculpt/sculpt_steps.obj", "category": "sculpt, voxel terraces (0.13M tris)", "set": "sculpt"},
+  {"id": "sculpt_degenerate", "file": "sculpt/sculpt_degenerate.obj", "category": "sculpt_steps before cleanup: 21 % zero-area tris", "set": "sculpt"},
+  {"id": "sculpt_dyntopo", "file": "sculpt/sculpt_dyntopo.obj", "category": "sculpt, dyntopo (0.57M tris, 5:1 sizes, detail on head only)", "set": "sculpt"},
+  {"id": "sculpt_decimated", "file": "sculpt/sculpt_decimated.obj", "category": "sculpt, quadric-decimated (60k tris, slivers)", "set": "sculpt"},
+  {"id": "sculpt_parts", "file": "sculpt/sculpt_parts.obj", "category": "sculpt + 13 joined parts (eyes, teeth intersect; 5 crumbs below quad size)", "set": "sculpt"},
+  {"id": "sculpt_dirty", "file": "sculpt/sculpt_dirty.obj", "category": "sculpt with export damage (2 holes, flipped patch, duplicates, fin, pinch vertex)", "set": "sculpt"}
  ]
 }

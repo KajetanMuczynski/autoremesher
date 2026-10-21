@@ -178,6 +178,8 @@ jobs:
     env: &addon-env
       SOURCE_COMMIT: ${{ github.sha }}
       CMAKE_ARGS: ${{ matrix.cmake_args }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_HEAD: ${{ github.event.pull_request.head.sha }}
     steps: &addon-steps
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -202,10 +204,15 @@ jobs:
       # Windows: oneTBB is built from source and linked statically, with the
       # static C++ runtime (/MT); see CMakeLists.txt. macOS: static oneTBB too
       # (CMAKE_ARGS from the matrix).
+      # Build id (cmake/BuildId.cmake): a PR run builds GitHub's merge commit, which
+      # is in no branch, so its zip names the PR and its head commit instead.
       - name: Build the core, CLI and tests
         run: |
+          build_id=""
+          if [ -n "$PR_HEAD" ]; then build_id="pr$PR_NUMBER ${PR_HEAD:0:7}+master"; fi
           # shellcheck disable=SC2086  # CMAKE_ARGS holds several arguments
-          cmake -S . -B build/cli -DCMAKE_BUILD_TYPE=Release -DAUTOREMESHER_BUILD_TESTS=ON $CMAKE_ARGS
+          cmake -S . -B build/cli -DCMAKE_BUILD_TYPE=Release -DAUTOREMESHER_BUILD_TESTS=ON $CMAKE_ARGS \
+            "-DAUTOREMESHER_BUILD_ID=$build_id"
           cmake --build build/cli --config Release --parallel 4
           cmake --install build/cli --config Release --prefix build/cli-install
           ls -l build/cli-install/bin build/cli-install/licenses

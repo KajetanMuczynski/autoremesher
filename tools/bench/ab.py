@@ -4,7 +4,7 @@
 
     ab.py run REF [--set corpus] [--targets 2000,10000] [--resolutions fast,quality]
                   [--only a,b | --skip a,b] [--replicates N] [--cli-arg=--adaptivity=0 ...]
-                  [--jobs 2] [--no-metrics] [--remeasure] [--work DIR]
+                  [--jobs 2] [--no-metrics] [--remeasure] [--timeout S] [--work DIR]
     ab.py compare A B [--set corpus] [--per-run] [--work DIR]
     ab.py build REF [--work DIR]
 
@@ -153,7 +153,26 @@ def measure(rec, d, mesh, target, src, work):
         rec["metrics"] = None
 
 
-def run_one(cli, mesh, setname, target, res, k, out, cli_args, work, metrics, jobs, remeasure=False):
+def call_measured(cmd, log, timeout):
+    """Run cmd; return (exit status, peak RSS in MB of that child). On timeout the child is killed
+    and the status is "timeout". wait4 gives this child's own rusage, unlike RUSAGE_CHILDREN, which
+    mixes the runs of parallel jobs."""
+    p = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT)
+    t0 = time.time()
+    while True:
+        pid, status, ru = os.wait4(p.pid, os.WNOHANG)
+        if pid:
+            p.returncode = os.waitstatus_to_exitcode(status)  # reaped here, so Popen must not wait again
+            return p.returncode, ru.ru_maxrss / 1024
+        if timeout and time.time() - t0 > timeout:
+            p.kill()
+            _, _, ru = os.wait4(p.pid, 0)
+            p.returncode = -9
+            return "timeout", ru.ru_maxrss / 1024
+        time.sleep(0.05)
+
+
+def run_one(cli, mesh, setname, target, res, k, out, cli_args, work, metrics, jobs, remeasure=False, timeout=None):
     d = os.path.join(out, setname, mesh["id"], f"{res}-t{target}", f"u{k}")
     record_path = os.path.join(d, "record.json")
     src = os.path.join(work, "meshes", mesh["file"])
@@ -172,9 +191,9 @@ def run_one(cli, mesh, setname, target, res, k, out, cli_args, work, metrics, jo
            "--stage-diagnostics", os.path.join(d, "stages.jsonl")] + cli_args
     t0 = time.time()
     with open(os.path.join(d, "log.txt"), "w") as log:
-        rc = subprocess.call(cmd, stdout=log, stderr=subprocess.STDOUT)
+        rc, rss = call_measured(cmd, log, timeout)
     rec = {"mesh": mesh["id"], "set": setname, "target": target, "res": res, "replicate": k, "rc": rc,
-           "wall": time.time() - t0, "cli_args": cli_args, "jobs": jobs,
+           "wall": time.time() - t0, "peak_rss_mb": rss, "cli_args": cli_args, "jobs": jobs,
            "input_sha": file_hash(inp)}
     if os.path.exists(os.path.join(d, "out.obj")):
         rec["out_sha"] = file_hash(os.path.join(d, "out.obj"))
@@ -247,7 +266,7 @@ def cmd_run(a):
                                                                          "record.json"))}
             list(pool.map(lambda m: prepare_input(os.path.join(a.work, "meshes", m["file"]), a.work), pending.values()))
         futs = [pool.submit(run_one, cli, m, a.set, t, r, k, out, a.cli_arg, a.work, not a.no_metrics,
-                            a.jobs, a.remeasure)
+                            a.jobs, a.remeasure, a.timeout)
                 for m, t, r, k in jobs]
         for f in futs:
             rec = f.result()
@@ -303,6 +322,7 @@ def value(r, k):
              if c.get("continuous_energy") and c.get("rounded_energy") is not None]
         return sum(b for _, b in e) / sum(a for a, _ in e) if e else None
     if k == "time": return r.get("time")
+    if k == "peak_rss_mb": return r.get("peak_rss_mb")
     if k == "t_non_manifold": return (r.get("t_topology") or {}).get("isotropic_non_manifold_edges")
     if k == "t_opened": return (r.get("t_topology") or {}).get("isotropic_opened_closed_islands")
     raise KeyError(k)
@@ -311,7 +331,7 @@ def value(r, k):
 COUNTS = ["flips_cont", "flips_round", "flips", "degenerate", "non_quads", "sj_le_0", "flipped_vs_input",
           "t_non_manifold", "t_opened"]
 MEANS = ["irregular_1k", "in_out_p99", "hausdorff", "in_out_mean", "normal_dev", "vertex_dist", "count_err",
-         "energy_ratio", "time"]
+         "energy_ratio", "time", "peak_rss_mb"]
 
 
 def resolve(spec, work):
@@ -458,6 +478,7 @@ def main():
     r.add_argument("--no-metrics", action="store_true")
     r.add_argument("--remeasure", action="store_true",
                    help="recompute metrics.json of finished runs (after metrics.py changed); outputs are kept")
+    r.add_argument("--timeout", type=float, help="kill a run after this many seconds; recorded as rc \"timeout\"")
     c = sub.add_parser("compare", help="compare run folder (or ref) A with B")
     c.add_argument("a")
     c.add_argument("b")
