@@ -24,7 +24,8 @@
 // recorded folded maps (data/README.md) on which unguarded libQEx looped
 // forever, overflowed the heap, or grew until memory ran out, so the caller
 // can fall back. ctest's timeout and sanitizer builds catch a guard that stops
-// working.
+// working. The handle count that decides whether a libQEx island is traced
+// again is checked on small surfaces.
 
 #include <AutoRemesher/QexExtraction>
 #include <cstdio>
@@ -153,6 +154,24 @@ int main(int argc, char* argv[])
             tight, &vertices, &polygons, &outcome);
         expect(!capped, "the grid-vertex cap stops the extraction");
         expect(std::string::npos != outcome.reason.find("grid vertex cap"), "the cap is named as the reason");
+    }
+
+    {
+        // Handle count: a quad torus has one handle, a disk none, and two disks
+        // pinched at a vertex or touching along an edge used three times none.
+        const size_t n = 6;
+        std::vector<std::vector<size_t>> torus;
+        for (size_t j = 0; j < n; ++j) {
+            for (size_t i = 0; i < n; ++i)
+                torus.push_back({ j * n + i, j * n + (i + 1) % n, ((j + 1) % n) * n + (i + 1) % n, ((j + 1) % n) * n + i });
+        }
+        expect(2 == AutoRemesher::twiceHandleCount(n * n, torus), "a torus has one handle");
+        const std::vector<std::vector<size_t>> disk = { { 0, 1, 2, 3 } };
+        expect(0 == AutoRemesher::twiceHandleCount(4, disk), "a disk has no handle");
+        const std::vector<std::vector<size_t>> pinched = { { 0, 1, 2, 3 }, { 0, 4, 5, 6 } };
+        expect(0 == AutoRemesher::twiceHandleCount(7, pinched), "a pinch is no handle");
+        const std::vector<std::vector<size_t>> fin = { { 0, 1, 2, 3 }, { 1, 0, 4, 5 }, { 0, 1, 6, 7 } };
+        expect(0 == AutoRemesher::twiceHandleCount(8, fin), "an edge with three faces is no handle");
     }
 
     // Each fixture with the target of the run it came from and the guard that must stop it.
