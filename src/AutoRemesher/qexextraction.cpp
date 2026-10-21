@@ -21,6 +21,7 @@
 #include <exception>
 #include <map>
 #include <qex.h>
+#include <string>
 #include <utility>
 
 namespace AutoRemesher {
@@ -56,6 +57,49 @@ namespace {
         const size_t dropped = polygons->size() - kept.size();
         *polygons = std::move(kept);
         return dropped;
+    }
+
+    // Twice the number of handles of a surface, 2C - chi - B summed over its C
+    // components with B boundary loops; a hole cut or filled leaves it as it is.
+    // Loops are counted as components of the boundary-edge graph.
+    template <class Faces>
+    long long twiceHandleCount(size_t vertexCount, const Faces& faces)
+    {
+        std::vector<size_t> surface(vertexCount), boundary(vertexCount);
+        for (size_t v = 0; v < vertexCount; ++v)
+            surface[v] = boundary[v] = v;
+        const auto find = [](std::vector<size_t>& parent, size_t v) {
+            while (parent[v] != v)
+                v = parent[v] = parent[parent[v]];
+            return v;
+        };
+        std::map<std::pair<size_t, size_t>, size_t> edges;
+        std::vector<char> used(vertexCount, 0);
+        for (const auto& face : faces) {
+            for (size_t i = 0; i < face.size(); ++i) {
+                const size_t a = face[i], b = face[(i + 1) % face.size()];
+                used[a] = 1;
+                surface[find(surface, a)] = find(surface, b);
+                ++edges[std::make_pair(std::min(a, b), std::max(a, b))];
+            }
+        }
+        std::vector<char> onBoundary(vertexCount, 0);
+        for (const auto& edge : edges) {
+            if (1 != edge.second)
+                continue;
+            onBoundary[edge.first.first] = onBoundary[edge.first.second] = 1;
+            boundary[find(boundary, edge.first.first)] = find(boundary, edge.first.second);
+        }
+        long long components = 0, loops = 0, vertices = 0;
+        for (size_t v = 0; v < vertexCount; ++v) {
+            if (!used[v])
+                continue;
+            ++vertices;
+            components += find(surface, v) == v;
+            loops += onBoundary[v] && find(boundary, v) == v;
+        }
+        const long long euler = vertices - (long long)edges.size() + (long long)faces.size();
+        return 2 * components - euler - loops;
     }
 
 }
@@ -131,6 +175,16 @@ bool extractWithQex(const std::vector<Vector3>& vertices,
     outcome->droppedFaces = dropUnrepairableFaces(outPolygons);
     if (outPolygons->empty()) {
         outcome->reason = "QEx returned no faces";
+        return false;
+    }
+    // libQEx keeps the map's topology only where the map is valid; across a
+    // fold it can join two sheets into a handle that our tracer, on the same
+    // map, does not make (suzanne_sub2 Quality 5000: 6 of 6 replicates).
+    const long long handlesIn = twiceHandleCount(vertices.size(), triangles);
+    const long long handlesOut = twiceHandleCount(outVertices->size(), *outPolygons);
+    if (handlesOut > handlesIn) {
+        outcome->reason = "QEx added a handle (2g " + std::to_string(handlesIn) + " -> "
+            + std::to_string(handlesOut) + ")";
         return false;
     }
     outcome->faces = outPolygons->size();
