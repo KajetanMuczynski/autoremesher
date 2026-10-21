@@ -39,9 +39,9 @@ isEmpty(VERSION) {
 	VERSION = 1.2.0.0
 }
 
-HOMEPAGE_URL = "https://github.com/KajetanMuczynski/autoremesher"
-REPOSITORY_URL = "https://github.com/KajetanMuczynski/autoremesher"
-ISSUES_URL = "https://github.com/KajetanMuczynski/autoremesher/issues"
+HOMEPAGE_URL = "https://github.com/KajetanMuczynski/quadami"
+REPOSITORY_URL = "https://github.com/KajetanMuczynski/quadami"
+ISSUES_URL = "https://github.com/KajetanMuczynski/quadami/issues"
 PLATFORM = "Unknown"
 
 PLATFORM = "Unknown"

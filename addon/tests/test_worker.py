@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 AutoRemesher fork contributors
+# Copyright (C) 2026 Quadami contributors
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -33,7 +33,7 @@ import unittest
 
 import numpy as np
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "autoremesher_blender"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "quadami"))
 import names  # noqa: E402
 import report  # noqa: E402
 import worker  # noqa: E402
@@ -84,7 +84,7 @@ class NamesTest(unittest.TestCase):
     @unittest.skipIf(sys.version_info < (3, 11), "needs tomllib")
     def test_manifest_matches_names(self):
         import tomllib
-        path = os.path.join(os.path.dirname(__file__), "..", "autoremesher_blender", "blender_manifest.toml")
+        path = os.path.join(os.path.dirname(__file__), "..", "quadami", "blender_manifest.toml")
         with open(path, "rb") as f:
             manifest = tomllib.load(f)
         self.assertEqual(manifest["id"], names.ID)
@@ -242,7 +242,7 @@ class CliTest(unittest.TestCase):
 
     def test_non_ascii_temp_folder(self):
         # A Windows user name such as "Łucja" ends up in the temporary folder's path.
-        parent = tempfile.mkdtemp(prefix="autoremesher-test-")
+        parent = tempfile.mkdtemp(prefix="quadami-test-")
         saved = tempfile.tempdir
         try:
             tempfile.tempdir = os.path.join(parent, "Łucja żółw 日本")

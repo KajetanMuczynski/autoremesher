@@ -1,7 +1,7 @@
 # First test in Blender, for someone who has never used it
 
 For Blender 4.5 LTS on Ubuntu, on a laptop with a touchpad. Statements about
-what the add-on does are checked against its code (`autoremesher_blender/`).
+what the add-on does are checked against its code (`quadami/`).
 Statements about Blender's own interface are from Blender 4.x and marked
 *(not tried here)* where they could not be checked, because Blender was not
 installed when this was written.

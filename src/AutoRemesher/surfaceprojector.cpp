@@ -1,5 +1,7 @@
 /*
- *  Copyright (C) 2026 AutoRemesher fork contributors
+ *  Copyright (C) 2026 Quadami contributors
+ *  Portions Copyright (c) 2026 Jeremy HU <jeremy-at-dust3d dot org>, MIT License,
+ *  see LICENSE-MIT-upstream (closestPointOnTriangle, from upstream quadextractor.cpp).
  *
  *  This program is free software: you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
