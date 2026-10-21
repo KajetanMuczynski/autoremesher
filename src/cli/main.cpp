@@ -60,6 +60,8 @@ const char* const usage = "Usage: autoremesher-cli -i input.obj -o output.obj [o
                           "  --resolution fast|quality   triangle mesh the quads are solved on: quality\n"
                           "                              gives cleaner quads, fast takes about 2/3 of\n"
                           "                              the time; same quad count (default quality)\n"
+                          "  --fold-repair on|off        untangle folded-over input triangles (brush\n"
+                          "                              leftovers) before remeshing (default off)\n"
                           "  --stdin-control             cancel when stdin receives the line \"cancel\"\n"
                           "                              or is closed; the report then says \"cancelled\"\n"
                           "  -h, --help                  show this text\n"
@@ -166,6 +168,12 @@ int parseArguments(const std::vector<std::string>& arguments, Options* options)
                 std::fprintf(stderr, "Error: --resolution must be fast or quality, not %s\n", value.c_str());
                 return 1;
             }
+        } else if ("--fold-repair" == name) {
+            if ("on" != value && "off" != value) {
+                std::fprintf(stderr, "Error: --fold-repair must be on or off, not %s\n", value.c_str());
+                return 1;
+            }
+            parameters.repairFolds = "on" == value;
         } else {
             std::fprintf(stderr, "Error: unknown option %s (see --help)\n", name.c_str());
             return 1;

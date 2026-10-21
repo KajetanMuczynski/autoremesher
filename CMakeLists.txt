@@ -67,6 +67,7 @@ add_library(autoremesher_core STATIC
     src/AutoRemesher/autoremesher.cpp
     src/AutoRemesher/constrainedleastsquares.cpp
     src/AutoRemesher/diagnostics.cpp
+    src/AutoRemesher/foldrepair.cpp
     src/AutoRemesher/framefield.cpp
     src/AutoRemesher/isotropicremesher.cpp
     src/AutoRemesher/mapcheck.cpp

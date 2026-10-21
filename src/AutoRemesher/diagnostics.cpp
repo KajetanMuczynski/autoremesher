@@ -177,6 +177,8 @@ std::vector<std::pair<std::string, double>> summarizeDiagnostics(
     double peakRss = 0, cpuSeconds = 0;
     double mergedVertices = 0, droppedTriangles = 0, cleanupKeptParts = 0, zeroAreaTriangles = 0;
     double flippedTriangles = 0, nonOrientablePieces = 0;
+    double foldRepair = 0, foldedTriangles = 0, foldClusters = 0, foldPatches = 0, foldedAfter = 0, foldClustersAfter = 0;
+    double foldMovedVertices = 0, foldMaxOffset = 0, foldMaxMove = 0, foldMs = 0;
     double projected = 0, projectionKeptFolding = 0, projectionKeptOther = 0;
     double creaseSnapped = 0, relaxMoves = 0;
     // Area-weighted over islands; the rescale is the island's farthest from 1.
@@ -195,6 +197,16 @@ std::vector<std::pair<std::string, double>> summarizeDiagnostics(
             zeroAreaTriangles = valueOf(record, "input_zero_area_triangles", 0);
             flippedTriangles = valueOf(record, "input_flipped_triangles", 0);
             nonOrientablePieces = valueOf(record, "input_non_orientable_pieces", 0);
+            foldRepair = valueOf(record, "input_fold_repair", 0);
+            foldedTriangles = valueOf(record, "input_folded_triangles", 0);
+            foldClusters = valueOf(record, "input_fold_clusters", 0);
+            foldPatches = valueOf(record, "input_fold_patches_repaired", 0);
+            foldedAfter = valueOf(record, "input_folded_triangles_after", 0);
+            foldClustersAfter = valueOf(record, "input_fold_clusters_after", 0);
+            foldMovedVertices = valueOf(record, "input_fold_moved_vertices", 0);
+            foldMaxOffset = valueOf(record, "input_fold_max_offset", 0);
+            foldMaxMove = valueOf(record, "input_fold_max_move", 0);
+            foldMs = valueOf(record, "fold_repair_ms", 0);
         } else if (record.stage == "cover_result") {
             flipped += valueOf(record, "snapped_flipped", 0);
             degenerate += valueOf(record, "snapped_degenerate", 0);
@@ -282,6 +294,16 @@ std::vector<std::pair<std::string, double>> summarizeDiagnostics(
         { "input_zero_area_triangles", zeroAreaTriangles },
         { "input_flipped_triangles", flippedTriangles },
         { "input_non_orientable_pieces", nonOrientablePieces },
+        { "input_fold_repair", foldRepair },
+        { "input_folded_triangles", foldedTriangles },
+        { "input_fold_clusters", foldClusters },
+        { "input_fold_patches_repaired", foldPatches },
+        { "input_folded_triangles_after", foldedAfter },
+        { "input_fold_clusters_after", foldClustersAfter },
+        { "input_fold_moved_vertices", foldMovedVertices },
+        { "input_fold_max_offset", foldMaxOffset },
+        { "input_fold_max_move", foldMaxMove },
+        { "fold_repair_ms", foldMs },
     };
 }
 

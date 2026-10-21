@@ -66,6 +66,12 @@ PARAMETER_FLAGS = {
     "resolution": "--resolution",
 }
 
+# Options of one run that are not panel settings -> CLI flag.  repair_folds
+# is offered by the panel after a run that found folded input.
+RUN_FLAGS = {
+    "repair_folds": "--fold-repair",
+}
+
 _PROGRESS_LINE = re.compile(r"^(\d+)% done\.(?: (.*))?$")
 
 
@@ -243,7 +249,8 @@ class RemeshJob:
         return os.path.join(self._workdir, name)
 
     def start(self):
-        unknown = set(self.parameters) - set(PARAMETER_FLAGS)
+        flags = dict(PARAMETER_FLAGS, **RUN_FLAGS)
+        unknown = set(self.parameters) - set(flags)
         if unknown:
             raise ValueError("unknown parameters: " + ", ".join(sorted(unknown)))
         self._workdir = tempfile.mkdtemp(prefix="quadami-")
@@ -256,7 +263,9 @@ class RemeshJob:
         for name, value in self.parameters.items():
             if name == "target_quads":
                 value = int(value)
-            args += [PARAMETER_FLAGS[name], repr(value) if isinstance(value, float) else str(value)]
+            if isinstance(value, bool):
+                value = "on" if value else "off"
+            args += [flags[name], repr(value) if isinstance(value, float) else str(value)]
         env = worker_environment(os.environ)
         creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
         self._process = subprocess.Popen(

@@ -159,6 +159,29 @@ class ReportTest(unittest.TestCase):
         self.assertIn(("Input cleanup", "2 degenerate triangles removed, 240 triangles turned", False), rows)
 
 
+    def test_fold_rows(self):
+        found = {"status": "ok", "parameters": {"target_quads": 5000, "repair_folds": False},
+                 "output": {"quads": 4962},
+                 "diagnostics": {"input_fold_clusters": 70, "input_folded_triangles": 326}}
+        warning = " ".join(text for text, _, _ in report.warning_lines(found))
+        self.assertIn("Folded input: 326 faces in 70 spots.", warning)
+        self.assertTrue(report.offers_fold_repair(found))
+        self.assertIn("not changed", " ".join(report.fold_offer_lines()))
+        repaired = {"status": "ok", "parameters": {"target_quads": 5000, "repair_folds": True},
+                    "output": {"quads": 4962},
+                    "diagnostics": {"input_fold_clusters": 70, "input_fold_clusters_after": 9}}
+        rows = report.summary_rows(repaired)
+        self.assertIn(("Folds repaired", "61 of 70 spots", False), rows)
+        self.assertIn(("Folds left", "9 spots", True), rows)
+        self.assertFalse(report.offers_fold_repair(repaired))
+        self.assertIn("9 folded spots could not be repaired", report.warning_lines(repaired)[0][0])
+        clean = {"status": "ok", "parameters": {"target_quads": 5000}, "output": {"quads": 4962},
+                 "diagnostics": {"input_fold_clusters": 0}}
+        self.assertFalse(any(label in ("Folds repaired", "Folds left") for label, _, _ in report.summary_rows(clean)))
+        self.assertFalse(any("Folded input" in text for text, _, _ in report.warning_lines(clean)))
+        self.assertFalse(report.offers_fold_repair(clean))
+
+
 class EnvironmentTest(unittest.TestCase):
     def test_snap_library_paths_dropped(self):
         env = worker.worker_environment({
@@ -259,6 +282,13 @@ class CliTest(unittest.TestCase):
         # The output lies on the unit sphere.
         radii = np.linalg.norm(outcome.positions, axis=1)
         self.assertLess(float(np.abs(radii - 1.0).max()), 0.01)
+
+    def test_fold_repair_flag(self):
+        outcome = worker.remesh(EXECUTABLE, self.positions.astype(np.float32), self.triangles,
+                                {"target_quads": 500, "repair_folds": True})
+        self.assertEqual(outcome.status, "ok", outcome.message + "\n" + outcome.log)
+        self.assertIs(outcome.report["parameters"]["repair_folds"], True)
+        self.assertEqual(outcome.report["diagnostics"]["input_fold_clusters"], 0)
 
     def test_target_above_maximum(self):
         positions, triangles = uv_sphere(16, 32)
