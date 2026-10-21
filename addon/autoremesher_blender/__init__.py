@@ -85,7 +85,7 @@ class RemeshSettings(bpy.types.PropertyGroup):
         name="Sharp Edge", default=90.0, min=30.0, max=180.0,
         description="Edges where the surface bends by more than this angle (degrees) "
                     "are kept as creases. Lower keeps more edges but makes more broken quads "
-                    "(60: about 1.7 times the triangles and other non-quads)")
+                    "(60: about twice the triangles and other non-quads)")
     anisotropy: FloatProperty(
         name="Anisotropy", default=1.0, min=0.0, max=1.0,
         description="Lets quads stretch along the direction in which the surface curves "
