@@ -286,7 +286,7 @@ def main():
     ap.add_argument("--md")
     ap.add_argument("--csv")
     a = ap.parse_args()
-    corpus = json.load(open(os.path.join(HERE, "corpus.json")))
+    corpus = json.load(open(os.environ.get("AR_CORPUS") or os.path.join(HERE, "corpus.json")))
     rows = []
     for root in a.runs:
         runs = find_runs(root, a.set.split(","), corpus)

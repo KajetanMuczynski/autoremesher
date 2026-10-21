@@ -121,6 +121,6 @@ make sure positions are welded (AutoRemesher treats every connected component as
 indexes by position, so a triangle soup becomes thousands of islands).
 
 Meshes that must stay out of this public repo (someone's own sculpts) go in a separate file of the
-same shape as `corpus.json`, kept outside the repo, with absolute `file` paths. `ab.py` reads it
-instead of `corpus.json` when `AR_CORPUS` points at it: `AR_CORPUS=~/private/corpus.json ab.py run
+same shape as `corpus.json`, kept outside the repo, with absolute `file` paths. `ab.py` and
+`sculpt_report.py` read it instead of `corpus.json` when `AR_CORPUS` points at it: `AR_CORPUS=~/private/corpus.json ab.py run
 master --set <its set>`. Only metrics from such runs go into notes and PRs, never the meshes or their paths.
