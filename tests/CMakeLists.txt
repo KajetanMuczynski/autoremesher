@@ -48,3 +48,15 @@ add_test(NAME decimation_topology COMMAND decimation_topology_test)
 add_executable(target_limit_test target_limit_test.cpp)
 target_link_libraries(target_limit_test PRIVATE autoremesher_core)
 add_test(NAME target_limit COMMAND target_limit_test)
+
+add_executable(surface_projection_test surface_projection_test.cpp)
+target_link_libraries(surface_projection_test PRIVATE autoremesher_core)
+add_test(NAME surface_projection COMMAND surface_projection_test)
+
+add_executable(map_check_test map_check_test.cpp)
+target_link_libraries(map_check_test PRIVATE autoremesher_core)
+add_test(NAME map_check COMMAND map_check_test)
+
+add_executable(input_cleanup_test input_cleanup_test.cpp)
+target_link_libraries(input_cleanup_test PRIVATE autoremesher_core)
+add_test(NAME input_cleanup COMMAND input_cleanup_test)

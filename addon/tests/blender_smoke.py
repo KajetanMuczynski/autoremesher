@@ -75,6 +75,11 @@ try:
         assert executable == worker.bundled_executable(), (executable, worker.bundled_executable())
     assert executable, "set AUTOREMESHER_EXECUTABLE"
     print("blender_smoke: remesher %s" % executable)
+    build = worker.addon_build_id()
+    print("blender_smoke: add-on build %s, remesher build %s" % (build, worker.worker_build_id(executable)))
+    if installed:
+        # package.py copies the bundled program's id, so the panel shows no mismatch.
+        assert build != "dev" and worker.worker_build_id(executable) == build, build
     outcome = worker.remesh(executable, positions, triangles, settings.parameters())
     assert outcome.ok, (outcome.status, outcome.message, outcome.log)
 

@@ -29,6 +29,9 @@ built for, so Blender refuses it elsewhere. Platform tags are Blender's
 windows-x64, windows-arm64, linux-x64, macos-x64, macos-arm64. The default is
 the machine running this script.
 
+The zip holds build-id.txt, the build id the add-on shows (commit and date,
+cmake/BuildId.cmake): the bundled program's, or "dev" from a tree without git.
+
 Prints the zip's path.
 """
 
@@ -69,6 +72,24 @@ def manifest_for(text, platform_tag):
     if count != 1:
         sys.exit("blender_manifest.toml has no blender_version_min line")
     return text
+
+
+def build_id(cli_prefix):
+    """The id the add-on shows (worker.addon_build_id): the bundled program's,
+    from its install prefix, so both always agree; without one, worked out by
+    cmake/BuildId.cmake, or "dev" without CMake."""
+    if cli_prefix:
+        path = os.path.join(cli_prefix, "build-id.txt")
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return f.read().strip()
+        except OSError:
+            sys.exit("no %s; run cmake --install <build> --prefix %s first" % (path, cli_prefix))
+    try:
+        return subprocess.run(["cmake", "-DSOURCE_DIR=" + REPO, "-P", os.path.join(REPO, "cmake", "BuildId.cmake")],
+                              capture_output=True, text=True, check=True).stdout.strip() or "dev"
+    except (OSError, subprocess.CalledProcessError):
+        return "dev"
 
 
 def source_note(website):
@@ -129,6 +150,7 @@ def main():
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as archive:
         # Blender wants blender_manifest.toml at the root of the zip.
         archive.writestr("blender_manifest.toml", manifest_out)
+        archive.writestr("build-id.txt", build_id(args.cli_prefix) + "\n")
         for arcname, path in files:
             info = zipfile.ZipInfo.from_file(path, arcname)
             info.compress_type = zipfile.ZIP_DEFLATED
