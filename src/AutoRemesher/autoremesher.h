@@ -253,6 +253,49 @@ public:
         return m_diagnostics;
     }
 
+    // What cleanInput() changed in the input.
+    struct InputCleanupStats {
+        // Vertices merged into another across an edge no longer than the
+        // tolerance.
+        size_t mergedVertices = 0;
+        // Triangles left with a repeated corner by the merge.
+        size_t droppedTriangles = 0;
+        // Connected parts left as they were because the merge would have
+        // changed their topology.
+        size_t keptParts = 0;
+        // Triangles of zero area that remain: three distinct but collinear
+        // corners, which only an edge flip can remove.
+        size_t zeroAreaTriangles = 0;
+        // Triangles turned to agree with their neighbours across manifold
+        // edges, and pieces left as they were because no orientation fits
+        // them (a Moebius strip).
+        size_t flippedTriangles = 0;
+        size_t nonOrientablePieces = 0;
+    };
+
+    // Edges up to this long are rounding noise of the float32 positions
+    // hosts store: a few float32 ulps of the bounding box diagonal.
+    static double inputCleanupTolerance(const std::vector<Vector3>& vertices);
+
+    // Merges the ends of every edge no longer than `tolerance` and drops the
+    // triangles that become degenerate, in each connected part whose
+    // components, boundary, non-manifold edges and Euler characteristic this
+    // keeps.  Coincident vertices that no edge joins stay apart (a surface
+    // touching itself).  Vertices keep their indices; merged ones stay in
+    // `vertices`, unused.  Without such an edge nothing is changed.
+    static InputCleanupStats cleanInput(const std::vector<Vector3>& vertices,
+        std::vector<std::vector<size_t>>& triangles,
+        double tolerance);
+
+    // Turns triangles so that each piece connected through manifold edges
+    // (two triangles) has one orientation: the one of most of its area.
+    // Island splitting follows opposite half-edges, so a flipped patch would
+    // otherwise come out as an island of its own.  A consistent mesh is left
+    // unchanged; counts go to `stats`.
+    static void orientInput(const std::vector<Vector3>& vertices,
+        std::vector<std::vector<size_t>>& triangles,
+        InputCleanupStats* stats);
+
     static const double m_defaultSharpEdgeDegrees;
 
     // Per-island durations are accumulated in microseconds: a mesh split into

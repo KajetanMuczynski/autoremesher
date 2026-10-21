@@ -67,6 +67,25 @@ class RemeshPreferences(bpy.types.AddonPreferences):
         found = worker.find_executable(bpy.path.abspath(self.executable))
         self.layout.label(text="Using: " + (found or "not found"),
                           icon="CHECKMARK" if found else "ERROR")
+        _draw_build(self.layout, found, always_both=True)
+
+
+def _draw_build(layout, executable, always_both=False):
+    """The add-on's build id in grey, and the remesher's too when they differ
+    (then in red: the add-on and its worker come from different builds)."""
+    addon_id = worker.addon_build_id()
+    worker_id = worker.worker_build_id(executable) if executable else None
+    mismatch = executable is not None and worker_id != addon_id
+    column = layout.column(align=True)
+    row = column.row()
+    row.enabled = mismatch
+    row.alert = mismatch
+    row.label(text="Add-on build " + addon_id, icon="ERROR" if mismatch else "NONE")
+    if mismatch or (always_both and executable):
+        row = column.row()
+        row.enabled = mismatch
+        row.alert = mismatch
+        row.label(text="Remesher build " + (worker_id or "unknown"))
 
 
 class RemeshSettings(bpy.types.PropertyGroup):
@@ -343,19 +362,21 @@ class VIEW3D_PT_remesh_quads(bpy.types.Panel):
                 status, message = report.get("status", ""), report.get("message", "")
             except ValueError:
                 pass
-        if status in ("", "running"):
-            return
-        box = layout.box()
-        box.label(text=report_rows.STATUS_TEXT.get(status, status),
-                  icon="CHECKMARK" if status == "ok" else "ERROR")
-        if message and status != "ok":
-            box.label(text=message)
-        if report:
-            for label, value, problem in report_rows.summary_rows(report):
-                row = box.row()
-                row.alert = problem
-                row.label(text=label)
-                row.label(text=value)
+        if status not in ("", "running"):
+            box = layout.box()
+            box.label(text=report_rows.STATUS_TEXT.get(status, status),
+                      icon="CHECKMARK" if status == "ok" else "ERROR")
+            if message and status != "ok":
+                box.label(text=message)
+            if report:
+                for label, value, problem in report_rows.summary_rows(report):
+                    row = box.row()
+                    row.alert = problem
+                    row.label(text=label)
+                    row.label(text=value)
+
+        preferences = _preferences(context)
+        _draw_build(layout, worker.find_executable(bpy.path.abspath(preferences.executable) if preferences else ""))
 
 
 classes = (

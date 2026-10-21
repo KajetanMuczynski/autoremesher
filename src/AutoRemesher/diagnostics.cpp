@@ -175,6 +175,9 @@ std::vector<std::pair<std::string, double>> summarizeDiagnostics(
     double roundingShift = 0, roundingPasses = 0;
     double solves = 0, factorizations = 0, fallbacks = 0, nonFinite = 0;
     double peakRss = 0, cpuSeconds = 0;
+    double mergedVertices = 0, droppedTriangles = 0, cleanupKeptParts = 0, zeroAreaTriangles = 0;
+    double flippedTriangles = 0, nonOrientablePieces = 0;
+    double projected = 0, projectionKeptFolding = 0, projectionKeptOther = 0;
     // Area-weighted over islands; the rescale is the island's farthest from 1.
     double sizeArea = 0, sizeSlope = 0, sizeErrorSquared = 0, rescale = 0;
     // A solver object reports running totals, so only its last record counts
@@ -185,6 +188,12 @@ std::vector<std::pair<std::string, double>> summarizeDiagnostics(
         if (record.stage == "run") {
             peakRss = valueOf(record, "peak_rss_bytes", 0);
             cpuSeconds = valueOf(record, "cpu_seconds", 0);
+            mergedVertices = valueOf(record, "input_merged_vertices", 0);
+            droppedTriangles = valueOf(record, "input_dropped_triangles", 0);
+            cleanupKeptParts = valueOf(record, "input_cleanup_kept_parts", 0);
+            zeroAreaTriangles = valueOf(record, "input_zero_area_triangles", 0);
+            flippedTriangles = valueOf(record, "input_flipped_triangles", 0);
+            nonOrientablePieces = valueOf(record, "input_non_orientable_pieces", 0);
         } else if (record.stage == "cover_result") {
             flipped += valueOf(record, "snapped_flipped", 0);
             degenerate += valueOf(record, "snapped_degenerate", 0);
@@ -209,6 +218,10 @@ std::vector<std::pair<std::string, double>> summarizeDiagnostics(
             const double islandRescale = valueOf(record, "continuous_rescale", 0);
             if (islandRescale > 0 && (!(rescale > 0) || std::fabs(std::log(islandRescale)) > std::fabs(std::log(rescale))))
                 rescale = islandRescale;
+        } else if (record.stage == "surface_projection") {
+            projected += valueOf(record, "projected", 0);
+            projectionKeptFolding += valueOf(record, "kept_folding", 0);
+            projectionKeptOther += valueOf(record, "kept_unmatched", 0) + valueOf(record, "kept_far", 0);
         } else if (record.stage == "cover_system") {
             droppedConstraints += valueOf(record, "dropped_constraints", 0);
         } else if (record.stage == "rounding_iteration") {
@@ -256,8 +269,17 @@ std::vector<std::pair<std::string, double>> summarizeDiagnostics(
         { "factorizations", factorizations },
         { "kkt_fallbacks", fallbacks },
         { "non_finite_values", nonFinite },
+        { "projected_vertices", projected },
+        { "projection_kept_folding", projectionKeptFolding },
+        { "projection_kept_unmatched", projectionKeptOther },
         { "peak_rss_bytes", peakRss },
         { "cpu_seconds", cpuSeconds },
+        { "input_merged_vertices", mergedVertices },
+        { "input_dropped_triangles", droppedTriangles },
+        { "input_cleanup_kept_parts", cleanupKeptParts },
+        { "input_zero_area_triangles", zeroAreaTriangles },
+        { "input_flipped_triangles", flippedTriangles },
+        { "input_non_orientable_pieces", nonOrientablePieces },
     };
 }
 
