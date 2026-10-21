@@ -36,6 +36,9 @@ public:
     void setMaximumPairDistance(size_t hops) { m_maximumPairDistance = hops; }
     void setSharpEdgeDegrees(double degrees) { m_sharpEdgeDegrees = degrees; }
     void simplify();
+    // Per vertex the cone's charge in quarter turns, exact (not mod 4):
+    // 1 at a valence-3 cone, -1 at a valence-5 one, 4 where the field asks
+    // for no angle; 0 at regular, boundary and non-manifold vertices.
     std::vector<int> vertexCharges() const;
     size_t singularityCount() const;
     size_t singularityCountBefore() const { return m_singularityCountBefore; }
@@ -49,14 +52,12 @@ private:
     double m_sharpEdgeDegrees = 90.0;
     size_t m_singularityCountBefore = 0, m_singularityCountAfter = 0, m_cancelledPairCount = 0;
     std::vector<double> m_angles, m_connection;
-    std::vector<int> m_mismatch;
     std::vector<bool> m_sharpCorner;
     std::vector<Vector3> m_frameU, m_frameV;
     // Scratch that simplify() allocates once and every cancelPair() reuses, so
     // a pair costs time in the size of its region rather than of the mesh.
     struct Workspace;
     void buildFramesAndConnection();
-    void updateMismatches(const std::vector<size_t>& faces);
     int vertexCharge(size_t vertex) const;
     std::vector<size_t> facetsAroundVertex(size_t vertex) const;
     size_t cornerAlongEdge(size_t from, size_t to) const;

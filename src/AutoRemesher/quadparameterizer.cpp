@@ -21,6 +21,7 @@
  *  SOFTWARE.
  */
 #include <AutoRemesher/ConstrainedLeastSquares>
+#include <AutoRemesher/FrameField>
 #include <AutoRemesher/MixedIntegerLeastSquares>
 #include <AutoRemesher/Predicates>
 #include <AutoRemesher/QuadParameterizer>
@@ -234,6 +235,79 @@ namespace {
             rotation[c] = edgeQuarterTurn(mesh, c, field, normals);
         }
         return rotation;
+    }
+
+    // Smallest cone angle, in quarter turns, the cover is given: valence 2.
+    // Valence 0 and 1 fold the whole map; raising valence 2 as well moved
+    // cones at many hard-surface vertices and cost validity (corpus A/B).
+    const int minimumConeQuarters = 2;
+
+    // Rounding each edge's field turn to its nearest quarter turns can give
+    // a vertex a cone angle below minimumConeQuarters: the needle tip of a
+    // thin blade, where the field asks for a valence-0 or -1 cone. The cover
+    // cannot follow either and folds over the whole island instead of only
+    // near the tip (Kajetan's sword, 2026-10-21).
+    // Round edges at such a vertex to their next quarter turn instead, each
+    // adding pi / 2 to its angle and taking it from the neighbour across the
+    // edge (a cone moves off the tip), until the vertex reaches the minimum.
+    // Prefers edges that are not hard and whose turn is closest to rounding
+    // that way; never takes a neighbour below the minimum. Marks the
+    // re-rounded corners, which no longer follow the field, in `rerounded`.
+    // Returns the number of re-rounded edges.
+    size_t raiseSmallConeAngles(const SurfaceMesh& mesh, const std::vector<Vector3>& field,
+        const std::vector<Vector3>& normals, const std::vector<signed char>& cornerConstraints,
+        std::vector<int>* rotation, std::vector<char>* rerounded)
+    {
+        const double quarter = .5 * M_PI;
+        const auto edgeAngle = [&](size_t face, const Vector3& edge) {
+            const Vector3 u = field[face], v = Vector3::crossProduct(normals[face], u);
+            return std::atan2(Vector3::dotProduct(edge, v), Vector3::dotProduct(edge, u));
+        };
+        // The field's turn across the edge net of the rotation's quarter
+        // turns: within pi / 4 of 0 where the rotation is the nearest one.
+        const auto residual = [&](size_t c) {
+            const Vector3 edge = mesh.edgeVector(c);
+            double turn = edgeAngle(mesh.cornerFace(c), edge) - edgeAngle(mesh.cornerFace(mesh.oppositeCorner(c)), edge)
+                + quarter * (*rotation)[c];
+            return std::remainder(turn, 2.0 * M_PI);
+        };
+        rerounded->assign(mesh.cornerCount(), 0);
+        size_t count = 0;
+        for (size_t vertex = 0; vertex < mesh.vertexCount(); ++vertex) {
+            int quarters = minimumConeQuarters;
+            if (!FrameField::coneQuarters(mesh, vertex, residual, &quarters))
+                continue;
+            while (quarters < minimumConeQuarters) {
+                size_t best = SurfaceMesh::npos;
+                bool bestHard = true;
+                double bestCost = 0.0;
+                for (const size_t c : mesh.cornersAroundVertex(vertex)) {
+                    const size_t opposite = mesh.oppositeCorner(c);
+                    if ((*rerounded)[c])
+                        continue;
+                    int neighbourQuarters = minimumConeQuarters + 1;
+                    if (FrameField::coneQuarters(mesh, mesh.cornerVertex(opposite), residual, &neighbourQuarters)
+                        && neighbourQuarters <= minimumConeQuarters)
+                        continue;
+                    const bool hard = ConstraintNone != cornerConstraints[c] || ConstraintNone != cornerConstraints[opposite];
+                    const double cost = std::fabs(residual(c) + quarter);
+                    if (best == SurfaceMesh::npos || (bestHard && !hard) || (bestHard == hard && cost < bestCost)) {
+                        best = c;
+                        bestHard = hard;
+                        bestCost = cost;
+                    }
+                }
+                if (best == SurfaceMesh::npos)
+                    break;
+                const size_t opposite = mesh.oppositeCorner(best);
+                (*rotation)[best] = ((*rotation)[best] + 1) % 4;
+                (*rotation)[opposite] = (4 - (*rotation)[best]) % 4;
+                (*rerounded)[best] = (*rerounded)[opposite] = 1;
+                ++count;
+                ++quarters;
+            }
+        }
+        return count;
     }
 
     std::vector<signed char> computeCornerConstraints(const SurfaceMesh& mesh,
@@ -1410,15 +1484,25 @@ bool QuadParameterizer::parameterize(const std::vector<Vector3>& vertices,
     brushFieldAlongSpanningTree(mesh, normals, &result->field);
 
     report(0.14f, "Computing corner rotations");
-    const std::vector<int> rotation = computeCornerRotations(mesh, result->field, normals);
-    result->cornerRotations = rotation;
-    const std::vector<signed char> cornerConstraints = computeCornerConstraints(mesh, result->field,
+    std::vector<int> rotation = computeCornerRotations(mesh, result->field, normals);
+    std::vector<signed char> cornerConstraints = computeCornerConstraints(mesh, result->field,
         normals, hardEdgeDegrees);
+    std::vector<char> rerounded;
+    const size_t reroundedEdges = raiseSmallConeAngles(mesh, result->field, normals, cornerConstraints,
+        &rotation, &rerounded);
+    // A hard edge's constraint follows the field, which a re-rounded edge
+    // no longer does: on that edge the two faces could ask for different
+    // isolines and collapse it.
+    for (size_t c = 0; c < corners; ++c)
+        if (rerounded[c])
+            cornerConstraints[c] = ConstraintNone;
+    result->cornerRotations = rotation;
     if (trackDirectionalScale)
         applyDirectionalSwaps(mesh, fieldBeforeBrush, result->field, normals,
             &activeScalingU, &activeScalingV);
     report(0.20f, "Correcting field curl");
     DiagnosticRecord curlDiagnostics("curl_correction");
+    curlDiagnostics.set("rerounded_edges", (double)reroundedEdges);
     applyCurlCorrection(mesh, normals, rotation, cornerConstraints,
         faceScaling, scale, 1e-4, &activeScalingU, &activeScalingV, &result->field,
         &curlDiagnostics);
