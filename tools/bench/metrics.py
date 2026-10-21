@@ -4,6 +4,7 @@
 
     python metrics.py --input in.obj --output out.obj [--target-quads N]
                       [--sym-axis x --sym-center 0] [--samples 200000] [--json m.json]
+                      [--input-cache DIR]
 
 Needs numpy, scipy and libigl (python bindings, `pip install libigl`).
 
@@ -30,7 +31,9 @@ named *_rel_edge, which are relative to the output mean edge length):
               edge lengths (0 for a mirror-symmetric layout)
 """
 import argparse
+import hashlib
 import json
+import os
 import sys
 
 import numpy as np
@@ -100,12 +103,67 @@ def newell(V, face):
                      np.sum((p[:, 0] - q[:, 0]) * (p[:, 1] + q[:, 1]))])
 
 
-def compute(input_path, output_path, target_quads=None, sym_axis=None, sym_center=0.0, samples=200000, seed=0):
-    rng = np.random.default_rng(seed)
+def comps(n, edges):
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+
+    A = coo_matrix((np.ones(len(edges)), (edges[:, 0], edges[:, 1])), shape=(n, n))
+    return connected_components(A, directed=False)[1]
+
+
+def loops(n, edges):
+    """Boundary loops: connected components of the boundary edges (a pinched loop counts once)."""
+    if not len(edges):
+        return 0
+    return int(len(np.unique(comps(n, edges)[np.unique(edges)])))
+
+
+def sha256_file(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as fp:
+        for block in iter(lambda: fp.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def input_side(input_path, cache_dir=None):
+    """Everything compute() derives from the input alone (on large inputs most of its time).
+
+    With cache_dir it is stored per input content and version of this file, as arrays in an .npz, so
+    a cached result is bit-identical to a fresh one; any edit of metrics.py starts a new cache.
+    """
+    path = None
+    if cache_dir:
+        path = os.path.join(cache_dir, f"{sha256_file(input_path)[:16]}-{sha256_file(__file__)[:12]}.npz")
+        if os.path.exists(path):
+            with np.load(path) as z:
+                return {k: z[k] for k in z.files}
     Vin, fin = read_obj(input_path)
     Fin = triangulate(fin)
     used_in = np.unique(Fin)
-    diag = float(np.linalg.norm(Vin[used_in].max(0) - Vin[used_in].min(0)))
+    ein = np.unique(np.sort(np.concatenate([Fin[:, [0, 1]], Fin[:, [1, 2]], Fin[:, [2, 0]]]), axis=1), axis=0)
+    ein_all = np.sort(np.concatenate([Fin[:, [0, 1]], Fin[:, [1, 2]], Fin[:, [2, 0]]]), axis=1)
+    ein_u, ein_c = np.unique(ein_all, axis=0, return_counts=True)
+    d = {"Vin": Vin, "Fin": Fin, "used_in": used_in,
+         "diag": np.float64(np.linalg.norm(Vin[used_in].max(0) - Vin[used_in].min(0))),
+         "euler_input": np.int64(len(used_in) - len(ein) + len(Fin)),
+         "components_input": np.int64(len(np.unique(comps(len(Vin), ein)[used_in]))),
+         "boundary_loops_input": np.int64(loops(len(Vin), ein_u[ein_c == 1]))}
+    if path:
+        os.makedirs(cache_dir, exist_ok=True)
+        tmp = f"{path}.{os.getpid()}.tmp"
+        with open(tmp, "wb") as fp:
+            np.savez(fp, **d)
+        os.replace(tmp, path)  # atomic: parallel runs on the same input write identical files
+    return d
+
+
+def compute(input_path, output_path, target_quads=None, sym_axis=None, sym_center=0.0, samples=200000, seed=0,
+            cache_dir=None):
+    rng = np.random.default_rng(seed)
+    inp = input_side(input_path, cache_dir)
+    Vin, Fin, used_in = inp["Vin"], inp["Fin"], inp["used_in"]
+    diag = float(inp["diag"])
     V, faces = read_obj(output_path)
     out = {"input": input_path, "output": output_path, "diag": diag}
     if not faces:
@@ -137,32 +195,15 @@ def compute(input_path, output_path, target_quads=None, sym_axis=None, sym_cente
     out["topology"] = {"edges": int(len(uniq)), "boundary_edges": int((counts == 1).sum()),
                        "non_manifold_edges": int((counts > 2).sum()), "inconsistently_oriented_edges": inconsistent,
                        "unused_vertices": int(len(V) - len(used))}
-    # Components and Euler characteristic (output vs input).
-    from scipy.sparse import coo_matrix
-    from scipy.sparse.csgraph import connected_components
-
-    def comps(n, edges):
-        A = coo_matrix((np.ones(len(edges)), (edges[:, 0], edges[:, 1])), shape=(n, n))
-        return connected_components(A, directed=False)[1]
-
+    # Components, Euler characteristic and boundary loops (output vs input).
     lab = comps(len(V), E)
     out["topology"]["components"] = int(len(np.unique(lab[used])))
     out["topology"]["euler_output"] = int(len(used) - len(uniq) + len(faces))
-    ein = np.unique(np.sort(np.concatenate([Fin[:, [0, 1]], Fin[:, [1, 2]], Fin[:, [2, 0]]]), axis=1), axis=0)
-    out["topology"]["euler_input"] = int(len(used_in) - len(ein) + len(Fin))
-    out["topology"]["components_input"] = int(len(np.unique(comps(len(Vin), ein)[used_in])))
-
-    # Boundary loops: connected components of the boundary edges (a pinched loop counts once).
-    def loops(n, edges):
-        if not len(edges):
-            return 0
-        return int(len(np.unique(comps(n, edges)[np.unique(edges)])))
-
-    ein_all = np.sort(np.concatenate([Fin[:, [0, 1]], Fin[:, [1, 2]], Fin[:, [2, 0]]]), axis=1)
-    ein_u, ein_c = np.unique(ein_all, axis=0, return_counts=True)
+    out["topology"]["euler_input"] = int(inp["euler_input"])
+    out["topology"]["components_input"] = int(inp["components_input"])
     t = out["topology"]
     t["boundary_loops"] = loops(len(V), bnd)
-    t["boundary_loops_input"] = loops(len(Vin), ein_u[ein_c == 1])
+    t["boundary_loops_input"] = int(inp["boundary_loops_input"])
     # Same surface type as the input: Euler characteristic, components and boundary loops match and
     # no edge is non-manifold. Fixes or breaks of handles and holes ("genus") show up here.
     t["same_as_input"] = (t["euler_output"] == t["euler_input"] and t["components"] == t["components_input"]
@@ -267,14 +308,24 @@ def compute(input_path, output_path, target_quads=None, sym_axis=None, sym_cente
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--input", required=True)
-    ap.add_argument("--output", required=True)
+    ap.add_argument("--output")
     ap.add_argument("--target-quads", type=int)
     ap.add_argument("--sym-axis", choices=["x", "y", "z"])
     ap.add_argument("--sym-center", type=float, default=0.0)
     ap.add_argument("--samples", type=int, default=200000)
     ap.add_argument("--json")
+    ap.add_argument("--input-cache", help="folder that caches the input's share of the work (same results)")
+    ap.add_argument("--prepare-input", action="store_true", help="only fill --input-cache for --input")
     args = ap.parse_args()
-    res = compute(args.input, args.output, args.target_quads, args.sym_axis, args.sym_center, args.samples)
+    if args.prepare_input:
+        if not args.input_cache:
+            ap.error("--prepare-input needs --input-cache")
+        input_side(args.input, args.input_cache)
+        return
+    if not args.output:
+        ap.error("--output is required")
+    res = compute(args.input, args.output, args.target_quads, args.sym_axis, args.sym_center, args.samples,
+                  cache_dir=args.input_cache)
     text = json.dumps(res, indent=1)
     if args.json:
         with open(args.json, "w") as f:

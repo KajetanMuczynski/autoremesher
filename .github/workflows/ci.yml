@@ -124,6 +124,13 @@ jobs:
       - name: Smoke test, core
         run: ci/smoke_test.sh build/core/ar_bench build/smoke-core
 
+      # The A/B harness's metrics give the same numbers with and without their input cache.
+      - name: Bench tools tests
+        run: |
+          python3 -m venv build/bench-venv
+          build/bench-venv/bin/pip install -q numpy==2.5.4 scipy==1.18.1 libigl==2.6.3
+          build/bench-venv/bin/python -m unittest discover -s tools/bench/tests -v
+
       - name: Upload smoke test output
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
