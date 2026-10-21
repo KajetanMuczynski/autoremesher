@@ -20,6 +20,7 @@
  *  SOFTWARE.
  */
 #include <AutoRemesher/FrameField>
+#include <AutoRemesher/MapCheck>
 #include <AutoRemesher/Parameterizer>
 #include <AutoRemesher/QuadParameterizer>
 #include <AutoRemesher/SingularitySimplifier>
@@ -351,6 +352,14 @@ bool Parameterizer::parameterize()
     if (!coverSolved) {
         std::cerr << "Quad cover solve failed" << std::endl;
         return false;
+    }
+    {
+        // The map extraction gets, checked against the validity conditions of
+        // the papers; only recorded.
+        DiagnosticRecord record("map_check");
+        appendMapCheck(&record, checkIntegerGridMap(*m_vertices, *m_triangles, cover.triangleUvs,
+                                    cover.cornerRotations, cover.singularVertices));
+        m_diagnostics.push_back(std::move(record));
     }
     report(0.99f, "Collecting singularities");
     m_originalTriangleUvs = cover.triangleUvs;
