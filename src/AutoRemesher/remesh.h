@@ -36,7 +36,7 @@
 namespace AutoRemesher {
 
 const int InterfaceVersionMajor = 1;
-const int InterfaceVersionMinor = 3;
+const int InterfaceVersionMinor = 4;
 
 // Since 1.3.  Peak memory grows linearly with the target, by about this much
 // per quad at Quality resolution (21 KB measured on spot at 25k-100k quads;
@@ -146,8 +146,22 @@ struct QualityReport {
     size_t foldedFaceCount = 0;
     size_t degenerateFaceCount = 0;
     size_t componentCount = 0;
+    // Since 1.4.  Connected pieces of the boundary-edge graph (one per hole
+    // or open border; two loops touching at a vertex count once), and
+    // vertices whose faces do not form one fan joined by shared edges.
+    size_t boundaryLoopCount = 0;
+    size_t nonManifoldVertexCount = 0;
     size_t islandCount = 0;
     size_t islandsWithoutOutput = 0;
+    // Since 1.4.  Input islands that are closed (no boundary or non-manifold
+    // edge); those of them whose output has a boundary edge, a non-manifold
+    // edge or a non-manifold vertex; and the boundary loops and edges in the
+    // output of those islands, i.e. holes the input did not have.  Measured
+    // by measureMesh() on each island's output.
+    size_t closedInputIslandCount = 0;
+    size_t openedClosedIslandCount = 0;
+    size_t closedIslandHoleCount = 0;
+    size_t closedIslandHoleEdgeCount = 0;
     // Wall time of the whole call.
     double seconds = 0.0;
     // Per-step times summed over the islands, in pipeline order.

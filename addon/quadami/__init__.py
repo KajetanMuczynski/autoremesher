@@ -374,6 +374,13 @@ class VIEW3D_PT_remesh_quads(bpy.types.Panel):
                     row.alert = problem
                     row.label(text=label)
                     row.label(text=value)
+                # Full width, so a sentence is not cut off at the value column.
+                column = box.column(align=True)
+                for text, first, problem in report_rows.warning_lines(report):
+                    row = column.row()
+                    row.alert = problem
+                    icon = ("ERROR" if problem else "INFO") if first else "BLANK1"
+                    row.label(text=text, icon=icon)
 
         preferences = _preferences(context)
         _draw_build(layout, worker.find_executable(bpy.path.abspath(preferences.executable) if preferences else ""))

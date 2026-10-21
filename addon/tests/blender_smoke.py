@@ -95,6 +95,8 @@ try:
     assert addon.REPORT_PROPERTY in obj
     for label, value, problem in report.summary_rows(final_report):
         print("  %-20s %s%s" % (label, value, "  <-" if problem else ""))
+    for text, first, problem in report.warning_lines(final_report):
+        print("  %s%s" % ("" if first else "  ", text))
     print("blender_smoke: OK, Blender %s" % bpy.app.version_string)
 finally:
     if installed:
