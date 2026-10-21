@@ -12,6 +12,9 @@
   the opposite sign to the simplifier's jumps and cancelled 2 pairs instead of 4238 on the corpus (flips x1.9): caught
   by the A/B. Procedural rhombus blades (no folded or non-manifold input) collapse at 18 of 44 targets on master,
   0 of 44 with the fix (CLI, not ab.py).
-- Measured: ab.py corpus master vs fix (1 replicate): final flips x0.97, non-quads x1.01, p99 x0.99, topology 61 -> 62
-  of 72. Minimum valence 3 instead of 2: flips x1.22. Closed set and replicates: see the PR.
+- Measured (ab.py, master a5e983a vs fix): corpus final flips x0.97, non-quads x1.01, p99 x0.99, topology 61 -> 62 of 72;
+  closed set with 5 replicates flips x0.96, non-quads x1.03, p99 x0.97, topology 76.7 = 76.7 of 78, nothing broken;
+  sword, csg_bracket, human_neutral, boat with 5 replicates: nothing broken, human_neutral quality 2000 fixed.
+  Private sword (AR_CORPUS realsword, 5 replicates): 3k quads 783-1469 -> 1933-2711, Hausdorff 0.51 -> 0.047.
+  Minimum valence 3 instead of 2: corpus flips x1.22.
 - Next: the fold-repair thread removes the sword's folded-input trigger; valence-2 tips still give a doublet.
