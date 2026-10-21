@@ -357,8 +357,7 @@ bool Parameterizer::parameterize()
         // The map extraction gets, checked against the validity conditions of
         // the papers; only recorded.
         DiagnosticRecord record("map_check");
-        appendMapCheck(&record, checkIntegerGridMap(*m_vertices, *m_triangles, cover.triangleUvs,
-                                    cover.cornerRotations, cover.singularVertices));
+        appendMapCheck(&record, checkIntegerGridMap(*m_vertices, *m_triangles, cover.triangleUvs, cover.cornerRotations, cover.singularVertices));
         m_diagnostics.push_back(std::move(record));
     }
     report(0.99f, "Collecting singularities");
