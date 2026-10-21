@@ -156,6 +156,43 @@ def find_executable(configured=""):
     return os.path.abspath(found) if found else None
 
 
+BUILD_ID_FILE = "build-id.txt"
+_worker_build_ids = {}
+
+
+def addon_build_id():
+    """The build id addon/package.py stored with the add-on (commit and date,
+    cmake/BuildId.cmake); "dev" when it runs from the source tree."""
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), BUILD_ID_FILE),
+                  "r", encoding="utf-8") as f:
+            return f.read().strip() or "dev"
+    except OSError:
+        return "dev"
+
+
+def worker_build_id(executable):
+    """The build id `executable --version` reports, or None (a build from
+    before build ids, the Qt app, or a program that does not run). Cached per
+    file, so the UI can ask on every redraw and a rebuilt program is asked again."""
+    try:
+        stat = os.stat(executable)
+    except (OSError, TypeError):
+        return None
+    key = (executable, stat.st_mtime_ns, stat.st_size)
+    if key not in _worker_build_ids:
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+        try:
+            output = subprocess.run([executable, "--version"], capture_output=True, timeout=5,
+                                    env=worker_environment(os.environ), creationflags=creationflags,
+                                    text=True, encoding="utf-8", errors="replace").stdout
+        except (OSError, subprocess.SubprocessError):
+            output = ""
+        match = re.search(r"\(build ([^,)]+)", output)
+        _worker_build_ids[key] = match.group(1).strip() if match else None
+    return _worker_build_ids[key]
+
+
 def worker_environment(environ):
     """The worker's environment: Blender's, minus what would confuse the CLI.
 

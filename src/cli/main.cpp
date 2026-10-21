@@ -18,6 +18,7 @@
  */
 // autoremesher-cli: the remeshing core behind a command line, without Qt.
 // The Blender add-on runs it as its worker process (addon/README.md).
+#include "build_id.h"
 #include "objfile.h"
 #include "stdincontrol.h"
 #include <AutoRemesher/Remesh>
@@ -123,8 +124,8 @@ int parseArguments(const std::vector<std::string>& arguments, Options* options)
             return -1;
         }
         if ("-v" == name || "--version" == name) {
-            std::printf("autoremesher-cli %s (remesh interface %d.%d)\n", AUTOREMESHER_VERSION,
-                InterfaceVersionMajor, InterfaceVersionMinor);
+            std::printf("autoremesher-cli %s (build %s, remesh interface %d.%d)\n", AUTOREMESHER_VERSION,
+                AUTOREMESHER_BUILD_ID, InterfaceVersionMajor, InterfaceVersionMinor);
             return -1;
         }
         if ("--stdin-control" == name) {

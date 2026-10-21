@@ -114,6 +114,20 @@ add_executable(autoremesher-cli
 # C++17 for std::filesystem::u8path (UTF-8 paths on Windows).
 target_compile_features(autoremesher-cli PRIVATE cxx_std_17)
 target_compile_definitions(autoremesher-cli PRIVATE AUTOREMESHER_VERSION="${PROJECT_VERSION}")
+# Build id (commit and date, cmake/BuildId.cmake), worked out on every build so
+# it follows new commits without reconfiguring; empty AUTOREMESHER_BUILD_ID
+# means "from git".
+set(AUTOREMESHER_BUILD_ID "" CACHE STRING "Build id shown by --version and the add-on (empty: from git)")
+set(AUTOREMESHER_GENERATED "${CMAKE_CURRENT_BINARY_DIR}/generated")
+file(MAKE_DIRECTORY "${AUTOREMESHER_GENERATED}")
+add_custom_target(autoremesher_build_id
+    COMMAND "${CMAKE_COMMAND}" "-DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}" "-DBUILD_ID=${AUTOREMESHER_BUILD_ID}"
+        "-DOUTPUT_DIR=${AUTOREMESHER_GENERATED}" -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/BuildId.cmake"
+    BYPRODUCTS "${AUTOREMESHER_GENERATED}/build_id.h" "${AUTOREMESHER_GENERATED}/build-id.txt"
+    COMMENT "Build id"
+    VERBATIM)
+add_dependencies(autoremesher-cli autoremesher_build_id)
+target_include_directories(autoremesher-cli PRIVATE "${AUTOREMESHER_GENERATED}")
 target_link_libraries(autoremesher-cli PRIVATE autoremesher_core)
 if(MSVC)
     target_compile_options(autoremesher-cli PRIVATE /utf-8)
@@ -128,9 +142,10 @@ if(AUTOREMESHER_BUILD_TESTS)
 endif()
 
 # `cmake --install` lays out what the Blender add-on bundles (addon/package.py):
-# the program in bin/ and the license of everything compiled into it in
-# licenses/.
+# the program in bin/, its build id in build-id.txt and the license of
+# everything compiled into it in licenses/.
 install(TARGETS autoremesher-cli RUNTIME DESTINATION bin)
+install(FILES "${AUTOREMESHER_GENERATED}/build-id.txt" DESTINATION .)
 install(FILES LICENSE LICENSE-MIT-upstream DESTINATION licenses)
 install(FILES "${THIRDPARTY}/isotropicremesher/LICENSE" DESTINATION licenses RENAME isotropicremesher-LICENSE)
 install(FILES "${THIRDPARTY}/meshoptimizer/LICENSE.md" DESTINATION licenses RENAME meshoptimizer-LICENSE.md)
