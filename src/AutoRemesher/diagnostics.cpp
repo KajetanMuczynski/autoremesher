@@ -175,6 +175,7 @@ std::vector<std::pair<std::string, double>> summarizeDiagnostics(
     double roundingShift = 0, roundingPasses = 0;
     double solves = 0, factorizations = 0, fallbacks = 0, nonFinite = 0;
     double peakRss = 0, cpuSeconds = 0;
+    double projected = 0, projectionKeptFolding = 0, projectionKeptOther = 0;
     // Area-weighted over islands; the rescale is the island's farthest from 1.
     double sizeArea = 0, sizeSlope = 0, sizeErrorSquared = 0, rescale = 0;
     // A solver object reports running totals, so only its last record counts
@@ -207,6 +208,10 @@ std::vector<std::pair<std::string, double>> summarizeDiagnostics(
             const double islandRescale = valueOf(record, "continuous_rescale", 0);
             if (islandRescale > 0 && (!(rescale > 0) || std::fabs(std::log(islandRescale)) > std::fabs(std::log(rescale))))
                 rescale = islandRescale;
+        } else if (record.stage == "surface_projection") {
+            projected += valueOf(record, "projected", 0);
+            projectionKeptFolding += valueOf(record, "kept_folding", 0);
+            projectionKeptOther += valueOf(record, "kept_unmatched", 0) + valueOf(record, "kept_far", 0);
         } else if (record.stage == "cover_system") {
             droppedConstraints += valueOf(record, "dropped_constraints", 0);
         } else if (record.stage == "rounding_iteration") {
@@ -252,6 +257,9 @@ std::vector<std::pair<std::string, double>> summarizeDiagnostics(
         { "factorizations", factorizations },
         { "kkt_fallbacks", fallbacks },
         { "non_finite_values", nonFinite },
+        { "projected_vertices", projected },
+        { "projection_kept_folding", projectionKeptFolding },
+        { "projection_kept_unmatched", projectionKeptOther },
         { "peak_rss_bytes", peakRss },
         { "cpu_seconds", cpuSeconds },
     };

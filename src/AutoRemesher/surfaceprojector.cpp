@@ -1,0 +1,472 @@
+/*
+ *  Copyright (C) 2026 AutoRemesher fork contributors
+ *
+ *  This program is free software: you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation, either version 3 of the License, or
+ *  (at your option) any later version.
+ *
+ *  This program is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ *  SPDX-License-Identifier: GPL-3.0-or-later
+ */
+#include <AutoRemesher/SurfaceProjector>
+#include <algorithm>
+#include <axisalignedboundingbox.h>
+#include <axisalignedboundingboxtree.h>
+#include <cmath>
+#include <limits>
+#include <utility>
+#if defined(__has_include)
+#if __has_include(<oneapi/tbb/blocked_range.h>)
+#include <oneapi/tbb/blocked_range.h>
+#include <oneapi/tbb/parallel_for.h>
+#else
+#include <tbb/blocked_range.h>
+#include <tbb/parallel_for.h>
+#endif
+#else
+#include <tbb/blocked_range.h>
+#include <tbb/parallel_for.h>
+#endif
+
+namespace AutoRemesher {
+
+namespace {
+
+    // A vertex may land this far, in mean output edges; T's sagitta is a small
+    // fraction of its edge, which is shorter than the output's.
+    const double maxMoveInEdges = 0.5;
+    // How far the closest-point search looks, so that a match beyond the
+    // limit above is told apart from no match at all.
+    const double searchRadiusInEdges = 4.0;
+    // A face may not drop below this scaled Jacobian unless it already was.
+    const double minScaledJacobian = 0.1;
+    // cos 60 degrees: the largest turn of a face's normal a move may cause.
+    const double minNormalTurnCosine = 0.5;
+
+    ::Vector3 toBoxVector(const Vector3& v)
+    {
+        return ::Vector3(v.x(), v.y(), v.z());
+    }
+
+    double boxDistanceSquared(const AxisAlignedBoudingBox& box, const Vector3& p)
+    {
+        double sum = 0.0;
+        for (size_t i = 0; i < 3; ++i) {
+            const double below = box.lowerBound()[i] - p[i];
+            const double above = p[i] - box.upperBound()[i];
+            const double gap = std::max(0.0, std::max(below, above));
+            sum += gap * gap;
+        }
+        return sum;
+    }
+
+    // Exact nearest search: visits the nearer child first and skips every
+    // node whose box is farther than the best candidate so far.
+    template <typename LeafDistanceSquared>
+    void nearestInTree(const AxisAlignedBoudingBoxTree::Node* node, const Vector3& p,
+        double* bestDistanceSquared, const LeafDistanceSquared& leafDistanceSquared)
+    {
+        if (nullptr == node || boxDistanceSquared(node->boundingBox, p) >= *bestDistanceSquared)
+            return;
+        if (node->isLeaf()) {
+            for (const auto& index : node->boxIndices)
+                leafDistanceSquared(index, bestDistanceSquared);
+            return;
+        }
+        const AxisAlignedBoudingBoxTree::Node* first = node->left;
+        const AxisAlignedBoudingBoxTree::Node* second = node->right;
+        if (nullptr != first && nullptr != second
+            && boxDistanceSquared(second->boundingBox, p) < boxDistanceSquared(first->boundingBox, p))
+            std::swap(first, second);
+        nearestInTree(first, p, bestDistanceSquared, leafDistanceSquared);
+        nearestInTree(second, p, bestDistanceSquared, leafDistanceSquared);
+    }
+
+    Vector3 newellNormal(const std::vector<Vector3>& points, const std::vector<size_t>& face)
+    {
+        Vector3 normal;
+        for (size_t i = 0; i < face.size(); ++i) {
+            const Vector3& a = points[face[i]];
+            const Vector3& b = points[face[(i + 1) % face.size()]];
+            normal += Vector3((a.y() - b.y()) * (a.z() + b.z()),
+                (a.z() - b.z()) * (a.x() + b.x()),
+                (a.x() - b.x()) * (a.y() + b.y()));
+        }
+        return normal;
+    }
+
+    // Smallest corner scaled Jacobian w.r.t. the face's own normal, as
+    // tools/bench/metrics.py measures it; <= 0 means folded or non-convex.
+    double minCornerScaledJacobian(const std::vector<Vector3>& points, const std::vector<size_t>& face,
+        const Vector3& unitNormal)
+    {
+        double worst = 1.0;
+        for (size_t i = 0; i < face.size(); ++i) {
+            const Vector3& corner = points[face[i]];
+            const Vector3 next = points[face[(i + 1) % face.size()]] - corner;
+            const Vector3 previous = points[face[(i + face.size() - 1) % face.size()]] - corner;
+            const double lengths = next.length() * previous.length();
+            const double jacobian = lengths > 0.0
+                ? Vector3::dotProduct(Vector3::crossProduct(next, previous), unitNormal) / lengths
+                : -1.0;
+            worst = std::min(worst, jacobian);
+        }
+        return worst;
+    }
+
+}
+
+Vector3 closestPointOnTriangle(const Vector3& p, const Vector3& a, const Vector3& b, const Vector3& c)
+{
+    const auto ab = b - a;
+    const auto ac = c - a;
+    const auto ap = p - a;
+    double d1 = Vector3::dotProduct(ab, ap);
+    double d2 = Vector3::dotProduct(ac, ap);
+    if (d1 <= 0.0 && d2 <= 0.0)
+        return a;
+
+    const auto bp = p - b;
+    double d3 = Vector3::dotProduct(ab, bp);
+    double d4 = Vector3::dotProduct(ac, bp);
+    if (d3 >= 0.0 && d4 <= d3)
+        return b;
+
+    double vc = d1 * d4 - d3 * d2;
+    if (vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0) {
+        double denom = d1 - d3;
+        double v = 0.0 != denom ? d1 / denom : 0.0;
+        return a + v * ab;
+    }
+
+    const auto cp = p - c;
+    double d5 = Vector3::dotProduct(ab, cp);
+    double d6 = Vector3::dotProduct(ac, cp);
+    if (d6 >= 0.0 && d5 <= d6)
+        return c;
+
+    double vb = d5 * d2 - d1 * d6;
+    if (vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0) {
+        double denom = d2 - d6;
+        double w = 0.0 != denom ? d2 / denom : 0.0;
+        return a + w * ac;
+    }
+
+    double va = d3 * d6 - d5 * d4;
+    if (va <= 0.0 && (d4 - d3) >= 0.0 && (d5 - d6) >= 0.0) {
+        double denom = (d4 - d3) + (d5 - d6);
+        double w = 0.0 != denom ? (d4 - d3) / denom : 0.0;
+        return b + w * (c - b);
+    }
+
+    double denom = va + vb + vc;
+    if (0.0 == denom)
+        return a;
+    double v = vb / denom;
+    double w = vc / denom;
+    return a + ab * v + ac * w;
+}
+
+Vector3 closestPointOnSegment(const Vector3& p, const Vector3& a, const Vector3& b)
+{
+    const Vector3 ab = b - a;
+    const double lengthSquared = ab.lengthSquared();
+    if (lengthSquared <= 0.0)
+        return a;
+    const double t = std::max(0.0, std::min(1.0, Vector3::dotProduct(p - a, ab) / lengthSquared));
+    return a + t * ab;
+}
+
+SurfaceProjector::SurfaceProjector(const std::vector<Vector3>* vertices,
+    const std::vector<std::vector<size_t>>* triangles)
+    : m_vertices(vertices)
+    , m_triangles(triangles)
+{
+    const auto& points = *m_vertices;
+    m_triangleNormals.resize(m_triangles->size());
+    m_triangleBoxes.reset(new std::vector<AxisAlignedBoudingBox>(m_triangles->size()));
+    std::vector<size_t> triangleIndices(m_triangles->size());
+    AxisAlignedBoudingBox triangleGroupBox;
+    std::vector<std::pair<size_t, size_t>> edges;
+    edges.reserve(m_triangles->size() * 3);
+    for (size_t i = 0; i < m_triangles->size(); ++i) {
+        const auto& triangle = (*m_triangles)[i];
+        m_triangleNormals[i] = Vector3::crossProduct(points[triangle[1]] - points[triangle[0]],
+            points[triangle[2]] - points[triangle[0]])
+                                   .normalized();
+        for (size_t k = 0; k < 3; ++k) {
+            (*m_triangleBoxes)[i].update(toBoxVector(points[triangle[k]]));
+            triangleGroupBox.update(toBoxVector(points[triangle[k]]));
+            const size_t a = triangle[k];
+            const size_t b = triangle[(k + 1) % 3];
+            edges.emplace_back(std::min(a, b), std::max(a, b));
+        }
+        (*m_triangleBoxes)[i].updateCenter();
+        triangleIndices[i] = i;
+    }
+    triangleGroupBox.updateCenter();
+    m_triangleTree.reset(new AxisAlignedBoudingBoxTree(m_triangleBoxes.get(), triangleIndices, triangleGroupBox));
+
+    std::sort(edges.begin(), edges.end());
+    for (size_t i = 0; i < edges.size();) {
+        size_t j = i;
+        while (j < edges.size() && edges[j] == edges[i])
+            ++j;
+        if (1 == j - i)
+            m_boundaryEdges.push_back(edges[i]);
+        i = j;
+    }
+    if (m_boundaryEdges.empty())
+        return;
+    m_boundaryBoxes.reset(new std::vector<AxisAlignedBoudingBox>(m_boundaryEdges.size()));
+    std::vector<size_t> edgeIndices(m_boundaryEdges.size());
+    AxisAlignedBoudingBox edgeGroupBox;
+    for (size_t i = 0; i < m_boundaryEdges.size(); ++i) {
+        for (const size_t v : { m_boundaryEdges[i].first, m_boundaryEdges[i].second }) {
+            (*m_boundaryBoxes)[i].update(toBoxVector(points[v]));
+            edgeGroupBox.update(toBoxVector(points[v]));
+        }
+        (*m_boundaryBoxes)[i].updateCenter();
+        edgeIndices[i] = i;
+    }
+    edgeGroupBox.updateCenter();
+    m_boundaryTree.reset(new AxisAlignedBoudingBoxTree(m_boundaryBoxes.get(), edgeIndices, edgeGroupBox));
+}
+
+SurfaceProjector::~SurfaceProjector() = default;
+
+bool SurfaceProjector::closestFacingPoint(const Vector3& position, const Vector3& normal,
+    double maxDistance, Vector3* closest, Vector3* closestNormal) const
+{
+    const auto& points = *m_vertices;
+    double best = maxDistance * maxDistance;
+    bool found = false;
+    nearestInTree(m_triangleTree->root(), position, &best, [&](size_t index, double* bestDistanceSquared) {
+        if (Vector3::dotProduct(m_triangleNormals[index], normal) <= 0.0)
+            return;
+        const auto& triangle = (*m_triangles)[index];
+        const Vector3 candidate = closestPointOnTriangle(position,
+            points[triangle[0]], points[triangle[1]], points[triangle[2]]);
+        const double distanceSquared = (candidate - position).lengthSquared();
+        if (distanceSquared < *bestDistanceSquared) {
+            *bestDistanceSquared = distanceSquared;
+            *closest = candidate;
+            *closestNormal = m_triangleNormals[index];
+            found = true;
+        }
+    });
+    return found;
+}
+
+bool SurfaceProjector::closestBoundaryPoint(const Vector3& position, double maxDistance,
+    Vector3* closest) const
+{
+    if (!m_boundaryTree)
+        return false;
+    const auto& points = *m_vertices;
+    double best = maxDistance * maxDistance;
+    bool found = false;
+    nearestInTree(m_boundaryTree->root(), position, &best, [&](size_t index, double* bestDistanceSquared) {
+        const auto& edge = m_boundaryEdges[index];
+        const Vector3 candidate = closestPointOnSegment(position, points[edge.first], points[edge.second]);
+        const double distanceSquared = (candidate - position).lengthSquared();
+        if (distanceSquared < *bestDistanceSquared) {
+            *bestDistanceSquared = distanceSquared;
+            *closest = candidate;
+            found = true;
+        }
+    });
+    return found;
+}
+
+SurfaceProjector::Result SurfaceProjector::project(std::vector<Vector3>* points,
+    const std::vector<std::vector<size_t>>& faces) const
+{
+    Result result;
+    auto& positions = *points;
+    const size_t vertexCount = positions.size();
+    if (0 == vertexCount || faces.empty() || m_triangles->empty())
+        return result;
+
+    std::vector<std::pair<size_t, size_t>> edges;
+    std::vector<std::vector<size_t>> vertexFaces(vertexCount);
+    std::vector<Vector3> vertexNormals(vertexCount);
+    for (size_t f = 0; f < faces.size(); ++f) {
+        const auto& face = faces[f];
+        // Area-weighted: the Newell normal's length is twice the face's area.
+        const Vector3 normal = newellNormal(positions, face);
+        for (size_t i = 0; i < face.size(); ++i) {
+            const size_t a = face[i];
+            const size_t b = face[(i + 1) % face.size()];
+            edges.emplace_back(std::min(a, b), std::max(a, b));
+            vertexFaces[a].push_back(f);
+            vertexNormals[a] += normal;
+        }
+    }
+    std::sort(edges.begin(), edges.end());
+    std::vector<bool> onBoundary(vertexCount, false);
+    double totalEdgeLength = 0.0;
+    size_t edgeCount = 0;
+    for (size_t i = 0; i < edges.size();) {
+        size_t j = i;
+        while (j < edges.size() && edges[j] == edges[i])
+            ++j;
+        if (1 == j - i) {
+            onBoundary[edges[i].first] = true;
+            onBoundary[edges[i].second] = true;
+        }
+        totalEdgeLength += (positions[edges[i].first] - positions[edges[i].second]).length();
+        ++edgeCount;
+        i = j;
+    }
+    const double meanEdge = totalEdgeLength / edgeCount;
+    if (!(meanEdge > 0.0))
+        return result;
+    const double maxMove = maxMoveInEdges * meanEdge;
+    const double searchRadius = searchRadiusInEdges * meanEdge;
+
+    enum class Status : unsigned char { Unused,
+        Unmatched,
+        Far,
+        Folding,
+        Moved };
+    std::vector<Status> status(vertexCount, Status::Unused);
+    std::vector<Vector3> targets(positions);
+    // Normal of the input face each vertex lands on; zero on the boundary.
+    std::vector<Vector3> targetNormals(vertexCount);
+    // Each vertex only reads the input and its own old position, so the result
+    // does not depend on the thread count.
+    tbb::parallel_for(tbb::blocked_range<size_t>(0, vertexCount), [&](const tbb::blocked_range<size_t>& range) {
+        for (size_t v = range.begin(); v != range.end(); ++v) {
+            if (vertexFaces[v].empty())
+                continue;
+            Vector3 closest;
+            const bool found = onBoundary[v]
+                ? closestBoundaryPoint(positions[v], searchRadius, &closest)
+                : closestFacingPoint(positions[v], vertexNormals[v], searchRadius, &closest, &targetNormals[v]);
+            if (!found)
+                status[v] = Status::Unmatched;
+            else if ((closest - positions[v]).length() > maxMove)
+                status[v] = Status::Far;
+            else {
+                status[v] = Status::Moved;
+                targets[v] = closest;
+            }
+        }
+    });
+
+    std::vector<Vector3> oldNormals(faces.size());
+    std::vector<double> oldJacobians(faces.size());
+    tbb::parallel_for(tbb::blocked_range<size_t>(0, faces.size()), [&](const tbb::blocked_range<size_t>& range) {
+        for (size_t f = range.begin(); f != range.end(); ++f) {
+            oldNormals[f] = newellNormal(positions, faces[f]).normalized();
+            oldJacobians[f] = minCornerScaledJacobian(positions, faces[f], oldNormals[f]);
+        }
+    });
+    const auto isWorse = [&](size_t f) {
+        const Vector3 normal = newellNormal(targets, faces[f]).normalized();
+        for (const size_t v : faces[f]) {
+            if (Status::Moved == status[v] && Vector3::dotProduct(normal, targetNormals[v]) <= 0.0
+                && Vector3::dotProduct(oldNormals[f], targetNormals[v]) > 0.0)
+                return true;
+        }
+        if (!oldNormals[f].isZero() && Vector3::dotProduct(normal, oldNormals[f]) < minNormalTurnCosine)
+            return true;
+        return minCornerScaledJacobian(targets, faces[f], normal)
+            < std::min(minScaledJacobian, oldJacobians[f]) - 1e-12;
+    };
+
+    // Puts back the longest move of each face the moves made worse, then
+    // checks the faces around it again. Each round puts back at least one
+    // vertex and with none moved no face is worse, so this ends.
+    std::vector<size_t> facesToCheck(faces.size());
+    for (size_t f = 0; f < faces.size(); ++f)
+        facesToCheck[f] = f;
+    std::vector<char> worse(faces.size(), 0);
+    std::vector<char> queued(faces.size(), 0);
+    std::vector<char> revertedNow(vertexCount, 0);
+    while (!facesToCheck.empty()) {
+        tbb::parallel_for(tbb::blocked_range<size_t>(0, facesToCheck.size()),
+            [&](const tbb::blocked_range<size_t>& range) {
+                for (size_t k = range.begin(); k != range.end(); ++k)
+                    worse[facesToCheck[k]] = isWorse(facesToCheck[k]) ? 1 : 0;
+            });
+        std::vector<size_t> revertedVertices;
+        for (const size_t f : facesToCheck) {
+            if (!worse[f])
+                continue;
+            // A face that already lost a move this round is checked again
+            // in the next one, with that move undone.
+            bool undoneThisRound = false;
+            for (const size_t v : faces[f])
+                undoneThisRound = undoneThisRound || revertedNow[v];
+            if (undoneThisRound)
+                continue;
+            size_t longest = vertexCount;
+            double longestMove = -1.0;
+            for (const size_t v : faces[f]) {
+                if (Status::Moved != status[v])
+                    continue;
+                const double move = (targets[v] - positions[v]).lengthSquared();
+                if (move > longestMove) {
+                    longestMove = move;
+                    longest = v;
+                }
+            }
+            if (vertexCount == longest)
+                continue;
+            status[longest] = Status::Folding;
+            targets[longest] = positions[longest];
+            revertedVertices.push_back(longest);
+            revertedNow[longest] = 1;
+        }
+        for (const size_t v : revertedVertices)
+            revertedNow[v] = 0;
+        std::vector<size_t> nextFaces;
+        for (const size_t v : revertedVertices) {
+            for (const size_t f : vertexFaces[v]) {
+                if (!queued[f]) {
+                    queued[f] = 1;
+                    nextFaces.push_back(f);
+                }
+            }
+        }
+        for (const size_t f : nextFaces)
+            queued[f] = 0;
+        std::sort(nextFaces.begin(), nextFaces.end());
+        facesToCheck = std::move(nextFaces);
+    }
+
+    double moveSum = 0.0;
+    for (size_t v = 0; v < vertexCount; ++v) {
+        if (Status::Unused == status[v])
+            continue;
+        ++result.vertices;
+        if (Status::Unmatched == status[v])
+            ++result.keptUnmatched;
+        else if (Status::Far == status[v])
+            ++result.keptFar;
+        else if (Status::Folding == status[v])
+            ++result.keptFolding;
+        else if (Status::Moved == status[v]) {
+            const double move = (targets[v] - positions[v]).length() / meanEdge;
+            moveSum += move;
+            result.maxMove = std::max(result.maxMove, move);
+            ++result.projected;
+        }
+    }
+    if (result.projected > 0)
+        result.meanMove = moveSum / result.projected;
+    positions = std::move(targets);
+    return result;
+}
+
+}

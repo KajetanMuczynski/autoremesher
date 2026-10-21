@@ -48,3 +48,7 @@ add_test(NAME decimation_topology COMMAND decimation_topology_test)
 add_executable(target_limit_test target_limit_test.cpp)
 target_link_libraries(target_limit_test PRIVATE autoremesher_core)
 add_test(NAME target_limit COMMAND target_limit_test)
+
+add_executable(surface_projection_test surface_projection_test.cpp)
+target_link_libraries(surface_projection_test PRIVATE autoremesher_core)
+add_test(NAME surface_projection COMMAND surface_projection_test)
