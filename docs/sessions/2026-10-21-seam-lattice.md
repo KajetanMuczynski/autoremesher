@@ -10,5 +10,7 @@
   ×0.92, non-quads ×0.93, time ×1.09, closed neutral, genus unchanged. ℤ² vs 2ℤ² with the fix on both
   sides: corpus flips ×1.16, closed ×1.05, genus unchanged. 40 batches instead of the fix: same gain
   at time ×1.23.
-- Next: V6 stays, narrowed to handles under 3 quads of holonomy (Kajetan's call; TARGETS not edited).
-  ℤ² only with 7.2 or a cone-aware rounding order, and only together with the torus thread's extractor fix.
+- Merged: PR #61 (batch fix, TODO 3.3; TODO 3.4 recorded as not adopted).
+- Next: V6 unchanged. Kajetan decided on 2026-10-21 to wait until libQEx is in (6.1) before narrowing it to
+  handles under 3 quads of holonomy; TARGETS not edited. ℤ² only with 7.2 or a cone-aware rounding order,
+  and only together with the torus thread's extractor fix (#57).
