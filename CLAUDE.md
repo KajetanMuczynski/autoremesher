@@ -111,6 +111,10 @@ Running the binary with no args opens the GUI. The core needs `setTargetTriangle
   head, no conflicts with master, A/B or regression checks finished, description final. Then mark it
   Ready for review and reply "ready to merge" with the head SHA. Kajetan merges only non-draft PRs;
   to push more work to a ready PR, convert it back to draft first.
+- Waiting for CI: after opening or pushing to a PR, subscribe to its activity (`subscribe_pr_activity`).
+  When CI results arrive, run the ready check and mark the PR ready in the same turn; never end a turn
+  with only "waiting for CI". A PR with a merge conflict gets no CI run, so merge master first.
+  Unsubscribe after the merge.
 - A thread pushes to its one `claude/project-thread-*` branch and has at most one open PR; the next
   PR waits until that one is merged. Never delete branches.
 - Branch protection for `master` (ruleset, up-to-date setting, why no merge queue) is planned in `docs/TODO.md` item 0.9.
