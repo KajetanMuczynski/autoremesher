@@ -4,7 +4,8 @@
   "corpus": {"targets": [2000, 10000], "resolutions": ["fast", "quality"]},
   "closed": {"targets": [150, 500, 2000], "resolutions": ["fast", "quality"]},
   "suzanne": {"targets": [2000, 5000, 10000], "resolutions": ["quality"]},
-  "sculpt": {"targets": [2000, 5000, 15000], "resolutions": ["fast", "quality"]}
+  "sculpt": {"targets": [2000, 5000, 15000], "resolutions": ["fast", "quality"]},
+  "brush": {"targets": [2000, 5000], "resolutions": ["quality"]}
  },
  "meshes": [
   {"id": "spot", "file": "downloads/spot.obj", "category": "organic, clean, genus 0"},
@@ -47,6 +48,18 @@
   {"id": "sculpt_dyntopo", "file": "sculpt/sculpt_dyntopo.obj", "category": "sculpt, dyntopo (0.57M tris, 5:1 sizes, detail on head only)", "set": "sculpt"},
   {"id": "sculpt_decimated", "file": "sculpt/sculpt_decimated.obj", "category": "sculpt, quadric-decimated (60k tris, slivers)", "set": "sculpt"},
   {"id": "sculpt_parts", "file": "sculpt/sculpt_parts.obj", "category": "sculpt + 13 joined parts (eyes, teeth intersect; 5 crumbs below quad size)", "set": "sculpt"},
-  {"id": "sculpt_dirty", "file": "sculpt/sculpt_dirty.obj", "category": "sculpt with export damage (2 holes, flipped patch, duplicates, fin, pinch vertex)", "set": "sculpt"}
+  {"id": "sculpt_dirty", "file": "sculpt/sculpt_dirty.obj", "category": "sculpt with export damage (2 holes, flipped patch, duplicates, fin, pinch vertex)", "set": "sculpt"},
+  {"id": "brush_clay", "file": "brush/brush_clay.obj", "category": "brush: Clay Strips buildup, 3 layers of flat-topped strokes", "set": "brush"},
+  {"id": "brush_crease", "file": "brush/brush_crease.obj", "category": "brush: crease/pinch lines, pinch 0.4-1.3 (overshoot folds 275 tris)", "set": "brush"},
+  {"id": "brush_inflate", "file": "brush/brush_inflate.obj", "category": "brush: inflate bumps, radius 0.015-0.2, big ones undercut", "set": "brush"},
+  {"id": "brush_pits", "file": "brush/brush_pits.obj", "category": "brush: eye sockets with eyeball bulge (crevice < quad), nostrils, mouth slot", "set": "brush"},
+  {"id": "brush_spikes", "file": "brush/brush_spikes.obj", "category": "brush: Snake Hook spikes without dyntopo, sub-quad tips, one hooked", "set": "brush"},
+  {"id": "brush_layers", "file": "brush/brush_layers.obj", "category": "brush: drapery folds, half of them overhang (pleats, 1670 folded tris)", "set": "brush"},
+  {"id": "brush_noise", "file": "brush/brush_noise.obj", "category": "brush: skin noise and pores, all below quad size", "set": "brush"},
+  {"id": "brush_mask_extrude", "file": "brush/brush_mask_extrude.obj", "category": "brush: mask extrusions 0.03-0.15 with steep stretched walls", "set": "brush"},
+  {"id": "brush_twist", "file": "brush/brush_twist.obj", "category": "brush: Rotate/twist 1/4-3 turns, swirl with folded rings (434 tris)", "set": "brush"},
+  {"id": "brush_grab", "file": "brush/brush_grab.obj", "category": "brush: Grab drags without dyntopo, long slivers, one sheared", "set": "brush"},
+  {"id": "brush_dyntopo_strokes", "file": "brush/brush_dyntopo_strokes.obj", "category": "brush: dyntopo strokes, 10:1 edge lengths, detail on strokes only", "set": "brush"},
+  {"id": "brush_box_relief", "file": "brush/brush_box_relief.obj", "category": "brush: hard-surface box, pinched relief groove, crumpled edge, one-vertex spike (70 folded tris)", "set": "brush"}
  ]
 }
