@@ -12,5 +12,5 @@
 - Measured (corpus, 108 runs per value, ratio to 90°): 180° non-quads 0.76, folds 0.84, irregular
   0.84, SJ p1 1.70, A1 0.88, distances 0.99–1.00. Anisotropy 0 vs 1: p99 1.34, Hausdorff 1.26,
   mean 1.26, A1 0.57, SJ p1 1.11, skew p95 0.85, aspect 0.73.
-- Next: Kajetan's call on 180°; if yes, one meaning for "off" across stages (with 2.6) and a test that
-  the five default sites agree. Trace human_neutral's hole (2.13).
+- Decided: Kajetan (2026-10-21) keeps 90°; 180° and the field-lock-only variant are parked (TODO Parked).
+- Next: trace human_neutral's hole (2.13); "off" needs one meaning across stages (with 2.6).
