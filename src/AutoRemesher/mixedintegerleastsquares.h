@@ -79,6 +79,9 @@ public:
     void kernelTerms(size_t originalVariable, std::vector<std::pair<size_t, double>>* terms) const;
     bool kernelVariableFixed(size_t kernelVariable) const;
     double kernelValue(size_t kernelVariable) const;
+    // The kernel variable's period: values are multiples of it; 0 for a
+    // continuous variable.
+    int kernelPeriod(size_t kernelVariable) const;
     // Returns false, changing nothing, for a fixed or unknown variable.
     bool setKernelValue(size_t kernelVariable, double value);
 

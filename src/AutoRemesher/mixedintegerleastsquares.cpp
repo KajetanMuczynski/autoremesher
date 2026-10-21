@@ -612,6 +612,11 @@ double MixedIntegerLeastSquares::kernelValue(size_t k) const
     return k < m_values.size() ? m_values[k] : 0.0;
 }
 
+int MixedIntegerLeastSquares::kernelPeriod(size_t k) const
+{
+    return k < m_kernelSize ? m_period[k] : 0;
+}
+
 bool MixedIntegerLeastSquares::setKernelValue(size_t k, double value)
 {
     if (k >= m_values.size() || m_fixed[k])

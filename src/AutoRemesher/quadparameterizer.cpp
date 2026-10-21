@@ -1031,11 +1031,58 @@ namespace {
         result->set("untangle_factorizations", (double)factorizations);
     }
 
+    // Strips between two hard-feature isolines that are narrower than this,
+    // in quads, lose their feature constraints: rounding puts both lines on
+    // one integer, so the strip's triangles collapse whatever the solve does,
+    // and the collapse breeds non-quads and folds around it (TODO 5.3,
+    // research/thin-strips-2026-10-21.md).
+    const double narrowStripQuads = 0.5;
+
+    // Marks the vertices of every face whose three corners sit on integer
+    // isolines of one coordinate (hard features, boundaries, or both) less
+    // than `narrowStripQuads` apart in the continuous map `uvs`.
+    std::vector<char> narrowStripVertices(const SurfaceMesh& mesh, const MixedIntegerLeastSquares& s,
+        const std::vector<double>& uvs)
+    {
+        std::vector<std::pair<size_t, double>> terms;
+        const auto integerValued = [&](size_t coordinate) {
+            s.kernelTerms(coordinate, &terms);
+            for (const auto& term : terms) {
+                const double multiple = s.kernelPeriod(term.first) * term.second;
+                if (s.kernelPeriod(term.first) <= 0 || std::fabs(multiple - std::round(multiple)) > 1e-9)
+                    return false;
+            }
+            return true;
+        };
+        std::vector<char> marked(mesh.vertexCount(), 0);
+        for (size_t f = 0; f < mesh.faceCount(); ++f) {
+            for (size_t k = 0; k < 2; ++k) {
+                bool onIsolines = true;
+                double lo = std::numeric_limits<double>::max(), hi = -lo;
+                for (size_t l = 0; l < 3 && onIsolines; ++l) {
+                    const size_t coordinate = 2 * (3 * f + l) + k;
+                    onIsolines = integerValued(coordinate);
+                    lo = std::min(lo, uvs[coordinate]);
+                    hi = std::max(hi, uvs[coordinate]);
+                }
+                if (onIsolines && hi - lo < narrowStripQuads) {
+                    for (size_t l = 0; l < 3; ++l)
+                        marked[mesh.cornerVertex(3 * f + l)] = 1;
+                    break;
+                }
+            }
+        }
+        return marked;
+    }
+
     // Appends "cover_system" and one "rounding_iteration" per pass to
     // `diagnostics`, and fills `result` with the residuals and map validity.
+    // With `narrowStrips` it stops after the continuous solve and returns the
+    // vertices of narrow feature strips there instead (narrowStripVertices).
     bool solveQuadCover(const CoverContext& ctx, std::vector<double>* values,
         const ProgressHandler* progressHandler,
-        std::vector<DiagnosticRecord>* diagnostics, DiagnosticRecord* result)
+        std::vector<DiagnosticRecord>* diagnostics, DiagnosticRecord* result,
+        std::vector<char>* narrowStrips = nullptr)
     {
         const SurfaceMesh& mesh = ctx.mesh;
         const std::vector<int>& rotation = ctx.rotation;
@@ -1213,6 +1260,10 @@ namespace {
                 // continuous relaxation: flips there are not caused by
                 // rounding.
                 const std::vector<double> uvs = cornerUvs(s, uvVariables);
+                if (narrowStrips) {
+                    *narrowStrips = narrowStripVertices(mesh, s, uvs);
+                    return true;
+                }
                 appendUvOrientation(result, "continuous", measureUvOrientation(uvs));
                 appendWinding(result, "continuous", measureWinding(mesh, rotation, frames, uvs));
             }
@@ -1411,7 +1462,7 @@ bool QuadParameterizer::parameterize(const std::vector<Vector3>& vertices,
     report(0.14f, "Computing corner rotations");
     const std::vector<int> rotation = computeCornerRotations(mesh, result->field, normals);
     result->cornerRotations = rotation;
-    const std::vector<signed char> cornerConstraints = computeCornerConstraints(mesh, result->field,
+    std::vector<signed char> cornerConstraints = computeCornerConstraints(mesh, result->field,
         normals, hardEdgeDegrees);
     if (trackDirectionalScale)
         applyDirectionalSwaps(mesh, fieldBeforeBrush, result->field, normals,
@@ -1437,6 +1488,29 @@ bool QuadParameterizer::parameterize(const std::vector<Vector3>& vertices,
     }
     std::vector<double> allValues;
     DiagnosticRecord coverResult("cover_result");
+    // Feature edges along strips narrower than narrowStripQuads in a
+    // continuous-only solve lose their constraints before the real one: an
+    // edge is released when both its ends lie on such a strip.
+    size_t featureCorners = 0, releasedCorners = 0;
+    for (signed char constraint : cornerConstraints)
+        featureCorners += constraint != ConstraintNone;
+    if (featureCorners > 0) {
+        std::vector<char> narrow;
+        std::vector<DiagnosticRecord> probeDiagnostics;
+        DiagnosticRecord probeResult("cover_probe");
+        if (solveQuadCover(ctx, &allValues, nullptr, &probeDiagnostics, &probeResult, &narrow)
+            && narrow.size() == mesh.vertexCount()) {
+            for (size_t c = 0; c < corners; ++c) {
+                if (cornerConstraints[c] != ConstraintNone && narrow[mesh.cornerVertex(c)]
+                    && narrow[mesh.cornerVertex(mesh.nextCorner(c))]) {
+                    cornerConstraints[c] = ConstraintNone;
+                    ++releasedCorners;
+                }
+            }
+        }
+    }
+    coverResult.set("feature_corners", (double)featureCorners);
+    coverResult.set("feature_corners_released", (double)releasedCorners);
     if (!solveQuadCover(ctx, &allValues, coverProgress ? &coverProgress : nullptr,
             &result->diagnostics, &coverResult)) {
         coverResult.set("ok", 0.0);
