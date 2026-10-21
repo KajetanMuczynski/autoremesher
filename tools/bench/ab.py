@@ -4,17 +4,17 @@
 
     ab.py run REF [--set corpus] [--targets 2000,10000] [--resolutions fast,quality]
                   [--only a,b | --skip a,b] [--replicates N] [--cli-arg=--adaptivity=0 ...]
-                  [--jobs 2] [--no-metrics] [--work DIR]
+                  [--cmake-arg=-DAUTOREMESHER_QEX=1 ...] [--jobs 2] [--no-metrics] [--work DIR]
     ab.py compare A B [--set corpus] [--per-run] [--work DIR]
-    ab.py build REF [--work DIR]
+    ab.py build REF [--cmake-arg=... ...] [--work DIR]
 
 REF is any commit-ish of this repository (master, HEAD, a SHA); commit work in progress first. A
 and B are run folders printed by `run`, or refs (then without --cli-arg). The work folder (default
 $AR_WORK, else ~/ar-work) needs the meshes from fetch_meshes.sh and make_synthetic.py in
 <work>/meshes; builds, perturbed inputs and runs go next to it:
 
-    <work>/builds/<key>/        source export of REF and its CMake Release build
-    <work>/runs/<key>[+<args>]/<set>/<mesh>/<resolution>-t<target>/u<k>/
+    <work>/builds/<key>[+<cmake args>]/   source export of REF and its CMake Release build
+    <work>/runs/<key>[+<cmake args>][+<args>]/<set>/<mesh>/<resolution>-t<target>/u<k>/
                                 out.obj, report.json, stages.jsonl, metrics.json, record.json
 
 <key> hashes the trees of everything that is compiled into the CLI (src/, include/, thirdparty/,
@@ -49,19 +49,24 @@ def git(*args):
     return subprocess.run(["git", "-C", REPO] + list(args), check=True, capture_output=True, text=True).stdout.strip()
 
 
-def source_key(ref):
+def args_tag(args):
+    return "+" + hashlib.sha1("\0".join(args).encode()).hexdigest()[:8] if args else ""
+
+
+def source_key(ref, cmake_args=()):
+    """Key of REF's build; CMake options (experiments behind a build switch) get their own key."""
     trees = []
     for path in KEY_PATHS:
         try:
             trees.append(path + " " + git("rev-parse", f"{ref}:{path}"))
         except subprocess.CalledProcessError:
             trees.append(path + " -")
-    return hashlib.sha1("\n".join(trees).encode()).hexdigest()[:12]
+    return hashlib.sha1("\n".join(trees).encode()).hexdigest()[:12] + args_tag(cmake_args)
 
 
-def build(ref, work, jobs):
+def build(ref, work, jobs, cmake_args=()):
     """Exports REF, builds autoremesher-cli once per key and returns its path."""
-    key = source_key(ref)
+    key = source_key(ref, cmake_args)
     root = os.path.join(work, "builds", key)
     cli = os.path.join(root, "build", "autoremesher-cli")
     if os.path.exists(cli):
@@ -75,7 +80,7 @@ def build(ref, work, jobs):
     log = os.path.join(root, "build.log")
     print(f"building {ref} ({key}) with {jobs} jobs, log {log}", flush=True)
     with open(log, "w") as fp:
-        for cmd in (["cmake", "-S", src, "-B", os.path.join(root, "build"), "-DCMAKE_BUILD_TYPE=Release"],
+        for cmd in (["cmake", "-S", src, "-B", os.path.join(root, "build"), "-DCMAKE_BUILD_TYPE=Release"] + list(cmake_args),
                     ["nice", "-n", "10", "cmake", "--build", os.path.join(root, "build"), "--parallel", str(jobs),
                      "--target", "autoremesher-cli"]):
             if subprocess.call(cmd, stdout=fp, stderr=subprocess.STDOUT) != 0:
@@ -183,11 +188,8 @@ def t_topology(stages):
     return {k: run[k] for k in keys} if all(k in run for k in keys) else None
 
 
-def run_dir(ref, cli_args, work):
-    tag = source_key(ref)
-    if cli_args:
-        tag += "+" + hashlib.sha1("\0".join(cli_args).encode()).hexdigest()[:8]
-    return os.path.join(work, "runs", tag)
+def run_dir(ref, cli_args, work, cmake_args=()):
+    return os.path.join(work, "runs", source_key(ref, cmake_args) + args_tag(cli_args))
 
 
 def cmd_run(a):
@@ -207,12 +209,12 @@ def cmd_run(a):
     for m in meshes:
         if not os.path.exists(os.path.join(a.work, "meshes", m["file"])):
             sys.exit(f"missing {m['file']} in {a.work}/meshes (fetch_meshes.sh, make_synthetic.py; see README.md)")
-    _, cli = build(a.ref, a.work, a.jobs)
-    out = run_dir(a.ref, a.cli_arg, a.work)
+    _, cli = build(a.ref, a.work, a.jobs, a.cmake_arg)
+    out = run_dir(a.ref, a.cli_arg, a.work, a.cmake_arg)
     os.makedirs(out, exist_ok=True)
     with open(os.path.join(out, "source.json"), "w") as fp:
-        json.dump({"ref": a.ref, "commit": git("rev-parse", a.ref), "key": source_key(a.ref),
-                   "cli_args": a.cli_arg}, fp, indent=1)
+        json.dump({"ref": a.ref, "commit": git("rev-parse", a.ref), "key": source_key(a.ref, a.cmake_arg),
+                   "cli_args": a.cli_arg, "cmake_args": a.cmake_arg}, fp, indent=1)
     targets = [int(t) for t in a.targets.split(",")] if a.targets else defaults["targets"]
     resolutions = a.resolutions.split(",") if a.resolutions else defaults["resolutions"]
     jobs = [(m, t, r, k) for m in meshes for t in targets for r in resolutions for k in range(a.replicates + 1)]
@@ -403,6 +405,8 @@ def main():
     b = sub.add_parser("build", help="build autoremesher-cli from REF and print its path")
     b.add_argument("ref")
     b.add_argument("--jobs", type=int, default=2)
+    b.add_argument("--cmake-arg", action="append", default=[],
+                   help="extra CMake configure argument, repeatable; write it as --cmake-arg=-DX=1")
     r = sub.add_parser("run", help="run REF's CLI over a mesh set")
     r.add_argument("ref")
     r.add_argument("--set", default="corpus")
@@ -413,6 +417,8 @@ def main():
     r.add_argument("--replicates", type=int, default=0, help="1-ulp replicates besides the plain input")
     r.add_argument("--cli-arg", action="append", default=[],
                    help="extra CLI argument, repeatable; write it as --cli-arg=--adaptivity=0")
+    r.add_argument("--cmake-arg", action="append", default=[],
+                   help="extra CMake configure argument, repeatable; write it as --cmake-arg=-DX=1")
     r.add_argument("--jobs", type=int, default=2, help="parallel runs and build jobs (default 2)")
     r.add_argument("--no-metrics", action="store_true")
     c = sub.add_parser("compare", help="compare run folder (or ref) A with B")
@@ -425,7 +431,7 @@ def main():
     a = ap.parse_args()
     a.work = os.path.abspath(a.work)
     if a.cmd == "build":
-        print(build(a.ref, a.work, a.jobs)[1])
+        print(build(a.ref, a.work, a.jobs, a.cmake_arg)[1])
     elif a.cmd == "run":
         cmd_run(a)
     else:
