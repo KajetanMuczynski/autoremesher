@@ -1,4 +1,4 @@
-# AutoRemesher upgrade: project files
+# Quadami: project files
 
 Goal: upgrade AutoRemesher (huxingyi/autoremesher, MIT) into a GPL-3.0-or-later fork whose output is faithful to the input, valid (all quads, no folds or malformed poles) and predictable, usable from Blender; targets and what we don't compete on in [TARGETS.md](TARGETS.md). Stage-by-stage upgrade, not a rewrite. Index last updated 2026-10-20.
 

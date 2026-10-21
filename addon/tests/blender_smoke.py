@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 AutoRemesher fork contributors
+# Copyright (C) 2026 Quadami contributors
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -40,7 +40,7 @@ import bpy
 installed = "--installed" in (sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else [])
 if installed:
     # The id is the extension's folder name; read it from the source tree.
-    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "autoremesher_blender"))
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "quadami"))
     from names import ID  # noqa: E402
     module_name = "bl_ext.user_default." + ID
     addon_utils.enable(module_name, default_set=True, handle_error=None)
@@ -50,8 +50,8 @@ if installed:
     worker = importlib.import_module(module_name + ".worker")
 else:
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-    import autoremesher_blender as addon  # noqa: E402
-    from autoremesher_blender import names, report, worker  # noqa: E402
+    import quadami as addon  # noqa: E402
+    from quadami import names, report, worker  # noqa: E402
 
     addon.register()
 try:

@@ -1,10 +1,9 @@
 # Quadami for Blender (minimal add-on)
 
-Quad-remeshes the active mesh with the AutoRemesher core. Quadami is the
-working name (2026-10-15) and may change before the first release: it lives in
-`autoremesher_blender/names.py` plus `id`/`name` in `blender_manifest.toml`
-(a test checks they agree). The core, its CLI and the repository keep the
-name autoremesher. The remesher runs in
+Quad-remeshes the active mesh with the AutoRemesher core. The name Quadami
+lives in `quadami/names.py` plus `id`/`name` in `blender_manifest.toml`
+(a test checks they agree). The core and its CLI keep the upstream name
+autoremesher (`autoremesher-cli`, namespace `AutoRemesher`). The remesher runs in
 its own process, never inside Blender, so a crash or a stuck solve cannot take
 Blender down.
 

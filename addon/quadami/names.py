@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 AutoRemesher fork contributors
+# Copyright (C) 2026 Quadami contributors
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""The add-on's name, in one place (working name; may change before release).
+"""The add-on's name, in one place.
 
 To rename: change these two and `id` / `name` in blender_manifest.toml, which
 Blender reads without importing Python (test_worker.py checks they agree).
