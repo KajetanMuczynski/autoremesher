@@ -48,3 +48,7 @@ add_test(NAME decimation_topology COMMAND decimation_topology_test)
 add_executable(target_limit_test target_limit_test.cpp)
 target_link_libraries(target_limit_test PRIVATE autoremesher_core)
 add_test(NAME target_limit COMMAND target_limit_test)
+
+add_executable(narrow_strip_test narrow_strip_test.cpp)
+target_link_libraries(narrow_strip_test PRIVATE autoremesher_core)
+add_test(NAME narrow_strip COMMAND narrow_strip_test)

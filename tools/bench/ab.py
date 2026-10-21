@@ -150,8 +150,7 @@ def run_one(cli, mesh, setname, target, res, k, out, cli_args, work, metrics):
         rec["error"] = str(ex)
     try:
         stages = [json.loads(line) for line in open(os.path.join(d, "stages.jsonl")) if line.strip()]
-        rec["cover"] = [{k2: s.get(k2) for k2 in ("continuous_energy", "rounded_energy", "iterations")}
-                        for s in stages if s.get("stage") == "cover_result"]
+        rec["cover"] = cover_records(stages)
         rec["t_topology"] = t_topology(stages)
     except (OSError, ValueError) as ex:
         rec["stage_error"] = str(ex)
@@ -174,6 +173,12 @@ def run_one(cli, mesh, setname, target, res, k, out, cli_args, work, metrics):
     with open(record_path, "w") as fp:
         json.dump(rec, fp, indent=1)
     return rec
+
+
+def cover_records(stages):
+    return [{k: s.get(k) for k in ("continuous_energy", "rounded_energy", "iterations", "feature_corners",
+                                   "feature_corners_released")}
+            for s in stages if s.get("stage") == "cover_result"]
 
 
 def t_topology(stages):
@@ -241,9 +246,12 @@ def load_runs(path, setname):
             r = json.load(open(os.path.join(root, "record.json")))
             if "out_sha" not in r and os.path.exists(os.path.join(root, "out.obj")):
                 r["out_sha"] = file_hash(os.path.join(root, "out.obj"))
-            if "t_topology" not in r and os.path.exists(os.path.join(root, "stages.jsonl")):
-                r["t_topology"] = t_topology([json.loads(line) for line in open(os.path.join(root, "stages.jsonl"))
-                                              if line.strip()])
+            stages_path = os.path.join(root, "stages.jsonl")
+            if ("t_topology" not in r or any("feature_corners" not in c for c in r.get("cover") or [])) \
+                    and os.path.exists(stages_path):
+                stages = [json.loads(line) for line in open(stages_path) if line.strip()]
+                r.setdefault("t_topology", t_topology(stages))
+                r["cover"] = cover_records(stages)
             runs.setdefault((r["mesh"], r["res"], r["target"]), {})[r["replicate"]] = r
     return runs
 
@@ -270,6 +278,13 @@ def value(r, k):
         e = [(c["continuous_energy"], c["rounded_energy"]) for c in r.get("cover") or []
              if c.get("continuous_energy") and c.get("rounded_energy") is not None]
         return sum(b for _, b in e) / sum(a for a, _ in e) if e else None
+    if k in ("features", "features_released"):  # constrained feature corners; none released before 5.3
+        c = r.get("cover") or []
+        if not c:
+            return None
+        key = "feature_corners" if k == "features" else "feature_corners_released"
+        return sum(x.get(key) or 0 for x in c) if any(x.get("feature_corners") is not None for x in c) else \
+            (0 if k == "features_released" else None)
     if k == "time": return r.get("time")
     if k == "t_non_manifold": return (r.get("t_topology") or {}).get("isotropic_non_manifold_edges")
     if k == "t_opened": return (r.get("t_topology") or {}).get("isotropic_opened_closed_islands")
@@ -301,6 +316,8 @@ def cmd_compare(a):
     pa, pb = resolve(a.a, a.work), resolve(a.b, a.work)
     A, B = load_runs(pa, a.set), load_runs(pb, a.set)
     keys = sorted(set(A) & set(B))
+    if a.only:
+        keys = [k for k in keys if k[0] in a.only.split(",")]
     reps = sorted(set.intersection(*[set(A[k]) & set(B[k]) for k in keys])) if keys else []
     print(f"A = {pa}\nB = {pb}\nset {a.set}: {len(keys)} common runs, replicates {reps} "
           f"(only in A {len(set(A) - set(B))}, only in B {len(set(B) - set(A))})\n")
@@ -337,6 +354,21 @@ def cmd_compare(a):
               f"{better} / {worse} |")
     print("\nCounts are summed over runs (geo-mean of (B+1)/(A+1)), the rest averaged. time is the CLI's own "
           "total under --jobs parallel load: use it for large effects only.\n")
+
+    # Feature constraints released along narrow strips (TODO 5.3): a watch metric next to crease coverage A1.
+    for side, D in (("A", A), ("B", B)):
+        per = {}
+        for k in keys:
+            f, rel = mean_over(D, k, "features"), mean_over(D, k, "features_released")
+            if f:
+                t = per.setdefault(k[0], [0.0, 0.0])
+                t[0] += rel or 0
+                t[1] += f
+        if per and any(rel for rel, _ in per.values()):
+            tot = [sum(v[0] for v in per.values()), sum(v[1] for v in per.values())]
+            print(f"Feature constraints released, {side}: {tot[0]:.0f} of {tot[1]:.0f} corners "
+                  f"({100 * tot[0] / tot[1]:.1f} %); per mesh: " +
+                  ", ".join(f"{m} {100 * v[0] / v[1]:.0f} %" for m, v in sorted(per.items()) if v[0]) + "\n")
 
     # Noise: with replicates, how often B's spread separates from A's.
     if len(reps) > 1:
@@ -420,6 +452,7 @@ def main():
     c.add_argument("b")
     c.add_argument("--set", default="corpus")
     c.add_argument("--per-run", action="store_true")
+    c.add_argument("--only", help="compare only these meshes (e.g. the ones run with --replicates)")
     for p in (b, r, c):
         p.add_argument("--work", default=argparse.SUPPRESS)
     a = ap.parse_args()

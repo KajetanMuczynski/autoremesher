@@ -1488,9 +1488,11 @@ bool QuadParameterizer::parameterize(const std::vector<Vector3>& vertices,
     }
     std::vector<double> allValues;
     DiagnosticRecord coverResult("cover_result");
-    // Feature edges along strips narrower than narrowStripQuads in a
+    // Hard-feature edges along strips narrower than narrowStripQuads in a
     // continuous-only solve lose their constraints before the real one: an
-    // edge is released when both its ends lie on such a strip.
+    // edge is released when both its ends lie on such a strip. Boundary
+    // edges keep theirs: without it the output boundary leaves the input's
+    // (cloth_sheet's 99th-percentile distance grew 6x).
     size_t featureCorners = 0, releasedCorners = 0;
     for (signed char constraint : cornerConstraints)
         featureCorners += constraint != ConstraintNone;
@@ -1501,7 +1503,7 @@ bool QuadParameterizer::parameterize(const std::vector<Vector3>& vertices,
         if (solveQuadCover(ctx, &allValues, nullptr, &probeDiagnostics, &probeResult, &narrow)
             && narrow.size() == mesh.vertexCount()) {
             for (size_t c = 0; c < corners; ++c) {
-                if (cornerConstraints[c] != ConstraintNone && narrow[mesh.cornerVertex(c)]
+                if (cornerConstraints[c] != ConstraintNone && !mesh.isBoundaryCorner(c) && narrow[mesh.cornerVertex(c)]
                     && narrow[mesh.cornerVertex(mesh.nextCorner(c))]) {
                     cornerConstraints[c] = ConstraintNone;
                     ++releasedCorners;

@@ -170,7 +170,7 @@ std::vector<std::pair<std::string, double>> summarizeDiagnostics(
         return fallback;
     };
     double flipped = 0, degenerate = 0, flippedContinuous = 0, flippedRounded = 0, flippedUntangled = 0, mapped = 0;
-    double pinned = 0, untangleSeconds = 0;
+    double pinned = 0, untangleSeconds = 0, featureCorners = 0, featureCornersReleased = 0;
     double integralityResidual = 0, constraintResidual = 0, droppedConstraints = 0;
     double roundingShift = 0, roundingPasses = 0;
     double solves = 0, factorizations = 0, fallbacks = 0, nonFinite = 0;
@@ -192,6 +192,8 @@ std::vector<std::pair<std::string, double>> summarizeDiagnostics(
             flippedRounded += valueOf(record, "rounded_flipped", 0);
             flippedUntangled += valueOf(record, "untangled_flipped", 0);
             pinned += valueOf(record, "untangle_pinned_faces", 0);
+            featureCorners += valueOf(record, "feature_corners", 0);
+            featureCornersReleased += valueOf(record, "feature_corners_released", 0);
             untangleSeconds += valueOf(record, "untangle_seconds", 0);
             mapped += valueOf(record, "snapped_triangles", 0);
             integralityResidual = std::max(integralityResidual, valueOf(record, "integrality_residual", 0));
@@ -238,6 +240,8 @@ std::vector<std::pair<std::string, double>> summarizeDiagnostics(
         { "uv_flipped_triangles_rounded", flippedRounded },
         { "uv_flipped_triangles_untangled", flippedUntangled },
         { "uv_pinned_triangles", pinned },
+        { "feature_corners", featureCorners },
+        { "feature_corners_released", featureCornersReleased },
         { "untangle_seconds", untangleSeconds },
         { "uv_mapped_triangles", mapped },
         { "integrality_residual", integralityResidual },
