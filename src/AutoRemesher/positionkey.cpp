@@ -20,10 +20,11 @@
  *  SOFTWARE.
  */
 #include <AutoRemesher/PositionKey>
+#include <cmath>
 
 namespace AutoRemesher {
 
-long PositionKey::m_toIntFactor = 100000;
+const double PositionKey::m_toIntFactor = 100000.0;
 
 PositionKey::PositionKey(const Vector3& v)
     : PositionKey(v.x(), v.y(), v.z())
@@ -36,9 +37,9 @@ PositionKey::PositionKey(double x, double y, double z)
     m_position.setY(y);
     m_position.setZ(z);
 
-    m_intX = (long)(x * m_toIntFactor);
-    m_intY = (long)(y * m_toIntFactor);
-    m_intZ = (long)(z * m_toIntFactor);
+    m_cellX = std::trunc(x * m_toIntFactor);
+    m_cellY = std::trunc(y * m_toIntFactor);
+    m_cellZ = std::trunc(z * m_toIntFactor);
 }
 
 const Vector3& PositionKey::position() const
@@ -48,24 +49,24 @@ const Vector3& PositionKey::position() const
 
 bool PositionKey::operator<(const PositionKey& right) const
 {
-    if (m_intX < right.m_intX)
+    if (m_cellX < right.m_cellX)
         return true;
-    if (m_intX > right.m_intX)
+    if (m_cellX > right.m_cellX)
         return false;
-    if (m_intY < right.m_intY)
+    if (m_cellY < right.m_cellY)
         return true;
-    if (m_intY > right.m_intY)
+    if (m_cellY > right.m_cellY)
         return false;
-    if (m_intZ < right.m_intZ)
+    if (m_cellZ < right.m_cellZ)
         return true;
-    if (m_intZ > right.m_intZ)
+    if (m_cellZ > right.m_cellZ)
         return false;
     return false;
 }
 
 bool PositionKey::operator==(const PositionKey& right) const
 {
-    return m_intX == right.m_intX && m_intY == right.m_intY && m_intZ == right.m_intZ;
+    return m_cellX == right.m_cellX && m_cellY == right.m_cellY && m_cellZ == right.m_cellZ;
 }
 
 }

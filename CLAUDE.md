@@ -74,7 +74,7 @@ CI (`.github/workflows/`):
   - `qt-app (linux)`: qmake app and `ar_bench`, `ci/smoke_test.sh` on both (1,200-2,400 quads).
   - `addon (linux-x64|windows-x64|macos-arm64)`: one CMake Release build per platform, the shipped
     configuration (static oneTBB on Windows and macOS), with the core tests: `ctest --no-tests=error`,
-    `ci/output_gate.py` on the installed CLI (procedural sphere, torus, box, open tube, two islands;
+    `ci/output_gate.py` on the installed CLI (procedural sphere, torus, box, open tube, two islands, sphere centred at 1e5;
     fails on exit status, quads outside 0.6-1.5x target, >2 % non-quads, any non-manifold edge,
     report/OBJ mismatch; folded faces and empty islands are reported in the job summary, not gated
     yet), worker tests, zip installed into a real Blender (4.2 LTS on Linux, 5.2 on Windows and
@@ -88,13 +88,22 @@ CI (`.github/workflows/`):
 Running the binary with no args opens the GUI. The core needs `setTargetTriangleCount(n > 0)` or
 `remesh()` fails.
 
+## A/B runs and the noise rule (2026-10-20, gap scan item 1)
+- Every quality number in a PR or research note comes from `tools/bench/ab.py` (`run <ref>`, `compare A B`;
+  README "A/B a change"), so it can be re-run from the repo. No per-thread corpus runners; extend `ab.py`
+  or add a set to `corpus.json` instead, and keep new mesh generators in `tools/bench/`.
+- One ulp of input can flip a run's genus. Before claiming a discrete result ("fixes mesh X", genus, holes,
+  a run that fails or recovers), repeat those runs on both sides with `--replicates 5` (1-ulp perturbed
+  inputs) and claim only what every replicate agrees on. Aggregates over a whole set need no replicates.
+- A change that can move topology also runs `--set closed`.
+
 ## PRs, branches and commits (Kajetan's rules, 2026-10-15)
 - Every PR targets `master` of KajetanMuczynski/autoremesher. Never a feature branch, no stacked PRs
   (PRs into other branches run no CI, and a late merge there never reaches master). GitHub defaults
   a fork's PR to the parent repo: check the base repository is not huxingyi/autoremesher.
 - Title: `<type>(<area>): <what it does> [TODO x.y]`, e.g. `fix(islands): keep tiny islands closed [TODO 2.14]`.
   Types: fix, perf, feat, ci, docs, refactor. Areas: islands, extraction, sizing, cross-field,
-  rounding, addon, ci, docs. Omit `[TODO x.y]` only when no TODO item applies.
+  rounding, addon, ci, docs, bench. Omit `[TODO x.y]` only when no TODO item applies.
 - Body starts with `Merge order / depends on: ...` (`none` if independent).
 - If the PR touches a conflict-prone file (`tests/CMakeLists.txt`, `src/AutoRemesher/remesh.cpp`,
   `src/AutoRemesher/quadextractor.cpp`), say so in the body so parallel PRs can be ordered.

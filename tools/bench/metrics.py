@@ -11,7 +11,8 @@ Reported groups (all lengths relative to the input bounding-box diagonal unless
 named *_rel_edge, which are relative to the output mean edge length):
   faces       counts by size, quad fraction, achieved / requested quads
   topology    edges by use (boundary / manifold / non-manifold), inconsistently
-              oriented edges, components, Euler characteristic in vs out
+              oriented edges, components, Euler characteristic and boundary loops
+              in vs out, same_as_input (all of these match, no non-manifold edge)
   valence     histogram of interior and boundary vertex valence, irregular
               (interior valence != 4) count and per 1k quads
   quads       corner-angle deviation from 90 deg, scaled Jacobian (min over the
@@ -149,6 +150,22 @@ def compute(input_path, output_path, target_quads=None, sym_axis=None, sym_cente
     ein = np.unique(np.sort(np.concatenate([Fin[:, [0, 1]], Fin[:, [1, 2]], Fin[:, [2, 0]]]), axis=1), axis=0)
     out["topology"]["euler_input"] = int(len(used_in) - len(ein) + len(Fin))
     out["topology"]["components_input"] = int(len(np.unique(comps(len(Vin), ein)[used_in])))
+
+    # Boundary loops: connected components of the boundary edges (a pinched loop counts once).
+    def loops(n, edges):
+        if not len(edges):
+            return 0
+        return int(len(np.unique(comps(n, edges)[np.unique(edges)])))
+
+    ein_all = np.sort(np.concatenate([Fin[:, [0, 1]], Fin[:, [1, 2]], Fin[:, [2, 0]]]), axis=1)
+    ein_u, ein_c = np.unique(ein_all, axis=0, return_counts=True)
+    t = out["topology"]
+    t["boundary_loops"] = loops(len(V), bnd)
+    t["boundary_loops_input"] = loops(len(Vin), ein_u[ein_c == 1])
+    # Same surface type as the input: Euler characteristic, components and boundary loops match and
+    # no edge is non-manifold. Fixes or breaks of handles and holes ("genus") show up here.
+    t["same_as_input"] = (t["euler_output"] == t["euler_input"] and t["components"] == t["components_input"]
+                          and t["boundary_loops"] == t["boundary_loops_input"] and t["non_manifold_edges"] == 0)
 
     # Valence.
     val = np.bincount(E.ravel(), minlength=len(V))

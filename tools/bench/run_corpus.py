@@ -3,13 +3,13 @@
 """Run AutoRemesher (ar_bench) over the corpus and collect one record per run.
 
     python run_corpus.py --corpus corpus.json --meshes meshes --bench build/ar_bench \
-        [--probe build-probe/ar_bench_probe] --out runs --targets 2000,10000,50000 \
+        --out runs --targets 2000,10000,50000 \
         [--only spot,koala] [--threads 4] [--repeat 1] [--tag name] [--no-metrics] \
         [--bench-arg --adaptivity=0 ...]
 
-Writes runs/<mesh>/<tag>t<target>/{out.obj,bench.json,bench.log,probe.json,metrics.json,record.json}
-and runs/summary.json (all records). `ar_bench` timings come from the pristine
-build; the probe build is run separately only for its counters.
+Writes runs/<mesh>/<tag>t<target>/{out.obj,bench.json,bench.log,stages.jsonl,metrics.json,record.json}
+and runs/summary.json (all records). Runs the "corpus" set of corpus.json; quality A/B
+of a change goes through ab.py, this script is for time and memory.
 """
 import argparse
 import json
@@ -44,40 +44,33 @@ def parse_phases(lines):
     return phases, steps, extra
 
 
-def summarize_probe(probe):
-    cls = [e for e in probe.get("probe_events", []) if e["kind"] == "cls_solve"]
-    mils = [e for e in probe.get("probe_events", []) if e["kind"] == "mils_iteration"]
-    by_step = {}
-    for e in cls:
-        s = by_step.setdefault(e["step"], {"solves": 0, "factorizations": 0, "max_n": 0, "max_factor_nnz": 0,
-                                           "build_ms": 0.0, "analyze_ms": 0.0, "factor_ms": 0.0, "solve_ms": 0.0,
-                                           "substitutions_ms": 0.0, "total_ms": 0.0, "fallbacks": 0})
-        s["solves"] += 1
-        s["factorizations"] += int(e["refactorized"])
-        s["max_n"] = max(s["max_n"], e["normal_size"])
-        s["max_factor_nnz"] = max(s["max_factor_nnz"], e["factor_nnz"])
-        s["fallbacks"] += int(e["fallback"])
-        for k in ("build_ms", "analyze_ms", "factor_ms", "solve_ms", "substitutions_ms", "total_ms"):
-            s[k] += e[k]
-    # "solver" is the object address, which a later island's solver can reuse. Within one solve the
-    # fixed count carries over between iterations, so a break in that chain starts a new solve.
-    open_runs, solves = {}, []
-    for e in mils:
-        its = open_runs.get(e["solver"])
-        if not its or e["integer_variables"] != its[-1]["integer_variables"] or \
-                e["fixed_before"] != its[-1]["fixed_before"] + its[-1]["newly_fixed"]:
-            open_runs[e["solver"]] = []
-            solves.append(open_runs[e["solver"]])
-        open_runs[e["solver"]].append(e)
-    rounding = []
-    for its in solves:
-        rounding.append({"iterations": len(its), "integer_variables": its[0]["integer_variables"],
-                         "kernel": its[0]["kernel"],
-                         "fixed_per_iteration": [int(e["newly_fixed"]) for e in its],
-                         "threshold": max(e["threshold"] for e in its),
-                         "max_rounding_distance": max(e["max_rounding_distance"] for e in its),
-                         "mean_rounding_distance": max(e["mean_rounding_distance"] for e in its)})
-    return {"solver_by_step": by_step, "rounding": rounding, "cleanup_rounds": probe.get("probe_rounds", {})}
+def summarize_stages(path):
+    """Solver and rounding figures from the core's stage diagnostics (what probes.patch measured)."""
+    recs = [json.loads(line) for line in open(path) if line.strip()]
+    by_stage = {}
+    for r in recs:
+        if "solve_total_ms" not in r:
+            continue
+        s = by_stage.setdefault(r["stage"], {"solves": 0, "factorizations": 0, "max_n": 0, "max_factor_nnz": 0,
+                                             "build_ms": 0.0, "factorize_ms": 0.0, "solve_ms": 0.0,
+                                             "total_ms": 0.0, "kkt_fallbacks": 0})
+        s["solves"] += int(r["solve_solves"])
+        s["factorizations"] += int(r["solve_factorizations"])
+        s["max_n"] = max(s["max_n"], int(r["solve_n"]))
+        s["max_factor_nnz"] = max(s["max_factor_nnz"], int(r["solve_factor_nnz"]))
+        s["kkt_fallbacks"] += int(r["solve_kkt_fallback"])
+        for k in ("build_ms", "factorize_ms", "solve_ms", "total_ms"):
+            s[k] += r["solve_" + k]
+    # One rounding run per island cover solve: its passes are the island's rounding_iteration records.
+    passes = {}
+    for r in recs:
+        if r["stage"] == "rounding_iteration":
+            passes.setdefault(r.get("island"), []).append(r)
+    rounding = [{"iterations": len(its), "integer_variables": int(its[0]["kernel_integers"]),
+                 "fixed_per_iteration": [int(e["newly_fixed"]) for e in its],
+                 "max_rounding_shift": max(e["max_rounding_shift"] for e in its),
+                 "mean_rounding_shift": max(e["mean_rounding_shift"] for e in its)} for its in passes.values()]
+    return {"solver_by_stage": by_stage, "rounding": rounding}
 
 
 def run(cmd, log_path, timeout):
@@ -95,7 +88,6 @@ def main():
     ap.add_argument("--corpus", default=os.path.join(HERE, "corpus.json"))
     ap.add_argument("--meshes", required=True)
     ap.add_argument("--bench", required=True)
-    ap.add_argument("--probe")
     ap.add_argument("--out", required=True)
     ap.add_argument("--targets", default="2000,10000,50000")
     ap.add_argument("--only")
@@ -107,7 +99,7 @@ def main():
     ap.add_argument("--bench-arg", action="append", default=[], help="extra ar_bench option, e.g. --adaptivity=0")
     args = ap.parse_args()
 
-    corpus = json.load(open(args.corpus))["meshes"]
+    corpus = [m for m in json.load(open(args.corpus))["meshes"] if m.get("set", "corpus") == "corpus"]
     only = set(args.only.split(",")) if args.only else None
     extra = []
     for a in args.bench_arg:
@@ -126,7 +118,8 @@ def main():
             reps = []
             for r in range(args.repeat):
                 rc, wall = run([args.bench, "--input"] + base[:1] + ["--output", os.path.join(d, "out.obj"),
-                               "--json", os.path.join(d, "bench.json")] + base[1:], os.path.join(d, "bench.log"),
+                               "--json", os.path.join(d, "bench.json"), "--stage-diagnostics",
+                               os.path.join(d, "stages.jsonl")] + base[1:], os.path.join(d, "bench.log"),
                                args.timeout)
                 if rc != 0 or not os.path.exists(os.path.join(d, "bench.json")):
                     reps.append({"rc": rc, "wall": wall})
@@ -148,15 +141,8 @@ def main():
                 sing = [tuple(map(int, m)) for m in SINGULAR.findall(log)]
                 record["singularity_simplifier"] = {"islands": len(sing), "before": sum(s[0] for s in sing),
                                                     "after": sum(s[1] for s in sing), "pairs": sum(s[2] for s in sing)}
-            if args.probe and ok:
-                rc, _ = run([args.probe, "--input", src, "--output", os.path.join(d, "probe_out.obj"),
-                             "--json", os.path.join(d, "probe.json")] + base[1:], os.path.join(d, "probe.log"),
-                            args.timeout)
-                if os.path.exists(os.path.join(d, "probe.json")):
-                    p = json.load(open(os.path.join(d, "probe.json")))
-                    record["probe"] = summarize_probe(p)
-                    record["probe"]["same_result"] = p["result"] == record["bench"]["result"]
-                    os.remove(os.path.join(d, "probe_out.obj"))
+            if ok and os.path.exists(os.path.join(d, "stages.jsonl")):
+                record["stages"] = summarize_stages(os.path.join(d, "stages.jsonl"))
             if ok and not args.no_metrics:
                 cmd = [sys.executable, "-I", os.path.join(HERE, "metrics.py"), "--input", src, "--output",
                        os.path.join(d, "out.obj"), "--target-quads", str(target), "--json", os.path.join(d, "metrics.json")]
