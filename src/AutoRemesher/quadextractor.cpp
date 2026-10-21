@@ -256,6 +256,12 @@ bool QuadExtractor::extract()
     std::cerr << "Smooth and project..." << std::endl;
     smoothAndProject(5);
     std::cerr << "Smooth and project done" << std::endl;
+#if AUTOREMESHER_QEX == 3
+    if (extractedWithQex) {
+        report(1.0f, "");
+        return true;
+    }
+#endif
 
     report(0.44f, "Splitting seven edge faces");
     splitSevenEdgeFaces();

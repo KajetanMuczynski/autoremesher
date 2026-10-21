@@ -24,8 +24,8 @@ option(AUTOREMESHER_BUNDLED_TBB "Build oneTBB from source and link it statically
 option(AUTOREMESHER_BUILD_TESTS "Build the core tests in tests/ (run with ctest)" OFF)
 # Experiment for TODO 6.1, never shipped: extract quads with libQEx (Ebke et al. 2013) instead of
 # QuadExtractor's own graph tracing. 1 = QEx faces, then all of QuadExtractor's repair and cleanup;
-# 2 = QEx faces with only the hole and topology repair. Fetches libQEx and OpenMesh's core.
-set(AUTOREMESHER_QEX 0 CACHE STRING "libQEx extraction experiment: 0 off, 1 QEx + cleanup, 2 QEx + repair only")
+# 2 = QEx faces with only the hole and topology repair; 3 = as 2, then smoothing and projection. Fetches libQEx and OpenMesh's core.
+set(AUTOREMESHER_QEX 0 CACHE STRING "libQEx extraction experiment: 0 off, 1 QEx + cleanup, 2 QEx + repair only, 3 QEx + repair + smoothing")
 option(AUTOREMESHER_STATIC_RUNTIME "Link the MSVC C++ runtime statically (/MT)" ON)
 
 # Before project(): the runtime choice must reach oneTBB's targets too.
