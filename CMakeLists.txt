@@ -75,6 +75,7 @@ add_library(autoremesher_core STATIC
     src/AutoRemesher/remesh.cpp
     src/AutoRemesher/singularitysimplifier.cpp
     src/AutoRemesher/surfacemesh.cpp
+    src/AutoRemesher/untangler.cpp
     "${THIRDPARTY}/isotropicremesher/isotropicremesher.cpp"
     "${THIRDPARTY}/isotropicremesher/isotropichalfedgemesh.cpp"
     "${THIRDPARTY}/isotropicremesher/axisalignedboundingboxtree.cpp"

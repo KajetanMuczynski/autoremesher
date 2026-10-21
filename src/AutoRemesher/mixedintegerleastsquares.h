@@ -72,6 +72,16 @@ public:
     size_t integerKernelVariableCount() const;
     size_t originalIntegerVariableCount() const;
 
+    // The kernel the solution lives in, for moving the free part of a
+    // rounded solution (QuadParameterizer's untangling): original variable
+    // i is the sum of a * kernelValue(k) over the (k, a) of kernelTerms(i),
+    // and the integers rounding fixed are held.
+    void kernelTerms(size_t originalVariable, std::vector<std::pair<size_t, double>>* terms) const;
+    bool kernelVariableFixed(size_t kernelVariable) const;
+    double kernelValue(size_t kernelVariable) const;
+    // Returns false, changing nothing, for a fixed or unknown variable.
+    bool setKernelValue(size_t kernelVariable, double value);
+
     // Diagnostics only; none of these change the solve.
 
     // What the last solveIteration() rounded and how its solve went.  A
