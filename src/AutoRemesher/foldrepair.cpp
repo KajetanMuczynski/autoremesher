@@ -231,10 +231,16 @@ namespace {
         std::vector<size_t> touched;
     };
 
-    std::vector<char> detectFolds(const Topology& topology, const Geometry& geometry, double radius)
+    // Flags of all triangles; or, with `focus`, only of the triangles that
+    // have a centroid in `focus` within the radius or share an edge with
+    // one there, the others keeping their flag from `previous` (after a
+    // repair moved those triangles; `focus` holds their old and new
+    // centroids).
+    std::vector<char> detectFolds(const Topology& topology, const Geometry& geometry, double radius,
+        const std::vector<Vector3>* focus = nullptr, const std::vector<char>* previous = nullptr)
     {
         const size_t faceCount = topology.faces.size();
-        std::vector<char> folded(faceCount, 0);
+        std::vector<char> folded = previous ? *previous : std::vector<char>(faceCount, 0);
         if (0 == faceCount || !(radius > 0.0))
             return folded;
 
@@ -316,6 +322,7 @@ namespace {
                         }
             }
         });
+
         // A triangle is flagged only if its disc points against it by more
         // than rounding: the disc of a small closed part sums to zero.
         const double tolerance = 1e-9;
@@ -323,38 +330,52 @@ namespace {
         // triangle the geodesic one reaches despite rounding (path lengths
         // are sums of square roots).
         const double radiusSquared = radius * radius * (1.0 + 1e-9);
+        // With a focus: the triangles to test, the others keep their flag.
+        std::vector<char> tested(faceCount, focus ? 0 : 1);
+        if (focus) {
+            tbb::enumerable_thread_specific<std::vector<size_t>> nearLists;
+            tbb::parallel_for(tbb::blocked_range<size_t>(0, focus->size()), [&](const tbb::blocked_range<size_t>& range) {
+                std::vector<size_t>& list = nearLists.local();
+                for (size_t i = range.begin(); i != range.end(); ++i) {
+                    const Vector3& p = (*focus)[i];
+                    int64_t cell[3];
+                    cellOf(p, cell);
+                    const int64_t reach = cellsPerRadius;
+                    for (int64_t dx = -reach; dx <= reach; ++dx)
+                        for (int64_t dy = -reach; dy <= reach; ++dy)
+                            for (int64_t dz = -reach; dz <= reach; ++dz) {
+                                const int64_t neighbour[3] = { cell[0] + dx, cell[1] + dy, cell[2] + dz };
+                                const auto found = cells.find(keyOf(neighbour));
+                                if (found == cells.end())
+                                    continue;
+                                for (size_t k = cellRanges[found->second].first; k < cellRanges[found->second].second; ++k) {
+                                    const size_t g = keyed[k].second;
+                                    if ((geometry.centroids[g] - p).lengthSquared() <= radius * radius * (1.0 + 1e-9))
+                                        list.push_back(g);
+                                }
+                            }
+                }
+            });
+            for (const std::vector<size_t>& list : nearLists)
+                for (size_t f : list) {
+                    tested[f] = 1;
+                    for (size_t k = topology.faceFaceStart[f]; k < topology.faceFaceStart[f + 1]; ++k)
+                        tested[topology.faceFaces[k]] = 1;
+                }
+            for (size_t f = 0; f < faceCount; ++f)
+                if (tested[f])
+                    folded[f] = 0;
+        }
         std::vector<char> candidate(faceCount, 0);
         std::vector<double> bound(faceCount, 0.0);
         tbb::parallel_for(tbb::blocked_range<size_t>(0, faceCount), [&](const tbb::blocked_range<size_t>& range) {
             for (size_t f = range.begin(); f != range.end(); ++f) {
-                if (!hasNormal(geometry.normals[f]))
+                if (!tested[f] || !hasNormal(geometry.normals[f]))
                     continue;
                 const Vector3& c = geometry.centroids[f];
                 int64_t cell[3];
                 cellOf(c, cell);
-                // If every normal in the 27 cells around is within 90 degrees
-                // of this one, the disc around it (Euclidean, so geodesic
-                // too) adds only area on its own side, and it cannot be
-                // flagged unless an edge neighbour beyond the radius is
-                // turned over.
                 const size_t home = cells.find(keyOf(cell))->second;
-                bool calm = true;
-                for (size_t a : cellNeighbours[home]) {
-                    // cos(angle to the axis + the cell's half-angle) > 0.
-                    const double cosine = Vector3::dotProduct(geometry.normals[f], cellAxes[a]);
-                    const double sine = std::sqrt(std::max(0.0, 1.0 - cosine * cosine));
-                    if (!(cellAngles[a] < 0.5 * M_PI_VALUE) || !(cosine * cellCosines[a] - sine * cellSines[a] > 1e-9)) {
-                        calm = false;
-                        break;
-                    }
-                }
-                if (calm) {
-                    bool turned = false;
-                    for (size_t k = topology.faceFaceStart[f]; k < topology.faceFaceStart[f + 1]; ++k)
-                        turned = turned || Vector3::dotProduct(geometry.normals[f], geometry.normals[topology.faceFaces[k]]) < 0.0;
-                    if (!turned)
-                        continue;
-                }
                 // A lower bound of n . (sum over the geodesic disc): the
                 // geodesic disc lies in the Euclidean one plus the edge
                 // neighbours and holds this triangle, so it gets at least
@@ -364,12 +385,20 @@ namespace {
                 // tested, not guessed.
                 const Vector3& n = geometry.normals[f];
                 double lower = Vector3::dotProduct(n, geometry.areas[f]);
-                for (size_t a : cellNeighbours[home])
+                for (size_t a : cellNeighbours[home]) {
+                    // A cell whose cone of normals lies within 90 degrees of
+                    // this normal adds nothing negative: cos(angle to the
+                    // axis + half-angle) > 0.
+                    const double cosine = Vector3::dotProduct(n, cellAxes[a]);
+                    const double sine = std::sqrt(std::max(0.0, 1.0 - cosine * cosine));
+                    if (cellAngles[a] < 0.5 * M_PI_VALUE && cosine * cellCosines[a] - sine * cellSines[a] > 1e-9)
+                        continue;
                     for (size_t k = cellRanges[a].first; k < cellRanges[a].second; ++k) {
                         const size_t g = keyed[k].second;
                         if (g != f && (geometry.centroids[g] - c).lengthSquared() <= radiusSquared)
                             lower += std::min(0.0, Vector3::dotProduct(n, geometry.areas[g]));
                     }
+                }
                 for (size_t k = topology.faceFaceStart[f]; k < topology.faceFaceStart[f + 1]; ++k) {
                     const size_t g = topology.faceFaces[k];
                     if ((geometry.centroids[g] - c).lengthSquared() > radiusSquared)
@@ -1274,7 +1303,22 @@ FoldRepair::Stats FoldRepair::repair(std::vector<Vector3>* vertices,
         }
         if (!any)
             break;
-        folded = detectFolds(topology, Geometry(current, topology.faces), stats.radius);
+        // Flags change only near the moved triangles.
+        std::vector<Vector3> focus;
+        std::vector<char> movedFace(topology.faces.size(), 0);
+        for (size_t v = 0; v < topology.vertexCount; ++v) {
+            if (!moved[v])
+                continue;
+            for (size_t k = topology.vertexFaceStart[v]; k < topology.vertexFaceStart[v + 1]; ++k)
+                movedFace[topology.vertexFaces[k]] = 1;
+        }
+        const Geometry after(current, topology.faces);
+        for (size_t f = 0; f < topology.faces.size(); ++f)
+            if (movedFace[f]) {
+                focus.push_back(geometry.centroids[f]);
+                focus.push_back(after.centroids[f]);
+            }
+        folded = detectFolds(topology, after, stats.radius, &focus, &folded);
         clusters = clustersOf(topology, folded);
     }
     stats.foldedTrianglesAfter = (size_t)std::count(folded.begin(), folded.end(), 1);

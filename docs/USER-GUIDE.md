@@ -16,7 +16,7 @@ Contents: [1 Words used here](#1-words-used-here) · [2 Install and update](#2-i
 [3 Your first remesh](#3-your-first-remesh) · [4 The settings](#4-the-settings) ·
 [5 Reading the result](#5-reading-the-result) · [6 Warnings and what to do](#6-warnings-and-what-to-do) ·
 [7 Sculpts: what works and what struggles](#7-sculpts-what-works-and-what-struggles) ·
-[8 Folded input and Repair Folds](#8-folded-input-and-repair-folds-placeholder) ·
+[8 Folded input and Repair Folds](#8-folded-input-and-repair-folds) ·
 [9 Troubleshooting](#9-troubleshooting)
 
 ---
@@ -179,6 +179,8 @@ Warnings appear under the rows, with a red icon when they are a problem.
 |---|---|---|
 | Dialog **"Remesh to 200,000+ quads?"** with a memory estimate | The **Target Quads guard**: a big target can use all your memory (about 2 GB per 100,000 quads) and take long. Often a typo (an extra zero). | Press Cancel unless you meant it and have the memory. |
 | **"Output has N holes where the input was closed (E open edges)"**, plus a hint, and a red **Holes** row | The remesh tore the surface open. On sculpts this happens almost only at folded input ([§7](#7-sculpts-what-works-and-what-struggles)). | Try another Target Quads (a few hundred up or down often closes it). Find the holes with the hint (Non Manifold). If they sit at swirls or pinched creases, smooth those in Sculpt Mode and run again. |
+| **"Folded input: N faces in K spots. …"** and a **Repair Folds and Re-run** button | Your model's surface is folded over itself in K places, usually left by a sculpt brush. The quads there may come out messy or with holes. | Press **Repair Folds and Re-run** ([§8](#8-folded-input-and-repair-folds)). |
+| **"N folded spots could not be repaired safely and were left as they were"** | After a repair: these spots were too steep, too thin or too tangled to fix without changing your shape. | Smooth those spots in Sculpt Mode and run again ([§7](#7-sculpts-what-works-and-what-struggles)). |
 | Red **Non-manifold vertices** or **edges** | Points or edges that are not a clean surface. | Same as holes: another Target Quads, or clean the input at that spot. Report it with the build line if it stays. |
 | **"N of M islands produced no faces"**, red **Empty islands** | A small separate piece (an eyeball, a tiny flower) got nothing. | Raise Target Quads, or remesh that piece on its own: Edit Mode, select it, **P > Selection** to make it its own object *(from memory, check)*, and remesh both. |
 | **"Blender's mesh validation changed the result"** | Blender had to repair the remesher's result when building the object. Should not happen. | Report it with the build line and the settings. |
@@ -186,8 +188,8 @@ Warnings appear under the rows, with a red icon when they are a problem.
 | Title **Failed** | The remesher stopped (e.g. "remeshing produced no faces"). | Try another Target Quads or Fast/Quality, then report it ([§9](#9-troubleshooting)). |
 | Title **Cancelled** | You pressed Esc or Cancel, or Blender stopped it (loading another file). If the remesher does not stop within 5 seconds, the add-on kills it. | Nothing to do. |
 
-*Planned, not yet in the add-on:* a warning before remeshing when the input has folds, thin parts or
-self-intersections, and a **Repair Folds and Re-run** button ([§8](#8-folded-input-and-repair-folds-placeholder)).
+*Planned, not yet in the add-on:* a warning before remeshing when the input has thin parts or
+self-intersections.
 
 ---
 
@@ -211,7 +213,7 @@ From the project's measurements on real sculpts and on synthetic brush tests (Oc
 | Situation | What happens | What helps |
 |---|---|---|
 | **Thin parts** (vines, leaves, cloth, thin blades) thinner than one quad | Quads fold over the thin edge, and the count of handles and holes can come out wrong. Every remesher we compared folds there. | Raise Target Quads until the thin part is at least one or two quads across: on a ribbony test object, 12,000+ instead of 3,000 cut the "too thin" area from 46 % to 17 %. Adaptivity does not help. For flat sheets with no thickness (a leaf plane, cloth), add a **Solidify** modifier first (wrench tab > **Add Modifier > Generate > Solidify** *(from memory, check)*); the add-on uses it without applying. A fix for thin strips is in progress. |
-| **Pleats from the Twist/Rotate brush**, creases pinched past themselves | The original surface is folded there. On one of our test sculpts, 94–100 % of all folds, non-quads and holes sat within two quads of such spots. | In Sculpt Mode, smooth the spot (**Smooth** brush, or hold **Shift** while sculpting *(from memory, check)*) or voxel-remesh the sculpt (**Remesh** in the Sculpt Mode header, or **Ctrl+R** *(from memory, check)*) and remesh again. An automatic fix is being built ([§8](#8-folded-input-and-repair-folds-placeholder)). |
+| **Pleats from the Twist/Rotate brush**, creases pinched past themselves | The original surface is folded there. On one of our test sculpts, 94–100 % of all folds, non-quads and holes sat within two quads of such spots. | In Sculpt Mode, smooth the spot (**Smooth** brush, or hold **Shift** while sculpting *(from memory, check)*) or voxel-remesh the sculpt (**Remesh** in the Sculpt Mode header, or **Ctrl+R** *(from memory, check)*) and remesh again. Or press **Repair Folds and Re-run** after the remesh ([§8](#8-folded-input-and-repair-folds)). |
 | **Holes in a closed sculpt** at higher counts | On that test sculpt, holes appeared from 6,000 quads up in most runs, all at the pleats above. | As above; and the **Holes** row now shows them. |
 | **Crevices narrower than a quad** (deep pinched grooves, eyelid lines) | Folded quads in the groove; at high counts sometimes an extra tunnel across the groove. | More quads, or soften the groove. |
 | **Sharp tips and spikes** | A non-quad or a crowded pole at the tip. | Usually acceptable; more quads. |
@@ -225,14 +227,31 @@ From the project's measurements on real sculpts and on synthetic brush tests (Oc
 
 ---
 
-## 8. Folded input and Repair Folds (placeholder)
+## 8. Folded input and Repair Folds
 
-> **Not written yet.** An automatic repair for folded input is being built (a warning that the input has
-> folds, then an opt-in **Repair Folds and Re-run** button; off by default). This section will describe
-> it once that change is in the released add-on. Until then, use the manual fix in
-> [§7](#7-sculpts-what-works-and-what-struggles) (smooth the spot in Sculpt Mode).
+Some sculpt brushes (Twist, Rotate, Pinch, Crease pushed too far) fold the surface over itself: a small
+patch ends up upside down, like a pleat in fabric. You usually cannot see it in the viewport. The
+remesher cannot lay clean quads on such a spot, so that is where messy quads, triangles and holes
+appear.
 
----
+Every remesh checks for these spots. If it finds any, the result shows a warning **"Folded input: N
+faces in K spots"** and, below it, a **Repair Folds and Re-run** button.
+
+1. Select the result object (the one the warning is shown for).
+2. Press **Repair Folds and Re-run**. The remesher runs again, the same settings, from your original
+   object, and this time first smooths out only the folded spots.
+3. The new result replaces the old one (the old one is hidden). The rows show **Folds repaired: X of
+   K spots**; if some could not be fixed, a red **Folds left** row and a line saying so.
+
+What it does and does not do:
+- **Your original object is never changed.** The repair works on the copy the remesher gets.
+- It moves only the vertices in and right around each fold, sliding them along your surface. Spots
+  that would need a real change of shape (a spike's flank, a thin flap, a fold along a hard edge) are
+  left alone and counted under **Folds left**.
+- It is off unless you press the button, because it does change the remeshed shape slightly at those
+  spots. On most models with folds the result is cleaner; check the spots it reports.
+- Folds wider than about 1 % of the model's size are not seen as folds (they look like a normal surface
+  turned over). Smooth those by hand.
 
 ## 9. Troubleshooting
 
