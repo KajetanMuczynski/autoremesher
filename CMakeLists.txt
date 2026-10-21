@@ -104,7 +104,8 @@ if(NOT AUTOREMESHER_QEX STREQUAL "0")
     # server is not reachable from every build machine.
     FetchContent_Declare(openmesh
         URL https://files.pythonhosted.org/packages/66/34/fd86bf3ca48d010f3a588fa997595c13162bc07563382f9a4d5ec8855dfb/openmesh-1.2.1.tar.gz
-        URL_HASH SHA256=6fd3fa41a68148e4a7523f562426aa9758bf65ccc6642abcf79c37bae9c6af3c)
+        URL_HASH SHA256=6fd3fa41a68148e4a7523f562426aa9758bf65ccc6642abcf79c37bae9c6af3c
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
     # libQEx (GPL-3.0-or-later), master of 2026-05-27.
     FetchContent_Declare(libqex
         GIT_REPOSITORY https://github.com/hcebke/libQEx.git
