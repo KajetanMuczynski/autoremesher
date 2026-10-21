@@ -230,6 +230,47 @@ int main()
         check(before == mesh.triangles && 1 == stats.zeroAreaTriangles, "cap: left in place, counted");
     }
     {
+        // A patch turned against the rest: turned back, the larger side wins.
+        Mesh mesh = sphere(3, Vector3(0, 0, 0), 1.0);
+        const auto before = mesh.triangles;
+        for (size_t t = 0; t < 40; ++t)
+            std::swap(mesh.triangles[t][1], mesh.triangles[t][2]);
+        Cleaner::InputCleanupStats stats;
+        Cleaner::orientInput(mesh.vertices, mesh.triangles, &stats);
+        check(40 == stats.flippedTriangles && before == mesh.triangles, "flipped patch: turned back to the sphere's side");
+        // All turned: consistent, so left alone.
+        for (auto& t : mesh.triangles)
+            std::swap(t[1], t[2]);
+        const auto inverted = mesh.triangles;
+        Cleaner::InputCleanupStats none;
+        Cleaner::orientInput(mesh.vertices, mesh.triangles, &none);
+        check(0 == none.flippedTriangles && inverted == mesh.triangles, "inside-out sphere: consistent, unchanged");
+    }
+    {
+        // A Moebius strip has no orientation: left as it is, counted.
+        Mesh mesh;
+        const size_t n = 24;
+        for (size_t i = 0; i < n; ++i) {
+            const double u = 2.0 * 3.14159265358979323846 * i / n;
+            for (const double w : { -0.2, 0.2 }) {
+                mesh.vertices.push_back(Vector3((1 + w * std::cos(u / 2)) * std::cos(u),
+                    (1 + w * std::cos(u / 2)) * std::sin(u), w * std::sin(u / 2)));
+            }
+        }
+        for (size_t i = 0; i < n; ++i) {
+            const size_t a = 2 * i, b = 2 * i + 1;
+            size_t c = 2 * ((i + 1) % n), d = c + 1;
+            if (i + 1 == n)
+                std::swap(c, d);
+            mesh.triangles.push_back({ a, c, b });
+            mesh.triangles.push_back({ b, c, d });
+        }
+        const auto before = mesh.triangles;
+        Cleaner::InputCleanupStats stats;
+        Cleaner::orientInput(mesh.vertices, mesh.triangles, &stats);
+        check(1 == stats.nonOrientablePieces && before == mesh.triangles, "Moebius strip: unchanged, counted");
+    }
+    {
         // Through the interface: the counts reach the quality report.
         Mesh mesh = sphere(3, Vector3(0, 0, 0), 1.0);
         for (size_t k = 0; k < 5; ++k) {

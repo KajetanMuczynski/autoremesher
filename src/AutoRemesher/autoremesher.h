@@ -266,6 +266,11 @@ public:
         // Triangles of zero area that remain: three distinct but collinear
         // corners, which only an edge flip can remove.
         size_t zeroAreaTriangles = 0;
+        // Triangles turned to agree with their neighbours across manifold
+        // edges, and pieces left as they were because no orientation fits
+        // them (a Moebius strip).
+        size_t flippedTriangles = 0;
+        size_t nonOrientablePieces = 0;
     };
 
     // Edges up to this long are rounding noise of the float32 positions
@@ -281,6 +286,15 @@ public:
     static InputCleanupStats cleanInput(const std::vector<Vector3>& vertices,
         std::vector<std::vector<size_t>>& triangles,
         double tolerance);
+
+    // Turns triangles so that each piece connected through manifold edges
+    // (two triangles) has one orientation: the one of most of its area.
+    // Island splitting follows opposite half-edges, so a flipped patch would
+    // otherwise come out as an island of its own.  A consistent mesh is left
+    // unchanged; counts go to `stats`.
+    static void orientInput(const std::vector<Vector3>& vertices,
+        std::vector<std::vector<size_t>>& triangles,
+        InputCleanupStats* stats);
 
     static const double m_defaultSharpEdgeDegrees;
 

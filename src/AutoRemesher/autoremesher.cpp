@@ -434,6 +434,93 @@ AutoRemesher::InputCleanupStats AutoRemesher::cleanInput(const std::vector<Vecto
     return stats;
 }
 
+void AutoRemesher::orientInput(const std::vector<Vector3>& vertices,
+    std::vector<std::vector<size_t>>& triangles,
+    InputCleanupStats* stats)
+{
+    // Each triangle side as (low, high, triangle, forward), sorted, so the
+    // two sides of a manifold edge sit next to each other.
+    struct Side {
+        size_t low;
+        size_t high;
+        size_t triangle;
+        bool forward;
+        bool operator<(const Side& other) const
+        {
+            return low != other.low ? low < other.low : (high != other.high ? high < other.high : triangle < other.triangle);
+        }
+    };
+    std::vector<Side> sides;
+    sides.reserve(triangles.size() * 3);
+    for (size_t t = 0; t < triangles.size(); ++t) {
+        for (size_t i = 0; i < 3; ++i) {
+            const size_t a = triangles[t][i], b = triangles[t][(i + 1) % 3];
+            if (a != b)
+                sides.push_back({ std::min(a, b), std::max(a, b), t, a < b });
+        }
+    }
+    tbb::parallel_sort(sides.begin(), sides.end());
+
+    // Neighbours across manifold edges, and whether the two walk the edge
+    // the same way (then one of them is turned against the other).
+    std::vector<std::vector<std::pair<size_t, bool>>> neighbours(triangles.size());
+    bool anyMismatch = false;
+    for (size_t i = 0; i < sides.size();) {
+        size_t j = i + 1;
+        while (j < sides.size() && sides[j].low == sides[i].low && sides[j].high == sides[i].high)
+            ++j;
+        if (2 == j - i && sides[i].triangle != sides[i + 1].triangle) {
+            const bool mismatch = sides[i].forward == sides[i + 1].forward;
+            anyMismatch = anyMismatch || mismatch;
+            neighbours[sides[i].triangle].push_back({ sides[i + 1].triangle, mismatch });
+            neighbours[sides[i + 1].triangle].push_back({ sides[i].triangle, mismatch });
+        }
+        i = j;
+    }
+    if (!anyMismatch)
+        return;
+
+    // Breadth first over each piece: flip[t] says whether t disagrees with
+    // the piece's first triangle.
+    std::vector<int8_t> flip(triangles.size(), -1);
+    std::vector<size_t> piece;
+    for (size_t seed = 0; seed < triangles.size(); ++seed) {
+        if (-1 != flip[seed])
+            continue;
+        piece.clear();
+        piece.push_back(seed);
+        flip[seed] = 0;
+        bool orientable = true;
+        double area[2] = { 0.0, 0.0 };
+        for (size_t k = 0; k < piece.size(); ++k) {
+            const size_t t = piece[k];
+            area[flip[t]] += Vector3::area(vertices[triangles[t][0]], vertices[triangles[t][1]], vertices[triangles[t][2]]);
+            for (const auto& neighbour : neighbours[t]) {
+                const int8_t wanted = (int8_t)(flip[t] ^ (neighbour.second ? 1 : 0));
+                if (-1 == flip[neighbour.first]) {
+                    flip[neighbour.first] = wanted;
+                    piece.push_back(neighbour.first);
+                } else if (flip[neighbour.first] != wanted) {
+                    orientable = false;
+                }
+            }
+        }
+        if (!orientable) {
+            ++stats->nonOrientablePieces;
+            continue;
+        }
+        // Ties keep the first triangle's side, so the result does not hang
+        // on rounding of equal areas.
+        const int8_t turned = area[1] > area[0] ? 0 : 1;
+        for (const size_t t : piece) {
+            if (turned == flip[t]) {
+                std::swap(triangles[t][1], triangles[t][2]);
+                ++stats->flippedTriangles;
+            }
+        }
+    }
+}
+
 bool AutoRemesher::decimateIfTooDense(std::vector<Vector3>& vertices,
     std::vector<std::vector<size_t>>& triangles,
     const SurfaceTopology& topology,
@@ -863,7 +950,8 @@ bool AutoRemesher::remeshIslands()
     auto t_start = std::chrono::high_resolution_clock::now();
     const double cpuStart = processCpuSeconds();
 
-    const InputCleanupStats cleanup = cleanInput(m_vertices, m_triangles, inputCleanupTolerance(m_vertices));
+    InputCleanupStats cleanup = cleanInput(m_vertices, m_triangles, inputCleanupTolerance(m_vertices));
+    orientInput(m_vertices, m_triangles, &cleanup);
     if (m_triangles.empty()) {
         std::cerr << "Input mesh has only degenerate triangles" << std::endl;
         if (nullptr != m_progressHandler)
@@ -1454,6 +1542,8 @@ bool AutoRemesher::remeshIslands()
         run.set("input_dropped_triangles", (double)cleanup.droppedTriangles);
         run.set("input_cleanup_kept_parts", (double)cleanup.keptParts);
         run.set("input_zero_area_triangles", (double)cleanup.zeroAreaTriangles);
+        run.set("input_flipped_triangles", (double)cleanup.flippedTriangles);
+        run.set("input_non_orientable_pieces", (double)cleanup.nonOrientablePieces);
         {
             // T's defects beyond the input's: a non-manifold edge or a hole in
             // T becomes a hole or a wrong genus in the output.
