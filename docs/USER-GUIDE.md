@@ -51,7 +51,7 @@ The add-on is one `.zip` file with the remesher program inside. Do **not** unpac
 the zip itself.
 
 - **Linux:** we build it for you and hand it over (a file named `quadami-<version>-linux-x64-<commit>.zip`).
-  It needs Ubuntu 24.04 or newer. To build it yourself, see [addon/README.md](../addon/README.md).
+  It needs Ubuntu 24.04 or newer. To build it yourself, see [addon/BEGINNERS.md](../addon/BEGINNERS.md).
 - **Windows / macOS (Apple silicon):** GitHub, **Actions > ci**, the latest green run, **Artifacts**,
   `addon-windows-x64` or `addon-macos-arm64`. GitHub wraps it in a zip of its own: unpack that one once;
   the `quadami-...zip` inside is the one to install. macOS has not been tried on a real Mac yet: if it
@@ -89,6 +89,15 @@ commit), the second its date. Copy that line into every bug report.
 ---
 
 ## 3. Your first remesh
+
+**Moving around on a touchpad.** Use the gizmo at the top right of the 3D Viewport: drag the coloured
+axis ball to orbit, drag the magnifying glass up or down to zoom, drag the hand to pan. **View > Frame
+Selected** brings the selected object into view. For Alt + drag to orbit: **Edit > Preferences > Input >
+Emulate 3 Button Mouse**.
+
+**A practice model.** Click the default cube, press **Delete**, then **Add > Mesh > Monkey** in the
+viewport header. Press **Ctrl+2** to give it a Subdivision Surface modifier at level 2 *(from memory,
+check)*. Target Quads 2000 is a good first try on it.
 
 1. Stay in **Object Mode** (drop-down at the top left of the 3D Viewport). The Remesh button is grey in
    Sculpt or Edit Mode, when the selected object is not a mesh, and while a remesh is running.
