@@ -117,7 +117,14 @@ Running the binary with no args opens the GUI. The core needs `setTargetTriangle
   `src/AutoRemesher/quadextractor.cpp`), say so in the body so parallel PRs can be ordered.
 - A PR stays **draft** until its thread has verified everything: **CI passed** green on the current
   head, no conflicts with master, A/B or regression checks finished, description final. Then mark it
-  Ready for review and reply "ready to merge" with the head SHA. Kajetan merges only non-draft PRs;
+  Ready for review and reply "ready to merge" with the head SHA.
+- macOS drop exception (Kajetan, 2026-10-21): if **CI passed** is red only because the macOS job was
+  dropped (conclusion cancelled, no runner, no steps: it never ran) and every other job of the PR's
+  own run on the current head succeeded, the PR may be marked ready after its one re-run (by
+  `rerun-dropped.yml` or by hand) dropped as well, or after the first drop where no re-run is possible. Say so in the reply ("macOS dropped, not run").
+  A macOS job that ran and failed, timed out or was cancelled with a runner still blocks. Nothing
+  in GitHub enforces this: the `master` ruleset has no required status check (TODO 0.9), so the
+  thread's check is the only gate. Kajetan merges only non-draft PRs;
   to push more work to a ready PR, convert it back to draft first.
 - Waiting for CI: after opening or pushing to a PR, subscribe to its activity (`subscribe_pr_activity`).
   When CI results arrive, run the ready check and mark the PR ready in the same turn; never end a turn
