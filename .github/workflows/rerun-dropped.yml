@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Re-runs a failed ci run once its only failures are jobs GitHub dropped before any runner picked
+# them up: a macOS arm64 job that waits about 15 minutes for a runner is cancelled with no runner
+# and no steps ("The job was not acquired by Runner of type hosted"), and "CI passed" turns red
+# although no code ran. ci/rerun_dropped.py decides (a real failure, a timeout, a run cancelled
+# by a newer push or a stale PR head is never re-run) and re-runs the failed jobs of that same
+# run, so the PR page and the merge box follow the new attempt. At most MAX_ATTEMPTS attempts.
+#
+# workflow_run runs this file and the script as they are on master, never a PR's copy, so a
+# change here takes effect only once merged; the script's decision is unit-tested in ci.yml
+# (ci/tests). Nothing from the PR is checked out or run here.
+name: rerun dropped jobs
+
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  rerun:
+    name: rerun dropped jobs
+    if: github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write        # POST .../runs/{id}/rerun-failed-jobs
+      contents: read        # checkout of master
+      pull-requests: read   # the PR's current head
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Re-run if only dropped jobs failed
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          MAX_ATTEMPTS: '3'
+        run: python3 ci/rerun_dropped.py "$RUN_ID"
