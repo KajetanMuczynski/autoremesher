@@ -302,6 +302,138 @@ double AutoRemesher::calculateMeshArea(const std::vector<Vector3>& vertices,
     return area;
 }
 
+double AutoRemesher::inputCleanupTolerance(const std::vector<Vector3>& vertices)
+{
+    if (vertices.empty())
+        return 0.0;
+    Vector3 lowerBound = vertices.front();
+    Vector3 upperBound = vertices.front();
+    for (const auto& position : vertices) {
+        for (size_t i = 0; i < 3; ++i) {
+            lowerBound[i] = std::min(lowerBound[i], position[i]);
+            upperBound[i] = std::max(upperBound[i], position[i]);
+        }
+    }
+    return 4.0 * FLT_EPSILON * (upperBound - lowerBound).length();
+}
+
+// Marching cubes on a binary volume puts vertices exactly on grid corners, so
+// its output has zero-length edges between coincident vertices: 21 % of the
+// triangles of sculpt_degenerate, 134 on blob_sym.  The cross field and the
+// parametrization take such a triangle for a flip (sculpt_degenerate: 500-777
+// non-quads, wrong genus), and meshopt refuses every collapse next to one.
+// Only edges are collapsed: welding every coincident pair also merged the
+// cat's 50 pairs where the surface touches itself, into 100 non-manifold
+// edges.  A part whose topology the merge would change (an edge whose ends
+// are joined some other way too) is left as it is, whole: per-edge link
+// checks are not worth their cost until an input needs them.
+AutoRemesher::InputCleanupStats AutoRemesher::cleanInput(const std::vector<Vector3>& vertices,
+    std::vector<std::vector<size_t>>& triangles,
+    double tolerance)
+{
+    InputCleanupStats stats;
+    const size_t vertexCount = vertices.size();
+    std::vector<size_t> parent(vertexCount);
+    std::iota(parent.begin(), parent.end(), (size_t)0);
+    const auto root = [&](size_t v) {
+        while (parent[v] != v)
+            v = parent[v] = parent[parent[v]];
+        return v;
+    };
+    const double toleranceSquared = tolerance * tolerance;
+    for (const auto& triangle : triangles) {
+        for (size_t i = 0; i < 3; ++i) {
+            const size_t a = triangle[i], b = triangle[(i + 1) % 3];
+            if (a == b || (vertices[a] - vertices[b]).lengthSquared() > toleranceSquared)
+                continue;
+            const size_t ra = root(a), rb = root(b);
+            if (ra != rb) {
+                parent[std::max(ra, rb)] = std::min(ra, rb);
+                ++stats.mergedVertices;
+            }
+        }
+    }
+
+    const auto countZeroArea = [&]() {
+        for (const auto& triangle : triangles) {
+            if (triangle[0] == triangle[1] || triangle[1] == triangle[2] || triangle[2] == triangle[0])
+                continue;
+            const Vector3 normal = Vector3::crossProduct(vertices[triangle[1]] - vertices[triangle[0]],
+                vertices[triangle[2]] - vertices[triangle[0]]);
+            if (0.0 == normal.x() && 0.0 == normal.y() && 0.0 == normal.z())
+                ++stats.zeroAreaTriangles;
+        }
+    };
+    if (0 == stats.mergedVertices) {
+        countZeroArea();
+        return stats;
+    }
+
+    // Connected parts of the input, by shared corners.
+    std::vector<size_t> part(vertexCount);
+    std::iota(part.begin(), part.end(), (size_t)0);
+    const auto partOf = [&](size_t v) {
+        while (part[v] != v)
+            v = part[v] = part[part[v]];
+        return v;
+    };
+    for (const auto& triangle : triangles) {
+        for (size_t i = 1; i < 3; ++i) {
+            const size_t a = partOf(triangle[0]), b = partOf(triangle[i]);
+            if (a != b)
+                part[std::max(a, b)] = std::min(a, b);
+        }
+    }
+
+    // Each part that has a collapsed edge, before and after.  A merge stays
+    // inside one part, since the merged ends share a triangle.
+    std::unordered_map<size_t, std::pair<std::vector<std::vector<size_t>>, std::vector<std::vector<size_t>>>> changedParts;
+    for (size_t v = 0; v < vertexCount; ++v) {
+        if (root(v) != v)
+            changedParts[partOf(v)];
+    }
+    for (const auto& triangle : triangles) {
+        auto found = changedParts.find(partOf(triangle[0]));
+        if (found == changedParts.end())
+            continue;
+        found->second.first.push_back(triangle);
+        const size_t a = root(triangle[0]), b = root(triangle[1]), c = root(triangle[2]);
+        if (a != b && b != c && c != a)
+            found->second.second.push_back({ a, b, c });
+    }
+    std::unordered_map<size_t, bool> partKept;
+    for (const auto& it : changedParts) {
+        const bool keeps = keepsTopology(surfaceTopology(it.second.first, vertexCount),
+            surfaceTopology(it.second.second, vertexCount));
+        partKept[it.first] = !keeps;
+        if (!keeps)
+            ++stats.keptParts;
+    }
+
+    stats.mergedVertices = 0;
+    for (size_t v = 0; v < vertexCount; ++v) {
+        if (root(v) != v && !partKept[partOf(v)])
+            ++stats.mergedVertices;
+    }
+    size_t kept = 0;
+    for (size_t t = 0; t < triangles.size(); ++t) {
+        std::vector<size_t> triangle = std::move(triangles[t]);
+        const auto foundPart = partKept.find(partOf(triangle[0]));
+        if (foundPart != partKept.end() && !foundPart->second) {
+            for (auto& corner : triangle)
+                corner = root(corner);
+            if (triangle[0] == triangle[1] || triangle[1] == triangle[2] || triangle[2] == triangle[0]) {
+                ++stats.droppedTriangles;
+                continue;
+            }
+        }
+        triangles[kept++] = std::move(triangle);
+    }
+    triangles.resize(kept);
+    countZeroArea();
+    return stats;
+}
+
 bool AutoRemesher::decimateIfTooDense(std::vector<Vector3>& vertices,
     std::vector<std::vector<size_t>>& triangles,
     const SurfaceTopology& topology,
@@ -338,48 +470,6 @@ bool AutoRemesher::decimateIfTooDense(std::vector<Vector3>& vertices,
             return false;
         for (size_t i = 0; i < 3; ++i)
             indices.push_back((unsigned int)triangle[i]);
-    }
-
-    // Marching-cubes output has zero-length edges between coincident vertices
-    // (blob_sym: 115, with 134 zero-area triangles on them).  meshopt takes
-    // every collapse next to a zero-area triangle for a flip and refuses it,
-    // so these edges are collapsed first: their ends merged and the triangles
-    // on them dropped.  Coincident vertices that no edge joins (the cat's 50
-    // pairs, where the surface touches itself) stay apart.  Before, welding
-    // every coincident pair also merged those, into non-manifold edges.
-    {
-        std::vector<unsigned int> parent(vertices.size());
-        std::iota(parent.begin(), parent.end(), 0u);
-        const auto root = [&](unsigned int v) {
-            while (parent[v] != v)
-                v = parent[v] = parent[parent[v]];
-            return v;
-        };
-        bool merged = false;
-        for (size_t i = 0; i < indices.size(); ++i) {
-            const unsigned int a = indices[i], b = indices[i - i % 3 + (i + 1) % 3];
-            const Vector3& p = vertices[a];
-            const Vector3& q = vertices[b];
-            if (p.x() != q.x() || p.y() != q.y() || p.z() != q.z())
-                continue;
-            const unsigned int ra = root(a), rb = root(b);
-            if (ra != rb) {
-                parent[std::max(ra, rb)] = std::min(ra, rb);
-                merged = true;
-            }
-        }
-        if (merged) {
-            size_t kept = 0;
-            for (size_t i = 0; i + 2 < indices.size(); i += 3) {
-                const unsigned int a = root(indices[i]), b = root(indices[i + 1]), c = root(indices[i + 2]);
-                if (a == b || b == c || c == a)
-                    continue;
-                indices[kept++] = a;
-                indices[kept++] = b;
-                indices[kept++] = c;
-            }
-            indices.resize(kept);
-        }
     }
 
     Vector3 lowerBound = vertices.front();
@@ -772,6 +862,14 @@ bool AutoRemesher::remeshIslands()
     throwIfCancelled();
     auto t_start = std::chrono::high_resolution_clock::now();
     const double cpuStart = processCpuSeconds();
+
+    const InputCleanupStats cleanup = cleanInput(m_vertices, m_triangles, inputCleanupTolerance(m_vertices));
+    if (m_triangles.empty()) {
+        std::cerr << "Input mesh has only degenerate triangles" << std::endl;
+        if (nullptr != m_progressHandler)
+            m_progressHandler(m_tag, 1.0, "Input mesh has only degenerate triangles");
+        return false;
+    }
 
     // Each label names the step that is about to run, not the one that just
     // finished, so the status line matches what the process is actually doing.
@@ -1352,6 +1450,10 @@ bool AutoRemesher::remeshIslands()
         run.set("decimated_triangles_before", (double)decimationStats.trianglesBefore.load());
         run.set("decimated_triangles_after", (double)decimationStats.trianglesAfter.load());
         run.set("undecimated_islands", (double)decimationStats.islandsKeptUndecimated.load());
+        run.set("input_merged_vertices", (double)cleanup.mergedVertices);
+        run.set("input_dropped_triangles", (double)cleanup.droppedTriangles);
+        run.set("input_cleanup_kept_parts", (double)cleanup.keptParts);
+        run.set("input_zero_area_triangles", (double)cleanup.zeroAreaTriangles);
         {
             // T's defects beyond the input's: a non-manifold edge or a hole in
             // T becomes a hole or a wrong genus in the output.

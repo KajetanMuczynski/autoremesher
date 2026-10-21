@@ -41,6 +41,11 @@ def summary_rows(report):
         count("Non-manifold edges", output.get("non_manifold_edges", 0))
         count("Winding flips", output.get("orientation_flips", 0))
         count("Folded faces", output.get("folded_faces", 0))
+        # The core's input cleanup: triangles with a zero-length edge, which
+        # it dropped before remeshing.  Not a problem, only reported.
+        dropped = int(report.get("diagnostics", {}).get("input_dropped_triangles", 0))
+        if dropped:
+            rows.append(("Input cleanup", "%d degenerate triangles removed" % dropped, False))
     islands = report.get("islands", {})
     empty = islands.get("without_output", 0)
     rows.append(("Empty islands", "%d of %d" % (empty, islands.get("input", 0)), empty > 0))

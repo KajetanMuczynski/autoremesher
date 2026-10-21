@@ -119,6 +119,13 @@ class ReportTest(unittest.TestCase):
         self.assertIn(("Empty islands", "1 of 3", True), rows)
         self.assertIn(("Time", "0.8 s", False), rows)
         self.assertIn(("Warning", "1 of 3 islands produced no faces", True), rows)
+        self.assertFalse(any(label == "Input cleanup" for label, _, _ in rows))
+
+    def test_input_cleanup_row(self):
+        rows = report.summary_rows({
+            "status": "ok", "parameters": {"target_quads": 5000},
+            "output": {"quads": 4962}, "diagnostics": {"input_dropped_triangles": 36334}})
+        self.assertIn(("Input cleanup", "36334 degenerate triangles removed", False), rows)
 
 
 class EnvironmentTest(unittest.TestCase):
