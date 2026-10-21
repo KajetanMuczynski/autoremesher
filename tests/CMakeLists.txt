@@ -53,6 +53,10 @@ add_executable(surface_projection_test surface_projection_test.cpp)
 target_link_libraries(surface_projection_test PRIVATE autoremesher_core)
 add_test(NAME surface_projection COMMAND surface_projection_test)
 
+add_executable(map_check_test map_check_test.cpp)
+target_link_libraries(map_check_test PRIVATE autoremesher_core)
+add_test(NAME map_check COMMAND map_check_test)
+
 add_executable(input_cleanup_test input_cleanup_test.cpp)
 target_link_libraries(input_cleanup_test PRIVATE autoremesher_core)
 add_test(NAME input_cleanup COMMAND input_cleanup_test)

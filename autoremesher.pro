@@ -269,6 +269,10 @@ HEADERS += include/AutoRemesher/SurfaceProjector
 SOURCES += src/AutoRemesher/untangler.cpp
 HEADERS += src/AutoRemesher/untangler.h
 HEADERS += include/AutoRemesher/Untangler
+
+SOURCES += src/AutoRemesher/mapcheck.cpp
+HEADERS += src/AutoRemesher/mapcheck.h
+HEADERS += include/AutoRemesher/MapCheck
 SOURCES += src/AutoRemesher/diagnostics.cpp
 HEADERS += src/AutoRemesher/diagnostics.h
 HEADERS += include/AutoRemesher/Diagnostics
