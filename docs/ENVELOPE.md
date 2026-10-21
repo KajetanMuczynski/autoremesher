@@ -20,7 +20,8 @@ curved parts, so a feature measured in h₀ is an upper bound on its size in loc
 
 An envelope is a list of excuses. Each excuse is cheap to add and expensive to remove, and it hides bugs
 by default. This project has already seen it happen once. V6's "handles shorter than 4 quad edges are
-exempt" would have hidden an extractor bug: the tori lose handles of 2.1–2.7 h₀ that the map *holds*
+exempt" would have hidden an extractor bug: the tori lose handles of 2.1–2.7 h₀, and in torus_0.03 Fast 150
+the map held a meridian of 4 grid units and the extractor still lost the handle
 (research/genus-diagnosis-2026-10-21.md). The ways an envelope rots, and the guard against each:
 
 | Rot | Guard |
@@ -68,7 +69,7 @@ for the add-on panel to show before Remesh. *report* means the core's quality re
 
 | # | Quantity (how measured) | Inside the envelope | Evidence | Test mesh (outside) / canary (inside) | Outside: what is exempt | User sees | Kind / owner |
 |---|---|---|---|---|---|---|---|
-| 1 | **Handle size**: per input handle, length of its shortest homology loop L (`handles.py`, Z₂ basis, boundary loops capped) ÷ h₀ | L ≥ 2 h₀ [M lower edge] | Tori at 2.1–2.7 h₀: the map holds 2–4 grid units, the tracer keeps 18/18, so the losses there are bugs [M]. demosthenes tunnels at 0.6–1.4 h₀ (2k): 11 losses with the cause open [M]. No data between 1.4 and 2.1 h₀ | demosthenes 2k / torus_0.03 at 150 quads (2.1 h₀): **must keep its handle** | That handle may close. It is never allowed to gain a handle | *pre:* "N handles narrower than 2 quads: raise Target Quads to ≈ N_needed or they may close". *report:* handles closed | permanent (physical) below ~1 h₀; between 1 and 2 h₀ [I] until 1.14 + E1 |
+| 1 | **Handle size**: per input handle, the continuous map's meridian holonomy H (grid units = quads, along the shortest homology loop of T; `seam-lattice-2026-10-21/holonomy.py`). Pre-run proxy: shortest input loop L ÷ h₀ (`handles.py`) | H ≥ 3 | Three bands, §3.1 | demosthenes 2k (H ≈ 1) / torus_0.1 at 150 (bug band) and torus_0.05 at 150 (owner band) | H < 2: the handle may close. 2 ≤ H < 3: may close until the owner's fix lands. Never: an extra handle | *pre:* "N handles narrower than 3 quads: raise Target Quads to ≈ N·(3/H)² to keep them, or they may close". *report:* handles closed | §3.1 |
 | 2 | **Thin sheet**: local thickness t (inward ray from each input face centroid to the opposite side, area-weighted) ÷ h₀; the fraction of area with t < h₀ | t ≥ 1 h₀ everywhere for V2/V3 (folds, flips); **any t** for topology | Every tool folds on parts thinner than a quad (13/54 pairs have no fold-free tool) [M]. Yet topology holds: ellipsoid_0.4_0.003 (t ≈ 0.17 h₀ at 2k) keeps genus on 4d15d5f; on the closed set only the tori fail [M]. thin_leaf (t ≈ 0.32 h₀ at 2k, 0.71 at 10k): folds 2–12 in every replicate [M] | thin_leaf 2k / ellipsoid_0.4_0.1 (t ≈ 5 h₀ at 2k) | Folds and flips within 2 h₀ of the thin region. Topology, islands and the count are **not** exempt | *pre:* "thin parts below quad size: expect folds there" | permanent below 1 h₀ until 5.3/4.1 add a thin-part cap |
 | 3 | **Sub-quad tips and crests**: input faces in the sharp/thin band (normal spread within one h₀ < 0.7, `sculpt_report.py`) | Not a run condition, a location. Non-quads there are tolerated (V1 rewording); folds are expected limits | Non-quads up to 5× concentrated in the band, folds often 100 % in it [M]. Kajetan's crater tip: 1 fold at a valence 10–12 pole [M, reported] | sculpt_voxel horn tips / spot (smooth: no exemption) | Folds and valence ≥ 7 within 2 h₀ of a band face. Counted and ratcheted | *report:* "N folds at sharp tips" | temporary: 5.3, 4.1 |
 | 4 | **Input size**: triangles; **target**: quads | ≤ 6.4M triangles [M]; target ≤ 100k quads [M], 100k–200k [I] | 6.4M triangles in 27.5 s on the ladder (TODO 8.2) [M]. Memory 21 KB per quad at Quality, linear over 25k–100k [M] | koala ladder / spot 100k | Time and memory only. Quality gates still apply | Exists: the CLI warns above 200,000 with an estimate; the add-on asks; the core refuses above 2,000,000 [C] | permanent (hardware) |
@@ -84,6 +85,25 @@ for the add-on panel to show before Remesh. *report* means the core's quality re
 | 14 | **Scale and position**: bounding-box diagonal d; centre offset | d ∈ [10⁻², 10⁴] [I]; centre at 10⁵ [M] | CI's output gate passes a sphere centred at 10⁵ [C]. `PositionKey` no longer overflows (now doubles) [C]. It still merges positions in absolute 10⁻⁵ cells, which is 1 % of a 10⁻³ model [C, I]. 1e-12 guards are absolute (TODO 2.7) [C] | needs a mesh (E7) | Below or above: everything, until 2.7 normalises scale | *pre:* "model is N m across; scale is normalised internally" after 2.7 | temporary: 2.7 (scale to a unit box) |
 | 15 | **Settings**: adaptivity, anisotropy, sharp edge | Defaults (adaptivity 0.5, sharp 90°) [M]; adaptivity 1 [M] | Gates are measured at the defaults; csg_bracket opens a hole at adaptivity 1 (H5, 2.13) [M] | – | Non-default settings: the ratchet only, not the 1.0 bar | *panel:* "outside tested settings" next to a non-default value | permanent policy |
 
+### 3.1 Handles: three bands
+
+Measured on the continuous map, before rounding, because that is where the representability is decided.
+A quad ring around a tube needs integer meridian holonomy of at least 3. Today's lattice is 2ℤ²: a
+meridian rounds to 0, 2 (a collapsed ring) or 4 (research/seam-lattice-2026-10-21/, probe on tori and
+demosthenes) [M].
+
+| Band | Status | Evidence | What changes it |
+|---|---|---|---|
+| H < 2 | **Permanent limit** at this count. No lattice gives a ring of ≥ 3 without stretching the map by more than half (needs ×1.5 or more); the user is told the count that keeps it | demosthenes' three scan tunnels sit at H ≈ 1: 2ℤ² rounds them to 0 and ℤ² to 1, still no ring [M] | Nothing at this count: raise the count |
+| 2 ≤ H < 3 | **Known limit with an owner.** Expected and ratcheted, and the canary below must not get worse | torus_0.03 / 0.05 at 150 (2.1–2.7 h₀). On master: 2ℤ² rounds to 2 (collapsed) or 4. ℤ² plus the torus thread's two extractor fixes keeps them (torus_0.05 Quality 0 → 5/6, Fast 1 → 5/6), but ℤ² alone regresses the corpus (flips ×1.35, plane 2k broken in 6/6) [M, seam-lattice and torus threads] | The ℤ² lattice landing together with the extractor fix. From then on this band is a **bug** |
+| H ≥ 3 | **Bug.** Every loss here is the extractor's (2.13, 6.1) | 64 of 75 wrong replicate-runs on master are extractor losses or additions with the map right [M] | – |
+
+Two open edges:
+- The 2.0 boundary is [I]. It is the halfway point between holonomies that round to 1 and to 3 under
+  ℤ²; no handle has been measured between 1.4 and 2.1. E1 settles it.
+- H is a stage diagnostic, not an input property. The pre-run check can only use L/h₀. Adaptive sizing
+  makes the local quads smaller, so H ≥ L/h₀ as a rule [I], and the proxy errs on the side of warning.
+
 Two corrections to the brief: the add-on's Target Quads guard is 200,000 (warn) and 2,000,000 (refuse),
 not 300,000 (TODO 2.17) [C]; and #51 collapses zero-length edges only, without orientation repair (PR
 body, checked 2026-10-21), so row 9 stays open after #51.
@@ -92,7 +112,7 @@ body, checked 2026-10-21), so row 9 stays open after #51.
 
 | ID | Row | Experiment (all through `ab.py` with `--replicates 5`, per CLAUDE.md) | Settles |
 |---|---|---|---|
-| E1 | 1 | Tori at r ∈ {0.03, 0.05} over targets that sweep L from 0.8 to 3 h₀ (≈ 8 targets); demosthenes 2k/5k/10k. Classify each lost handle by holonomy (map holds it or not), on master and on the 6.1 extractor | Whether "map holds it" can replace the length, and where the physical floor is |
+| E1 | 1 | Tori at r ∈ {0.03, 0.05} over targets that sweep H from 1 to 4 (≈ 8 targets), demosthenes 2k/5k/10k, on master and on ℤ² + extractor fix. Log H per handle (holonomy probe) next to kept/lost | The 2.0 band edge, and how well L/h₀ predicts H |
 | E2 | 2 | Thickness column (ray cast) added to the metrics; ellipsoid set at 2k–10k | Whether folds are confined to within 2 h₀ of thin parts, as row 2 assumes |
 | E3 | 5 | spot and sculpt_steps decimated to 1k / 3k / 10k triangles, run at 1k–15k quads (ratio 0.1–10) | The lower bound of input ÷ target |
 | E4 | 7 | Generator: one island folded through itself (a sphere with a dent pushed out through the opposite wall) | Whether self-intersection breaks only locally |
@@ -124,7 +144,7 @@ A run is *inside* when no row is violated. Rows 4, 5 and 12–15 are run-wide. R
 For each gate defect (fold, flip, non-quad, valence ≥ 7, lost handle), find its nearest input point. It is
 **expected** if that point is within 2 h₀ of a violated region whose row exempts that defect type.
 Otherwise it is a **bug**, even in an outside run. Lost handles are matched by loop: a lost handle is
-expected only if it is a violated row-1 handle. §2's defects are always bugs.
+expected only if its H puts it in an expected band of §3.1, read from the stage diagnostics (so the core must export H per handle; until then the L/h₀ proxy decides and is reported as such). §2's defects are always bugs.
 
 `compare` then prints per gate: `bugs` (fails the gate, A/B and release), `expected` (ratcheted, shown
 per row) and `runs inside`. A PR that moves defects from `bugs` to `expected` without changing the code
@@ -140,8 +160,8 @@ version at the top of this file.
 1. **User-facing behaviour outside the envelope:** warn and run (my proposal: the panel shows *pre*
    warnings and runs anyway), or refuse? I'd refuse only above the memory ceiling, which already
    happens. Refusing a thin leaf would be "stupidly strict".
-2. **Row 1, between 1 and 2 h₀:** until E1 settles it, should a lost handle there count as a bug (strict)
-   or as expected (lenient)? Proposal: a bug, because the tori show that region holds real extractor bugs.
+2. **Row 1, band 2 ≤ H < 3:** accept "known limit with an owner" until ℤ² and the extractor fix land
+   together, then make it a bug? Below 2 is permanent, because no lattice can make a ring there.
 3. **Row 6, eyeball caps:** keep it inside the envelope (my proposal), which makes 19/36 sculpt_parts
    runs count as gate failures today?
 4. **Locality radius 2 h₀** (§5.3): no data says 1 or 3 is better. E2 measures it for folds. Accept 2 as
