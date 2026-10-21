@@ -35,6 +35,7 @@ import os
 import statistics as st
 import subprocess
 import sys
+import threading
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -128,6 +129,19 @@ def perturbed(src, k, work):
     return dst
 
 
+LOG_CAP = 8 << 20
+
+
+def copy_capped(src, dst):
+    """Copies a run's output to its log, keeping the first LOG_CAP bytes: a hung run that keeps
+    printing must not fill the disk."""
+    written = 0
+    for block in iter(lambda: src.read(1 << 16), b""):
+        if written < LOG_CAP:
+            dst.write(block[:LOG_CAP - written])
+            written += len(block)
+
+
 def run_one(cli, mesh, setname, target, res, k, out, cli_args, work, metrics, timeout):
     d = os.path.join(out, setname, mesh["id"], f"{res}-t{target}", f"u{k}")
     record_path = os.path.join(d, "record.json")
@@ -141,11 +155,17 @@ def run_one(cli, mesh, setname, target, res, k, out, cli_args, work, metrics, ti
            "--stage-diagnostics", os.path.join(d, "stages.jsonl")] + cli_args
     t0 = time.time()
     timed_out = False
-    with open(os.path.join(d, "log.txt"), "w") as log:
+    with open(os.path.join(d, "log.txt"), "wb") as log:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        reader = threading.Thread(target=copy_capped, args=(proc.stdout, log), daemon=True)
+        reader.start()
         try:
-            rc = subprocess.call(cmd, stdout=log, stderr=subprocess.STDOUT, timeout=timeout or None)
-        except subprocess.TimeoutExpired:  # the child is killed; a hang counts as a failed run
+            rc = proc.wait(timeout=timeout or None)
+        except subprocess.TimeoutExpired:  # a hang counts as a failed run
+            proc.kill()
+            proc.wait()
             rc, timed_out = -9, True
+        reader.join()
     rec = {"mesh": mesh["id"], "set": setname, "target": target, "res": res, "replicate": k, "rc": rc,
            "wall": time.time() - t0, "cli_args": cli_args, "timed_out": timed_out}
     if os.path.exists(os.path.join(d, "out.obj")):
