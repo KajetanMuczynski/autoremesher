@@ -22,6 +22,7 @@
 #include <AutoRemesher/Vector3>
 #include <cstddef>
 #include <memory>
+#include <utility>
 #include <vector>
 
 class AxisAlignedBoudingBox;
@@ -53,12 +54,17 @@ Vector3 closestPointOnSegment(const Vector3& p, const Vector3& a, const Vector3&
 //   rejected vertices keep their position.
 // Only vertex positions change, never the connectivity, so the output's
 // topology is the extractor's.
+//
+// relax() then evens out the quads along the surface, see there.
 class SurfaceProjector {
 public:
     // `triangles` index `vertices`; they may be a subset of a larger mesh (one
-    // island of the input). Both must outlive the projector.
+    // island of the input). Both must outlive the projector. An input edge
+    // whose two faces meet at more than `sharpEdgeDegrees` is a crease for
+    // relax(); 0 (or 180 and more) means no creases.
     SurfaceProjector(const std::vector<Vector3>* vertices,
-        const std::vector<std::vector<size_t>>* triangles);
+        const std::vector<std::vector<size_t>>* triangles,
+        double sharpEdgeDegrees = 0.0);
     ~SurfaceProjector();
 
     struct Result {
@@ -77,19 +83,55 @@ public:
 
     Result project(std::vector<Vector3>* points, const std::vector<std::vector<size_t>>& faces) const;
 
+    struct RelaxResult {
+        // Vertices moved onto an input crease, and those whose move there
+        // would have folded a face.
+        size_t snapped = 0;
+        size_t snapFolding = 0;
+        // Vertices the smoothing may move: interior, only quads around them,
+        // not on or next to a crease, no face around them turned more than
+        // 45 degrees from their normal.
+        size_t free = 0;
+        // Over all iterations: moves made, and moves undone because a face
+        // would fold or turn.
+        size_t moves = 0;
+        size_t keptFolding = 0;
+    };
+
+    // Run after project(). First, every interior vertex within a quarter of
+    // the mean edge of an input crease goes onto it (the extractor's
+    // smoothing rounds creases off, and an edge loop that runs along a
+    // crease is not on it). Then `iterations` rounds of tangential smoothing:
+    // each free vertex moves half way to the mean of its neighbours, without
+    // the part along its normal, and lands on its closest facing input point.
+    // Boundary vertices, vertices of non-quads, vertices on or next to a
+    // crease and vertices with a face turned more than 45 degrees from their
+    // normal (a fold of the output with no input crease, mostly quads
+    // bridging a rim thinner than a quad, which smoothing would cut) stay. Every round keeps moves under half the mean edge and
+    // undoes moves that make a face worse, as project() does.
+    RelaxResult relax(std::vector<Vector3>* points, const std::vector<std::vector<size_t>>& faces,
+        size_t iterations) const;
+
 private:
+    struct EdgeTree {
+        std::vector<std::pair<size_t, size_t>> edges;
+        std::unique_ptr<std::vector<AxisAlignedBoudingBox>> boxes;
+        std::unique_ptr<AxisAlignedBoudingBoxTree> tree;
+    };
+
+    void buildEdgeTree(EdgeTree* edgeTree) const;
     bool closestFacingPoint(const Vector3& position, const Vector3& normal, double maxDistance,
         Vector3* closest, Vector3* closestNormal) const;
-    bool closestBoundaryPoint(const Vector3& position, double maxDistance, Vector3* closest) const;
+    bool closestEdgePoint(const EdgeTree& edgeTree, const Vector3& position, double maxDistance,
+        Vector3* closest) const;
 
     const std::vector<Vector3>* m_vertices = nullptr;
     const std::vector<std::vector<size_t>>* m_triangles = nullptr;
     std::vector<Vector3> m_triangleNormals;
     std::unique_ptr<std::vector<AxisAlignedBoudingBox>> m_triangleBoxes;
     std::unique_ptr<AxisAlignedBoudingBoxTree> m_triangleTree;
-    std::vector<std::pair<size_t, size_t>> m_boundaryEdges;
-    std::unique_ptr<std::vector<AxisAlignedBoudingBox>> m_boundaryBoxes;
-    std::unique_ptr<AxisAlignedBoudingBoxTree> m_boundaryTree;
+    EdgeTree m_boundary;
+    EdgeTree m_creases;
 };
 
 }

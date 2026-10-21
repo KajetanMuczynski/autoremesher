@@ -122,6 +122,169 @@ namespace {
         return worst;
     }
 
+    // A vertex this close to an input crease, in mean output edges, is taken
+    // to belong to it.
+    const double creaseReachInEdges = 0.25;
+    // cos 45 degrees: a vertex with a face turned further from its normal is
+    // not smoothed.
+    const double minBendCosine = 0.70710678118654752;
+    // Share of the way to the neighbours' mean a smoothing round moves.
+    const double smoothFactor = 0.5;
+
+    // What project() and relax() need to know about the output.
+    struct OutputMesh {
+        // Each undirected edge once, sorted.
+        std::vector<std::pair<size_t, size_t>> edges;
+        std::vector<std::vector<size_t>> vertexFaces;
+        std::vector<bool> onBoundary;
+        double meanEdge = 0.0;
+    };
+
+    OutputMesh analyseOutput(const std::vector<Vector3>& positions, const std::vector<std::vector<size_t>>& faces)
+    {
+        OutputMesh mesh;
+        const size_t vertexCount = positions.size();
+        mesh.vertexFaces.resize(vertexCount);
+        mesh.onBoundary.assign(vertexCount, false);
+        std::vector<std::pair<size_t, size_t>> halfEdges;
+        for (size_t f = 0; f < faces.size(); ++f) {
+            const auto& face = faces[f];
+            for (size_t i = 0; i < face.size(); ++i) {
+                const size_t a = face[i];
+                const size_t b = face[(i + 1) % face.size()];
+                halfEdges.emplace_back(std::min(a, b), std::max(a, b));
+                mesh.vertexFaces[a].push_back(f);
+            }
+        }
+        std::sort(halfEdges.begin(), halfEdges.end());
+        double totalEdgeLength = 0.0;
+        for (size_t i = 0; i < halfEdges.size();) {
+            size_t j = i;
+            while (j < halfEdges.size() && halfEdges[j] == halfEdges[i])
+                ++j;
+            if (1 == j - i) {
+                mesh.onBoundary[halfEdges[i].first] = true;
+                mesh.onBoundary[halfEdges[i].second] = true;
+            }
+            totalEdgeLength += (positions[halfEdges[i].first] - positions[halfEdges[i].second]).length();
+            mesh.edges.push_back(halfEdges[i]);
+            i = j;
+        }
+        if (!mesh.edges.empty())
+            mesh.meanEdge = totalEdgeLength / mesh.edges.size();
+        return mesh;
+    }
+
+    // Area-weighted: the Newell normal's length is twice the face's area.
+    std::vector<Vector3> vertexNormals(const std::vector<Vector3>& positions,
+        const std::vector<std::vector<size_t>>& faces)
+    {
+        std::vector<Vector3> normals(positions.size());
+        for (const auto& face : faces) {
+            const Vector3 normal = newellNormal(positions, face);
+            for (const size_t v : face)
+                normals[v] += normal;
+        }
+        return normals;
+    }
+
+    // `targets` holds the new position of every vertex marked in `moved`
+    // (the old one elsewhere), `targetNormals` the normal of the input face
+    // it lands on (zero: no facing check). A face is worse if it turns by
+    // more than 60 degrees, comes to face away from the input face one of its
+    // vertices lands on (having faced that way before), or drops in scaled
+    // Jacobian below min(0.1, its value before). Puts back the longest move
+    // of each worse face, then checks the faces around it again. Each round
+    // puts back at least one vertex and with none moved no face is worse, so
+    // this ends. Returns the vertices put back.
+    std::vector<size_t> undoWorseningMoves(const std::vector<Vector3>& positions,
+        const std::vector<std::vector<size_t>>& faces, const std::vector<std::vector<size_t>>& vertexFaces,
+        const std::vector<Vector3>& targetNormals, std::vector<char>* moved, std::vector<Vector3>* targets)
+    {
+        const size_t vertexCount = positions.size();
+        std::vector<Vector3> oldNormals(faces.size());
+        std::vector<double> oldJacobians(faces.size());
+        tbb::parallel_for(tbb::blocked_range<size_t>(0, faces.size()), [&](const tbb::blocked_range<size_t>& range) {
+            for (size_t f = range.begin(); f != range.end(); ++f) {
+                oldNormals[f] = newellNormal(positions, faces[f]).normalized();
+                oldJacobians[f] = minCornerScaledJacobian(positions, faces[f], oldNormals[f]);
+            }
+        });
+        const auto isWorse = [&](size_t f) {
+            const Vector3 normal = newellNormal(*targets, faces[f]).normalized();
+            for (const size_t v : faces[f]) {
+                if ((*moved)[v] && Vector3::dotProduct(normal, targetNormals[v]) <= 0.0
+                    && Vector3::dotProduct(oldNormals[f], targetNormals[v]) > 0.0)
+                    return true;
+            }
+            if (!oldNormals[f].isZero() && Vector3::dotProduct(normal, oldNormals[f]) < minNormalTurnCosine)
+                return true;
+            return minCornerScaledJacobian(*targets, faces[f], normal)
+                < std::min(minScaledJacobian, oldJacobians[f]) - 1e-12;
+        };
+
+        std::vector<size_t> undone;
+        std::vector<size_t> facesToCheck(faces.size());
+        for (size_t f = 0; f < faces.size(); ++f)
+            facesToCheck[f] = f;
+        std::vector<char> worse(faces.size(), 0);
+        std::vector<char> queued(faces.size(), 0);
+        std::vector<char> revertedNow(vertexCount, 0);
+        while (!facesToCheck.empty()) {
+            tbb::parallel_for(tbb::blocked_range<size_t>(0, facesToCheck.size()),
+                [&](const tbb::blocked_range<size_t>& range) {
+                    for (size_t k = range.begin(); k != range.end(); ++k)
+                        worse[facesToCheck[k]] = isWorse(facesToCheck[k]) ? 1 : 0;
+                });
+            std::vector<size_t> revertedVertices;
+            for (const size_t f : facesToCheck) {
+                if (!worse[f])
+                    continue;
+                // A face that already lost a move this round is checked again
+                // in the next one, with that move undone.
+                bool undoneThisRound = false;
+                for (const size_t v : faces[f])
+                    undoneThisRound = undoneThisRound || revertedNow[v];
+                if (undoneThisRound)
+                    continue;
+                size_t longest = vertexCount;
+                double longestMove = -1.0;
+                for (const size_t v : faces[f]) {
+                    if (!(*moved)[v])
+                        continue;
+                    const double move = ((*targets)[v] - positions[v]).lengthSquared();
+                    if (move > longestMove) {
+                        longestMove = move;
+                        longest = v;
+                    }
+                }
+                if (vertexCount == longest)
+                    continue;
+                (*moved)[longest] = 0;
+                (*targets)[longest] = positions[longest];
+                revertedVertices.push_back(longest);
+                revertedNow[longest] = 1;
+            }
+            for (const size_t v : revertedVertices)
+                revertedNow[v] = 0;
+            std::vector<size_t> nextFaces;
+            for (const size_t v : revertedVertices) {
+                for (const size_t f : vertexFaces[v]) {
+                    if (!queued[f]) {
+                        queued[f] = 1;
+                        nextFaces.push_back(f);
+                    }
+                }
+            }
+            for (const size_t f : nextFaces)
+                queued[f] = 0;
+            std::sort(nextFaces.begin(), nextFaces.end());
+            facesToCheck = std::move(nextFaces);
+            undone.insert(undone.end(), revertedVertices.begin(), revertedVertices.end());
+        }
+        return undone;
+    }
+
 }
 
 Vector3 closestPointOnTriangle(const Vector3& p, const Vector3& a, const Vector3& b, const Vector3& c)
@@ -186,7 +349,7 @@ Vector3 closestPointOnSegment(const Vector3& p, const Vector3& a, const Vector3&
 }
 
 SurfaceProjector::SurfaceProjector(const std::vector<Vector3>* vertices,
-    const std::vector<std::vector<size_t>>* triangles)
+    const std::vector<std::vector<size_t>>* triangles, double sharpEdgeDegrees)
     : m_vertices(vertices)
     , m_triangles(triangles)
 {
@@ -195,7 +358,8 @@ SurfaceProjector::SurfaceProjector(const std::vector<Vector3>* vertices,
     m_triangleBoxes.reset(new std::vector<AxisAlignedBoudingBox>(m_triangles->size()));
     std::vector<size_t> triangleIndices(m_triangles->size());
     AxisAlignedBoudingBox triangleGroupBox;
-    std::vector<std::pair<size_t, size_t>> edges;
+    // (edge, triangle) for every triangle side
+    std::vector<std::pair<std::pair<size_t, size_t>, size_t>> edges;
     edges.reserve(m_triangles->size() * 3);
     for (size_t i = 0; i < m_triangles->size(); ++i) {
         const auto& triangle = (*m_triangles)[i];
@@ -207,7 +371,7 @@ SurfaceProjector::SurfaceProjector(const std::vector<Vector3>* vertices,
             triangleGroupBox.update(toBoxVector(points[triangle[k]]));
             const size_t a = triangle[k];
             const size_t b = triangle[(k + 1) % 3];
-            edges.emplace_back(std::min(a, b), std::max(a, b));
+            edges.emplace_back(std::make_pair(std::min(a, b), std::max(a, b)), i);
         }
         (*m_triangleBoxes)[i].updateCenter();
         triangleIndices[i] = i;
@@ -215,33 +379,50 @@ SurfaceProjector::SurfaceProjector(const std::vector<Vector3>* vertices,
     triangleGroupBox.updateCenter();
     m_triangleTree.reset(new AxisAlignedBoudingBoxTree(m_triangleBoxes.get(), triangleIndices, triangleGroupBox));
 
+    // 0 turns creases off, as it turns off the sharp-edge handling of the
+    // decimation; at 180 no edge can be sharper.
+    const bool findCreases = sharpEdgeDegrees > 0.0 && sharpEdgeDegrees < 180.0;
+    const double creaseCosine = std::cos(sharpEdgeDegrees * M_PI / 180.0);
     std::sort(edges.begin(), edges.end());
     for (size_t i = 0; i < edges.size();) {
         size_t j = i;
-        while (j < edges.size() && edges[j] == edges[i])
+        while (j < edges.size() && edges[j].first == edges[i].first)
             ++j;
         if (1 == j - i)
-            m_boundaryEdges.push_back(edges[i]);
+            m_boundary.edges.push_back(edges[i].first);
+        else if (2 == j - i && findCreases) {
+            const Vector3& a = m_triangleNormals[edges[i].second];
+            const Vector3& b = m_triangleNormals[edges[i + 1].second];
+            if (!a.isZero() && !b.isZero() && Vector3::dotProduct(a, b) < creaseCosine)
+                m_creases.edges.push_back(edges[i].first);
+        }
         i = j;
     }
-    if (m_boundaryEdges.empty())
-        return;
-    m_boundaryBoxes.reset(new std::vector<AxisAlignedBoudingBox>(m_boundaryEdges.size()));
-    std::vector<size_t> edgeIndices(m_boundaryEdges.size());
-    AxisAlignedBoudingBox edgeGroupBox;
-    for (size_t i = 0; i < m_boundaryEdges.size(); ++i) {
-        for (const size_t v : { m_boundaryEdges[i].first, m_boundaryEdges[i].second }) {
-            (*m_boundaryBoxes)[i].update(toBoxVector(points[v]));
-            edgeGroupBox.update(toBoxVector(points[v]));
-        }
-        (*m_boundaryBoxes)[i].updateCenter();
-        edgeIndices[i] = i;
-    }
-    edgeGroupBox.updateCenter();
-    m_boundaryTree.reset(new AxisAlignedBoudingBoxTree(m_boundaryBoxes.get(), edgeIndices, edgeGroupBox));
+    buildEdgeTree(&m_boundary);
+    buildEdgeTree(&m_creases);
 }
 
 SurfaceProjector::~SurfaceProjector() = default;
+
+void SurfaceProjector::buildEdgeTree(EdgeTree* edgeTree) const
+{
+    if (edgeTree->edges.empty())
+        return;
+    const auto& points = *m_vertices;
+    edgeTree->boxes.reset(new std::vector<AxisAlignedBoudingBox>(edgeTree->edges.size()));
+    std::vector<size_t> edgeIndices(edgeTree->edges.size());
+    AxisAlignedBoudingBox edgeGroupBox;
+    for (size_t i = 0; i < edgeTree->edges.size(); ++i) {
+        for (const size_t v : { edgeTree->edges[i].first, edgeTree->edges[i].second }) {
+            (*edgeTree->boxes)[i].update(toBoxVector(points[v]));
+            edgeGroupBox.update(toBoxVector(points[v]));
+        }
+        (*edgeTree->boxes)[i].updateCenter();
+        edgeIndices[i] = i;
+    }
+    edgeGroupBox.updateCenter();
+    edgeTree->tree.reset(new AxisAlignedBoudingBoxTree(edgeTree->boxes.get(), edgeIndices, edgeGroupBox));
+}
 
 bool SurfaceProjector::closestFacingPoint(const Vector3& position, const Vector3& normal,
     double maxDistance, Vector3* closest, Vector3* closestNormal) const
@@ -266,16 +447,16 @@ bool SurfaceProjector::closestFacingPoint(const Vector3& position, const Vector3
     return found;
 }
 
-bool SurfaceProjector::closestBoundaryPoint(const Vector3& position, double maxDistance,
+bool SurfaceProjector::closestEdgePoint(const EdgeTree& edgeTree, const Vector3& position, double maxDistance,
     Vector3* closest) const
 {
-    if (!m_boundaryTree)
+    if (!edgeTree.tree)
         return false;
     const auto& points = *m_vertices;
     double best = maxDistance * maxDistance;
     bool found = false;
-    nearestInTree(m_boundaryTree->root(), position, &best, [&](size_t index, double* bestDistanceSquared) {
-        const auto& edge = m_boundaryEdges[index];
+    nearestInTree(edgeTree.tree->root(), position, &best, [&](size_t index, double* bestDistanceSquared) {
+        const auto& edge = edgeTree.edges[index];
         const Vector3 candidate = closestPointOnSegment(position, points[edge.first], points[edge.second]);
         const double distanceSquared = (candidate - position).lengthSquared();
         if (distanceSquared < *bestDistanceSquared) {
@@ -296,42 +477,12 @@ SurfaceProjector::Result SurfaceProjector::project(std::vector<Vector3>* points,
     if (0 == vertexCount || faces.empty() || m_triangles->empty())
         return result;
 
-    std::vector<std::pair<size_t, size_t>> edges;
-    std::vector<std::vector<size_t>> vertexFaces(vertexCount);
-    std::vector<Vector3> vertexNormals(vertexCount);
-    for (size_t f = 0; f < faces.size(); ++f) {
-        const auto& face = faces[f];
-        // Area-weighted: the Newell normal's length is twice the face's area.
-        const Vector3 normal = newellNormal(positions, face);
-        for (size_t i = 0; i < face.size(); ++i) {
-            const size_t a = face[i];
-            const size_t b = face[(i + 1) % face.size()];
-            edges.emplace_back(std::min(a, b), std::max(a, b));
-            vertexFaces[a].push_back(f);
-            vertexNormals[a] += normal;
-        }
-    }
-    std::sort(edges.begin(), edges.end());
-    std::vector<bool> onBoundary(vertexCount, false);
-    double totalEdgeLength = 0.0;
-    size_t edgeCount = 0;
-    for (size_t i = 0; i < edges.size();) {
-        size_t j = i;
-        while (j < edges.size() && edges[j] == edges[i])
-            ++j;
-        if (1 == j - i) {
-            onBoundary[edges[i].first] = true;
-            onBoundary[edges[i].second] = true;
-        }
-        totalEdgeLength += (positions[edges[i].first] - positions[edges[i].second]).length();
-        ++edgeCount;
-        i = j;
-    }
-    const double meanEdge = totalEdgeLength / edgeCount;
-    if (!(meanEdge > 0.0))
+    const OutputMesh mesh = analyseOutput(positions, faces);
+    if (!(mesh.meanEdge > 0.0))
         return result;
-    const double maxMove = maxMoveInEdges * meanEdge;
-    const double searchRadius = searchRadiusInEdges * meanEdge;
+    const double maxMove = maxMoveInEdges * mesh.meanEdge;
+    const double searchRadius = searchRadiusInEdges * mesh.meanEdge;
+    const std::vector<Vector3> normals = vertexNormals(positions, faces);
 
     enum class Status : unsigned char { Unused,
         Unmatched,
@@ -342,16 +493,17 @@ SurfaceProjector::Result SurfaceProjector::project(std::vector<Vector3>* points,
     std::vector<Vector3> targets(positions);
     // Normal of the input face each vertex lands on; zero on the boundary.
     std::vector<Vector3> targetNormals(vertexCount);
+    std::vector<char> moved(vertexCount, 0);
     // Each vertex only reads the input and its own old position, so the result
     // does not depend on the thread count.
     tbb::parallel_for(tbb::blocked_range<size_t>(0, vertexCount), [&](const tbb::blocked_range<size_t>& range) {
         for (size_t v = range.begin(); v != range.end(); ++v) {
-            if (vertexFaces[v].empty())
+            if (mesh.vertexFaces[v].empty())
                 continue;
             Vector3 closest;
-            const bool found = onBoundary[v]
-                ? closestBoundaryPoint(positions[v], searchRadius, &closest)
-                : closestFacingPoint(positions[v], vertexNormals[v], searchRadius, &closest, &targetNormals[v]);
+            const bool found = mesh.onBoundary[v]
+                ? closestEdgePoint(m_boundary, positions[v], searchRadius, &closest)
+                : closestFacingPoint(positions[v], normals[v], searchRadius, &closest, &targetNormals[v]);
             if (!found)
                 status[v] = Status::Unmatched;
             else if ((closest - positions[v]).length() > maxMove)
@@ -359,91 +511,12 @@ SurfaceProjector::Result SurfaceProjector::project(std::vector<Vector3>* points,
             else {
                 status[v] = Status::Moved;
                 targets[v] = closest;
+                moved[v] = 1;
             }
         }
     });
-
-    std::vector<Vector3> oldNormals(faces.size());
-    std::vector<double> oldJacobians(faces.size());
-    tbb::parallel_for(tbb::blocked_range<size_t>(0, faces.size()), [&](const tbb::blocked_range<size_t>& range) {
-        for (size_t f = range.begin(); f != range.end(); ++f) {
-            oldNormals[f] = newellNormal(positions, faces[f]).normalized();
-            oldJacobians[f] = minCornerScaledJacobian(positions, faces[f], oldNormals[f]);
-        }
-    });
-    const auto isWorse = [&](size_t f) {
-        const Vector3 normal = newellNormal(targets, faces[f]).normalized();
-        for (const size_t v : faces[f]) {
-            if (Status::Moved == status[v] && Vector3::dotProduct(normal, targetNormals[v]) <= 0.0
-                && Vector3::dotProduct(oldNormals[f], targetNormals[v]) > 0.0)
-                return true;
-        }
-        if (!oldNormals[f].isZero() && Vector3::dotProduct(normal, oldNormals[f]) < minNormalTurnCosine)
-            return true;
-        return minCornerScaledJacobian(targets, faces[f], normal)
-            < std::min(minScaledJacobian, oldJacobians[f]) - 1e-12;
-    };
-
-    // Puts back the longest move of each face the moves made worse, then
-    // checks the faces around it again. Each round puts back at least one
-    // vertex and with none moved no face is worse, so this ends.
-    std::vector<size_t> facesToCheck(faces.size());
-    for (size_t f = 0; f < faces.size(); ++f)
-        facesToCheck[f] = f;
-    std::vector<char> worse(faces.size(), 0);
-    std::vector<char> queued(faces.size(), 0);
-    std::vector<char> revertedNow(vertexCount, 0);
-    while (!facesToCheck.empty()) {
-        tbb::parallel_for(tbb::blocked_range<size_t>(0, facesToCheck.size()),
-            [&](const tbb::blocked_range<size_t>& range) {
-                for (size_t k = range.begin(); k != range.end(); ++k)
-                    worse[facesToCheck[k]] = isWorse(facesToCheck[k]) ? 1 : 0;
-            });
-        std::vector<size_t> revertedVertices;
-        for (const size_t f : facesToCheck) {
-            if (!worse[f])
-                continue;
-            // A face that already lost a move this round is checked again
-            // in the next one, with that move undone.
-            bool undoneThisRound = false;
-            for (const size_t v : faces[f])
-                undoneThisRound = undoneThisRound || revertedNow[v];
-            if (undoneThisRound)
-                continue;
-            size_t longest = vertexCount;
-            double longestMove = -1.0;
-            for (const size_t v : faces[f]) {
-                if (Status::Moved != status[v])
-                    continue;
-                const double move = (targets[v] - positions[v]).lengthSquared();
-                if (move > longestMove) {
-                    longestMove = move;
-                    longest = v;
-                }
-            }
-            if (vertexCount == longest)
-                continue;
-            status[longest] = Status::Folding;
-            targets[longest] = positions[longest];
-            revertedVertices.push_back(longest);
-            revertedNow[longest] = 1;
-        }
-        for (const size_t v : revertedVertices)
-            revertedNow[v] = 0;
-        std::vector<size_t> nextFaces;
-        for (const size_t v : revertedVertices) {
-            for (const size_t f : vertexFaces[v]) {
-                if (!queued[f]) {
-                    queued[f] = 1;
-                    nextFaces.push_back(f);
-                }
-            }
-        }
-        for (const size_t f : nextFaces)
-            queued[f] = 0;
-        std::sort(nextFaces.begin(), nextFaces.end());
-        facesToCheck = std::move(nextFaces);
-    }
+    for (const size_t v : undoWorseningMoves(positions, faces, mesh.vertexFaces, targetNormals, &moved, &targets))
+        status[v] = Status::Folding;
 
     double moveSum = 0.0;
     for (size_t v = 0; v < vertexCount; ++v) {
@@ -457,7 +530,7 @@ SurfaceProjector::Result SurfaceProjector::project(std::vector<Vector3>* points,
         else if (Status::Folding == status[v])
             ++result.keptFolding;
         else if (Status::Moved == status[v]) {
-            const double move = (targets[v] - positions[v]).length() / meanEdge;
+            const double move = (targets[v] - positions[v]).length() / mesh.meanEdge;
             moveSum += move;
             result.maxMove = std::max(result.maxMove, move);
             ++result.projected;
@@ -466,6 +539,119 @@ SurfaceProjector::Result SurfaceProjector::project(std::vector<Vector3>* points,
     if (result.projected > 0)
         result.meanMove = moveSum / result.projected;
     positions = std::move(targets);
+    return result;
+}
+
+SurfaceProjector::RelaxResult SurfaceProjector::relax(std::vector<Vector3>* points,
+    const std::vector<std::vector<size_t>>& faces, size_t iterations) const
+{
+    RelaxResult result;
+    auto& positions = *points;
+    const size_t vertexCount = positions.size();
+    if (0 == vertexCount || faces.empty() || m_triangles->empty())
+        return result;
+
+    const OutputMesh mesh = analyseOutput(positions, faces);
+    if (!(mesh.meanEdge > 0.0))
+        return result;
+    const double maxMove = maxMoveInEdges * mesh.meanEdge;
+    const double searchRadius = searchRadiusInEdges * mesh.meanEdge;
+    const double creaseReach = creaseReachInEdges * mesh.meanEdge;
+
+    std::vector<char> movable(vertexCount, 0);
+    for (size_t v = 0; v < vertexCount; ++v)
+        movable[v] = !mesh.vertexFaces[v].empty() && !mesh.onBoundary[v];
+    for (const auto& face : faces) {
+        if (4 != face.size()) {
+            for (const size_t v : face)
+                movable[v] = 0;
+        }
+    }
+    std::vector<std::vector<size_t>> neighbours(vertexCount);
+    for (const auto& edge : mesh.edges) {
+        neighbours[edge.first].push_back(edge.second);
+        neighbours[edge.second].push_back(edge.first);
+    }
+
+    // Onto the creases first, so the smoothing works around them.
+    std::vector<char> nearCrease(vertexCount, 0);
+    if (m_creases.tree) {
+        std::vector<Vector3> targets(positions);
+        std::vector<Vector3> noNormals(vertexCount);
+        std::vector<char> moved(vertexCount, 0);
+        tbb::parallel_for(tbb::blocked_range<size_t>(0, vertexCount), [&](const tbb::blocked_range<size_t>& range) {
+            for (size_t v = range.begin(); v != range.end(); ++v) {
+                Vector3 closest;
+                if (!movable[v] || !closestEdgePoint(m_creases, positions[v], creaseReach, &closest))
+                    continue;
+                nearCrease[v] = 1;
+                targets[v] = closest;
+                moved[v] = 1;
+            }
+        });
+        result.snapFolding = undoWorseningMoves(positions, faces, mesh.vertexFaces, noNormals, &moved, &targets).size();
+        for (size_t v = 0; v < vertexCount; ++v)
+            result.snapped += moved[v] ? 1 : 0;
+        positions = std::move(targets);
+    }
+
+    // A vertex whose faces bend away from its normal sits on a fold of the
+    // output the input has no crease for, mostly a thin rim the quads bridge:
+    // smoothing there pulls the outermost vertices inwards and cuts the rim.
+    std::vector<char> bent(vertexCount, 0);
+    {
+        const std::vector<Vector3> normals = vertexNormals(positions, faces);
+        tbb::parallel_for(tbb::blocked_range<size_t>(0, vertexCount), [&](const tbb::blocked_range<size_t>& range) {
+            for (size_t v = range.begin(); v != range.end(); ++v) {
+                const Vector3 unitNormal = normals[v].normalized();
+                for (const size_t f : mesh.vertexFaces[v]) {
+                    if (Vector3::dotProduct(newellNormal(positions, faces[f]).normalized(), unitNormal) < minBendCosine) {
+                        bent[v] = 1;
+                        break;
+                    }
+                }
+            }
+        });
+    }
+    std::vector<char> smoothable(vertexCount, 0);
+    for (size_t v = 0; v < vertexCount; ++v) {
+        smoothable[v] = movable[v] && !nearCrease[v] && !bent[v];
+        result.free += smoothable[v] ? 1 : 0;
+    }
+    if (0 == result.free)
+        return result;
+    for (size_t iteration = 0; iteration < iterations; ++iteration) {
+        const std::vector<Vector3> normals = vertexNormals(positions, faces);
+        std::vector<Vector3> targets(positions);
+        std::vector<Vector3> targetNormals(vertexCount);
+        std::vector<char> moved(vertexCount, 0);
+        // Reads the old positions only (Jacobi), so the result does not
+        // depend on the thread count.
+        tbb::parallel_for(tbb::blocked_range<size_t>(0, vertexCount), [&](const tbb::blocked_range<size_t>& range) {
+            for (size_t v = range.begin(); v != range.end(); ++v) {
+                if (!smoothable[v] || neighbours[v].empty())
+                    continue;
+                Vector3 centre;
+                for (const size_t n : neighbours[v])
+                    centre += positions[n];
+                centre /= (double)neighbours[v].size();
+                const Vector3 unitNormal = normals[v].normalized();
+                Vector3 step = smoothFactor * (centre - positions[v]);
+                step = step - Vector3::dotProduct(step, unitNormal) * unitNormal;
+                Vector3 closest, closestNormal;
+                if (!closestFacingPoint(positions[v] + step, normals[v], searchRadius, &closest, &closestNormal)
+                    || (closest - positions[v]).length() > maxMove)
+                    continue;
+                targets[v] = closest;
+                targetNormals[v] = closestNormal;
+                moved[v] = 1;
+            }
+        });
+        result.keptFolding += undoWorseningMoves(positions, faces, mesh.vertexFaces, targetNormals, &moved, &targets).size();
+        for (size_t v = 0; v < vertexCount; ++v)
+            result.moves += moved[v] ? 1 : 0;
+        positions = std::move(targets);
+    }
     return result;
 }
 

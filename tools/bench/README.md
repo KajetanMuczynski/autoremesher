@@ -23,6 +23,7 @@ directory you choose.
 | `summarize.py` | Markdown tables + CSV from `summary.json`. |
 | `claims.py` | Aggregates per REFERENCE claim (stage shares, M1/M2 counts, P3 correlations and scaling slopes, thread/ladder/allocator/adaptivity comparisons). |
 | `experiments.sh` | Thread sweep (P1), input-size ladder (P4/P6), allocator swap (P5), adaptivity off (M7), perf profiles. |
+| `relax_probe.py` | Offline probe: smooths the outputs of an `ab.py` run folder in Python (tangential Laplace or parallelogram rule, optional crease snap and bend lock) and measures both sides, to see whether a post-extraction smoothing has headroom before building it (TODO 2.8). |
 | `tests/` | Python tests of the bench tools (`python -m unittest discover -s tools/bench/tests`; run in CI by `qt-app`). |
 | `perf_buckets.py` | Groups a `perf report` listing into allocator / containers / solver / remesher / extractor buckets. |
 
@@ -84,7 +85,7 @@ $P tools/bench/ab.py run HEAD --set closed   # genus check; also --set suzanne
 - **What it records.** Per run in `<set>/<mesh>/<resolution>-t<target>/u<k>/`: the output OBJ, the CLI's
   `report.json` and `stages.jsonl`, `metrics.json` and a `record.json` summary. `compare` reports the
   report's UV flips (continuous, rounded, final), degenerate UV triangles, non-quads, SJ ≤ 0 quads,
-  faces flipped against the input, irregular vertices, in→out p99 distance (the fidelity target of docs/TARGETS.md), Hausdorff and mean distance, normal deviation (D3), median vertex-to-input distance, quad count error, rounded/continuous energy and
+  faces flipped against the input, irregular vertices, in→out p99 distance (the fidelity target of docs/TARGETS.md), Hausdorff and mean distance, normal deviation (D3), median vertex-to-input distance, SJ 1st percentile (G1), skew 95th percentile (G2), crease coverage (A1, higher is better like G1), quad count error, rounded/continuous energy and
   time, the runs that fail, and topology (Euler characteristic, components and boundary loops equal to
   the input, no non-manifold edge). `t_non_manifold` and `t_opened` count T's own defects from the
   core's run record: non-manifold edges after isotropic remeshing, and closed input islands that T
