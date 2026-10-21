@@ -20,6 +20,7 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
+#include <AutoRemesher/FrameField>
 #include <AutoRemesher/SingularitySimplifier>
 
 #include <algorithm>
@@ -56,46 +57,6 @@ namespace {
     double angleInFrame(const Vector3& vector, const Frame& frame)
     {
         return std::atan2(Vector3::dotProduct(vector, frame.v), Vector3::dotProduct(vector, frame.u));
-    }
-
-    int quarterTurn(const SurfaceMesh& mesh, size_t corner,
-        const std::vector<Frame>& frames,
-        const std::vector<double>& fieldAngles)
-    {
-        const size_t opposite = mesh.oppositeCorner(corner);
-        if (opposite == SurfaceMesh::npos)
-            return 0;
-        const size_t f = mesh.cornerFace(corner), g = mesh.cornerFace(opposite);
-        const Vector3 edge = mesh.edgeVector(corner);
-        const double connection = angleInFrame(edge, frames[g]) - angleInFrame(edge, frames[f]);
-        const int turns = static_cast<int>(std::lround((fieldAngles[g] - fieldAngles[f] - connection) / (M_PI / 2.0)));
-        return ((turns % 4) + 4) % 4;
-    }
-
-    // Charge of a vertex: the corner mismatches (quarter turns) summed once
-    // around it, mod 4. Boundary and non-manifold vertices count as regular (0).
-    template <typename Mismatch>
-    int chargeAround(const SurfaceMesh& mesh, size_t vertex, const Mismatch& mismatch)
-    {
-        const std::vector<size_t>& corners = mesh.cornersAroundVertex(vertex);
-        if (corners.empty())
-            return 0;
-        size_t c = corners.front();
-        const size_t start = c;
-        int sum = 0;
-        size_t steps = 0;
-        do {
-            if (++steps > mesh.cornerCount())
-                return 0;
-            sum += mismatch(c);
-            const size_t opposite = mesh.oppositeCorner(c);
-            if (opposite == SurfaceMesh::npos)
-                return 0;
-            c = mesh.nextCorner(opposite);
-            if (mesh.cornerVertex(c) != vertex)
-                return 0;
-        } while (c != start);
-        return ((sum % 4) + 4) % 4;
     }
 
     // Membership over mesh-sized indices with O(1) clear(): an index is a
@@ -221,28 +182,43 @@ std::vector<int> SingularitySimplifier::vertexCharges() const
     std::vector<int> result(m_mesh.vertexCount(), 0);
     if (nullptr == m_field || m_field->size() != m_mesh.faceCount())
         return result;
-    // Inside simplify() the corner mismatches are cached; only pay for the
-    // per-face frames when they are missing and quarterTurn needs them.
-    const bool useCachedMismatch = m_mismatch.size() == m_mesh.cornerCount();
+    // Inside simplify() the field angles and connection are cached; only
+    // pay for the per-face frames when they are missing.
+    if (m_angles.size() == m_mesh.faceCount()) {
+        for (size_t v = 0; v < m_mesh.vertexCount(); ++v)
+            result[v] = vertexCharge(v);
+        return result;
+    }
     std::vector<Frame> frames;
     std::vector<double> fieldAngles;
-    if (!useCachedMismatch) {
-        frames.reserve(m_mesh.faceCount());
-        fieldAngles.reserve(m_mesh.faceCount());
-        for (size_t f = 0; f < m_mesh.faceCount(); ++f) {
-            frames.push_back(frameForFace(m_mesh, f));
-            fieldAngles.push_back(angleInFrame((*m_field)[f], frames.back()));
-        }
+    frames.reserve(m_mesh.faceCount());
+    fieldAngles.reserve(m_mesh.faceCount());
+    for (size_t f = 0; f < m_mesh.faceCount(); ++f) {
+        frames.push_back(frameForFace(m_mesh, f));
+        fieldAngles.push_back(angleInFrame((*m_field)[f], frames.back()));
     }
-    const auto computed = [&](size_t c) { return quarterTurn(m_mesh, c, frames, fieldAngles); };
-    for (size_t v = 0; v < m_mesh.vertexCount(); ++v)
-        result[v] = useCachedMismatch ? vertexCharge(v) : chargeAround(m_mesh, v, computed);
+    const auto twist = [&](size_t c) {
+        const size_t f = m_mesh.cornerFace(c), g = m_mesh.cornerFace(m_mesh.oppositeCorner(c));
+        const Vector3 edge = m_mesh.edgeVector(c);
+        return FrameField::quarterResidual(fieldAngles[g] - fieldAngles[f] - (angleInFrame(edge, frames[g]) - angleInFrame(edge, frames[f])));
+    };
+    for (size_t v = 0; v < m_mesh.vertexCount(); ++v) {
+        int quarters = 4;
+        if (FrameField::coneQuarters(m_mesh, v, twist, &quarters))
+            result[v] = 4 - quarters;
+    }
     return result;
 }
 
 int SingularitySimplifier::vertexCharge(size_t vertex) const
 {
-    return chargeAround(m_mesh, vertex, [this](size_t c) { return m_mismatch[c]; });
+    const auto twist = [this](size_t c) {
+        return FrameField::quarterResidual(m_angles[m_mesh.cornerFace(m_mesh.oppositeCorner(c))] - m_angles[m_mesh.cornerFace(c)] - m_connection[c]);
+    };
+    int quarters = 4;
+    if (!FrameField::coneQuarters(m_mesh, vertex, twist, &quarters))
+        return 0;
+    return 4 - quarters;
 }
 
 size_t SingularitySimplifier::singularityCount() const
@@ -268,7 +244,6 @@ void SingularitySimplifier::buildFramesAndConnection()
             Vector3::dotProduct((*m_field)[f], frame.u));
     }
     m_connection.assign(corners, 0.0);
-    m_mismatch.assign(corners, 0);
     m_sharpCorner.assign(corners, false);
     for (size_t c = 0; c < corners; ++c) {
         const size_t other = m_mesh.oppositeCorner(c);
@@ -279,24 +254,6 @@ void SingularitySimplifier::buildFramesAndConnection()
         m_connection[c] = std::atan2(Vector3::dotProduct(edge, m_frameV[g]), Vector3::dotProduct(edge, m_frameU[g])) - std::atan2(Vector3::dotProduct(edge, m_frameV[f]), Vector3::dotProduct(edge, m_frameU[f]));
         m_sharpCorner[c] = m_mesh.normalAngle(c) >= m_sharpEdgeDegrees * M_PI / 180.0;
     }
-    std::vector<size_t> every(faces);
-    for (size_t f = 0; f < faces; ++f)
-        every[f] = f;
-    updateMismatches(every);
-}
-
-void SingularitySimplifier::updateMismatches(const std::vector<size_t>& faces)
-{
-    for (const size_t f : faces)
-        for (size_t c = 3 * f; c < 3 * f + 3; ++c) {
-            const size_t other = m_mesh.oppositeCorner(c);
-            if (other == SurfaceMesh::npos)
-                continue;
-            const size_t g = m_mesh.cornerFace(other);
-            const int turns = static_cast<int>(std::lround((m_angles[g] - (m_angles[f] + m_connection[c])) / (M_PI / 2.0)));
-            m_mismatch[c] = ((turns % 4) + 4) % 4;
-            m_mismatch[other] = (4 - m_mismatch[c]) % 4;
-        }
 }
 
 std::vector<size_t> SingularitySimplifier::facetsAroundVertex(size_t vertex) const
@@ -393,9 +350,8 @@ bool SingularitySimplifier::cancelPair(size_t first, size_t second, size_t hops,
     for (size_t f : work.secondBall)
         if (work.firstDistance.contains(f))
             region.push_back(f);
-    // Ascending face order: the smoothing below is Gauss-Seidel and
-    // updateMismatches lets the last face win on shared edges, so the order
-    // is part of the result.
+    // Ascending face order: the smoothing below is Gauss-Seidel, so the
+    // order is part of the result.
     std::sort(region.begin(), region.end());
     work.inRegion.clear();
     for (size_t f : region)
@@ -429,8 +385,8 @@ bool SingularitySimplifier::cancelPair(size_t first, size_t second, size_t hops,
     if (path.size() < 2) {
         return false;
     }
-    // Only mismatches of region corners change, so only charges of region
-    // vertices can.
+    // Only field angles of free region faces change, so only charges of
+    // region vertices can.
     work.affected.clear();
     work.affectedVertices.clear();
     for (size_t f : region)
@@ -443,6 +399,14 @@ bool SingularitySimplifier::cancelPair(size_t first, size_t second, size_t hops,
             if (vertexCharge(v) != 0)
                 ++count;
         return count;
+    };
+    // Charge 4 asks for no angle at all (FrameField::coneQuarters() 0),
+    // which no map can follow: never move a cone onto a vertex that way.
+    const auto leavesNoAngle = [&]() {
+        for (size_t v : work.affectedVertices)
+            if (vertexCharge(v) >= 4)
+                return true;
+        return false;
     };
     const size_t before = countAffected();
     std::vector<double>& saved = work.saved;
@@ -459,7 +423,7 @@ bool SingularitySimplifier::cancelPair(size_t first, size_t second, size_t hops,
                 continue;
             jump.set(c, static_cast<int>(std::lround((m_angles[m_mesh.cornerFace(other)] - m_angles[f] - m_connection[c]) / (M_PI / 2.0))));
         }
-    const int carried = (((vertexCharge(first) + 1) % 4) + 4) % 4 - 1;
+    const int carried = vertexCharge(first);
     for (size_t i = 0; i + 1 < path.size(); ++i) {
         const size_t corner = cornerAlongEdge(path[i], path[i + 1]);
         if (corner == SurfaceMesh::npos) {
@@ -496,12 +460,10 @@ bool SingularitySimplifier::cancelPair(size_t first, size_t second, size_t hops,
         if (maxChange < 1e-10)
             break;
     }
-    updateMismatches(region);
     const size_t after = countAffected();
-    if (vertexCharge(first) != 0 || vertexCharge(second) != 0 || after + 2 > before) {
+    if (vertexCharge(first) != 0 || vertexCharge(second) != 0 || after + 2 > before || leavesNoAngle()) {
         for (size_t i = 0; i < freeFaces.size(); ++i)
             m_angles[freeFaces[i]] = saved[i];
-        updateMismatches(region);
         return false;
     }
     for (size_t f : freeFaces)
@@ -546,7 +508,7 @@ void SingularitySimplifier::simplify()
         };
         std::vector<Candidate> candidates;
         std::set<std::pair<size_t, size_t>> seen;
-        auto consider = [&](size_t a, size_t b, size_t d) {if(a==b||d>m_maximumPairDistance||(charges[singular[a]]+charges[singular[b]])%4)return;auto key=std::minmax(a,b);if(seen.insert(key).second)candidates.push_back({key.first,key.second,d}); };
+        auto consider = [&](size_t a, size_t b, size_t d) {if(a==b||d>m_maximumPairDistance||charges[singular[a]]+charges[singular[b]]!=0)return;auto key=std::minmax(a,b);if(seen.insert(key).second)candidates.push_back({key.first,key.second,d}); };
         for (const auto& e : encounters)
             consider(e.first, e.second, 0);
         while (!queue.empty()) {

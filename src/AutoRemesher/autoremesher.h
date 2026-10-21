@@ -147,6 +147,21 @@ public:
         return m_islandsWithoutOutput;
     }
 
+    // One entry per input island, in island order: the island's slice of
+    // remeshedVertices() and remeshedQuads(), which follow each other in the
+    // same order, and whether the island was closed in the input (no boundary
+    // or non-manifold edge).
+    struct RemeshedIsland {
+        size_t vertexCount = 0;
+        size_t faceCount = 0;
+        bool closedInput = false;
+    };
+
+    const std::vector<RemeshedIsland>& remeshedIslands() const
+    {
+        return m_remeshedIslands;
+    }
+
     const std::vector<Vector3>& remeshedVertices()
     {
         return m_remeshedVertices;
@@ -326,6 +341,7 @@ private:
     std::vector<std::vector<size_t>> m_triangles;
     std::vector<Vector3> m_remeshedVertices;
     std::vector<std::vector<size_t>> m_remeshedQuads;
+    std::vector<RemeshedIsland> m_remeshedIslands;
     std::vector<Vector3> m_decimatedVertices;
     std::vector<std::vector<size_t>> m_decimatedTriangles;
     bool m_decimated = false;

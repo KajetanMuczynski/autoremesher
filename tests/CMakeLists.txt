@@ -61,6 +61,10 @@ add_executable(input_cleanup_test input_cleanup_test.cpp)
 target_link_libraries(input_cleanup_test PRIVATE autoremesher_core)
 add_test(NAME input_cleanup COMMAND input_cleanup_test)
 
+add_executable(needle_tip_test needle_tip_test.cpp)
+target_link_libraries(needle_tip_test PRIVATE autoremesher_core)
+add_test(NAME needle_tip COMMAND needle_tip_test)
+
 add_executable(narrow_strip_test narrow_strip_test.cpp)
 target_link_libraries(narrow_strip_test PRIVATE autoremesher_core)
 add_test(NAME narrow_strip COMMAND narrow_strip_test)

@@ -18,6 +18,9 @@ sculpt.json next to out.obj (reused on the next call) with:
   subdiv      one Catmull-Clark step of the output: quads with SJ <= 0 (folds survive subdivision,
               n-gons only become poles), child faces whose normal opposes their parent face's
               (pinches), and the minimum SJ
+  input_folds folded input triangles (normal against the area-weighted mean normal within 1 % of the
+              bounding-box diagonal: pleats, twists, over-pinched creases), and how many non-quads and
+              folded quads sit within 1.5 h of one (with the share of the input's area that is that near)
   gates       non-manifold vertices (metrics.py counts edges only), which together with metrics.json
               gives H1-H6 and V1-V6 of docs/TARGETS.md
 """
@@ -170,13 +173,55 @@ def catmull_clark(V, faces):
     return NV, [list(q) for q in Q], fid
 
 
+def input_folds(V, F, radius=None):
+    """Faces whose normal points against the area-weighted mean normal of the surface within geodesic
+    distance `radius` of them (default 1 % of the bounding-box diagonal; distances between centroids
+    of edge-adjacent faces; the faces sharing an edge always count, for triangles larger than the
+    radius): folded-over input left by brush strokes (twists, over-pinched creases,
+    pleats), where nearly all defects of the 2026-10-21 real-sculpt tests sat. Geodesic, so the other
+    side of a thin part or a separate island nearby does not count. Returns a boolean mask over F."""
+    import heapq
+
+    if radius is None:
+        radius = 0.01 * np.linalg.norm(V.max(0) - V.min(0))
+    C = V[F].mean(1)
+    A = np.cross(V[F[:, 1]] - V[F[:, 0]], V[F[:, 2]] - V[F[:, 0]]) / 2
+    area = np.linalg.norm(A, axis=1)
+    n = A / np.maximum(area[:, None], 1e-300)
+    # Euclidean candidates first (a superset on the same sheet), then the geodesic test on those only.
+    cand = [i for i, nb in enumerate(cKDTree(C).query_ball_point(C, radius)) if n[i] @ A[nb].sum(0) < 0]
+    out = np.zeros(len(F), bool)
+    if not cand:
+        return out
+    adj = face_adjacency([list(f) for f in F])
+    adj = (adj + adj.T).tocsr()
+    for i in cand:
+        dist = {i: 0.0}
+        heap = [(0.0, i)]
+        m = np.zeros(3)
+        while heap:
+            d, f = heapq.heappop(heap)
+            if d > dist[f]:
+                continue
+            m += A[f]
+            for g in adj.indices[adj.indptr[f]:adj.indptr[f + 1]]:
+                nd = d + float(np.linalg.norm(C[g] - C[f]))
+                if (nd <= radius or f == i) and nd < dist.get(g, np.inf):  # the first ring always counts
+                    dist[g] = nd
+                    heapq.heappush(heap, (nd, g))
+        out[i] = n[i] @ m < 0
+    return out
+
+
 def analyse(inp, out, cache={}):
     if inp not in cache:
         cache.clear()
         Vin, Fin = read_tris(inp)
         An = np.cross(Vin[Fin[:, 1]] - Vin[Fin[:, 0]], Vin[Fin[:, 2]] - Vin[Fin[:, 0]]) / 2
-        cache[inp] = (Vin, Fin, Vin[Fin].mean(1), An, cKDTree(Vin[Fin].mean(1)))
-    Vin, Fin, Cin, An, tree = cache[inp]
+        folds = input_folds(Vin, Fin)
+        cache[inp] = (Vin, Fin, Vin[Fin].mean(1), An, cKDTree(Vin[Fin].mean(1)), folds,
+                      cKDTree(Vin[Fin][folds].mean(1)) if folds.any() else None)
+    Vin, Fin, Cin, An, tree, folds, fold_tree = cache[inp]
     V, faces = read_obj(out)
     sides = np.array([len(f) for f in faces])
     sj = scaled_jacobian(V, faces)
@@ -202,6 +247,14 @@ def analyse(inp, out, cache={}):
     ssj = scaled_jacobian(SV, sf)
     against_parent = np.einsum("ij,ij->i", newell(SV, sf), newell(V, faces)[parent]) < 0
 
+    # Defects on folded input: within 1.5 h of a folded input face (base = share of the input's area there).
+    if fold_tree is not None:
+        on_fold = fold_tree.query(C, distance_upper_bound=1.5 * h)[0] < np.inf
+        an = np.linalg.norm(An, axis=1)
+        base = float(an[fold_tree.query(Cin, distance_upper_bound=1.5 * h)[0] < np.inf].sum() / an.sum())
+    else:
+        on_fold, base = np.zeros(len(faces), bool), 0.0
+
     def share(mask):
         tot = max(int(mask.sum()), 1)
         return {BANDS[b]: round(float((mask & (band == b)).sum()) / tot, 3) for b in range(3)}
@@ -216,6 +269,8 @@ def analyse(inp, out, cache={}):
                   "non_quads_touching_fold": touches_fold},
         "subdiv": {"folded": int((ssj <= 0).sum()), "sj_min": float(np.nanmin(ssj)),
                    "flipped_vs_parent": int(against_parent.sum())},
+        "input_folds": {"triangles": int(folds.sum()), "area_share_near": round(base, 4),
+                        "non_quads_on": int((nonq & on_fold).sum()), "folded_on": int((folded & on_fold).sum())},
         "nonmanifold_vertices": nonmanifold_vertices(faces, len(V)),
         "nonmanifold_vertices_input": nonmanifold_vertices([list(f) for f in Fin], len(Vin)),
     }
@@ -325,6 +380,9 @@ def main():
                 "nq_smooth": s["where"]["non_quads"]["smooth"], "nq_sharp": s["where"]["non_quads"]["sharp"],
                 "all_sharp": s["where"]["all"]["sharp"], "folded": s["folded_quads"],
                 "fold_sharp": s["where"]["folded"]["sharp"], "nq_touch_fold": s["where"]["non_quads_touching_fold"],
+                "input_folded": (s.get("input_folds") or {}).get("triangles"),
+                "nq_on_input_fold": (s.get("input_folds") or {}).get("non_quads_on"),
+                "folded_on_input_fold": (s.get("input_folds") or {}).get("folded_on"),
                 "cc_folded": s["subdiv"]["folded"], "cc_flipped": s["subdiv"]["flipped_vs_parent"],
                 "nm_edges": t.get("non_manifold_edges"), "nm_verts": s["nonmanifold_vertices"],
                 "inconsistent": t.get("inconsistently_oriented_edges"),

@@ -16,6 +16,12 @@
 
 """Turn the remesher's JSON report into rows for the panel. No bpy in here."""
 
+import textwrap
+
+# Characters per line of a warning: panel labels don't wrap, and the sidebar
+# is about this wide at its default size.
+WARNING_WIDTH = 36
+
 STATUS_TEXT = {
     "ok": "Done",
     "cancelled": "Cancelled",
@@ -38,7 +44,15 @@ def summary_rows(report):
             rows.append((label, str(value), value > 0))
 
         count("Non-quads", output.get("non_quads", 0))
+        # Only parts that were closed in the input can get a hole; an open
+        # mesh's own borders are not counted.
+        islands = report.get("islands", {})
+        if islands.get("closed_in_input", 0):
+            holes = islands.get("holes", 0)
+            rows.append(("Holes", "%d (%d open edges)" % (holes, islands.get("hole_edges", 0))
+                         if holes else "0", holes > 0))
         count("Non-manifold edges", output.get("non_manifold_edges", 0))
+        count("Non-manifold vertices", output.get("non_manifold_vertices", 0))
         count("Winding flips", output.get("orientation_flips", 0))
         count("Folded faces", output.get("folded_faces", 0))
         # The core's input cleanup: triangles on a zero-length edge it dropped
@@ -60,6 +74,22 @@ def summary_rows(report):
     seconds = report.get("time", {}).get("total_seconds")
     if seconds is not None:
         rows.append(("Time", "%.1f s" % seconds, False))
-    for warning in report.get("warnings", []):
-        rows.append(("Warning", warning, True))
     return rows
+
+
+def warning_lines(report, width=WARNING_WIDTH):
+    """(text, first, is_problem) lines for the report's warnings, wrapped to
+    the panel's width; first marks the line that starts a warning or a hint."""
+    lines = []
+
+    def add(text, problem):
+        for i, line in enumerate(textwrap.wrap(text, width)):
+            lines.append((line, i == 0, problem))
+
+    for warning in report.get("warnings", []):
+        add(warning, True)
+    if report.get("status") == "ok" and report.get("islands", {}).get("holes", 0):
+        add("Another Target Quads value may close them. To see the holes: Tab into "
+            "Edit Mode, press 1 for vertex select, then Select > Select All by Trait "
+            "> Non Manifold.", False)
+    return lines

@@ -93,6 +93,10 @@ namespace {
 
     const double triangleAreaPerSquaredEdge = 0.86602540378 * 0.5;
 
+    // Rounds of tangential smoothing after the surface projection (TODO 2.8),
+    // the extractor's own count.
+    const size_t surfaceRelaxIterations = 5;
+
     // The area share of a small island (an eye, a button) can be a handful of
     // triangles. The isotropic remesher then shrinks it to a few triangles and
     // the parameterizer finds no quads on it, so the island vanished from the
@@ -1213,7 +1217,7 @@ bool AutoRemesher::remeshIslands()
                 // The extractor leaves the output on T; this puts it on the
                 // island's own input faces (TODO 2.8).
                 const auto projectStart = std::chrono::high_resolution_clock::now();
-                SurfaceProjector projector(&m_vertices, &trianglesIslands[islandIndex]);
+                SurfaceProjector projector(&m_vertices, &trianglesIslands[islandIndex], ctx.sharpEdgeDegrees);
                 const auto projection = projector.project(&run.remeshedVertices, run.remeshedQuads);
                 DiagnosticRecord record("surface_projection");
                 record.set("vertices", (double)projection.vertices);
@@ -1225,6 +1229,19 @@ bool AutoRemesher::remeshIslands()
                 record.set("max_move_edges", projection.maxMove);
                 record.set("seconds", std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - projectStart).count());
                 run.diagnostics.push_back(std::move(record));
+                // Projection pulls vertices apart where T's chords were
+                // uneven; even the quads out again along M, with the
+                // vertices next to creases put onto them.
+                const auto relaxStart = std::chrono::high_resolution_clock::now();
+                const auto relaxation = projector.relax(&run.remeshedVertices, run.remeshedQuads, surfaceRelaxIterations);
+                DiagnosticRecord relaxRecord("surface_relax");
+                relaxRecord.set("snapped", (double)relaxation.snapped);
+                relaxRecord.set("snap_folding", (double)relaxation.snapFolding);
+                relaxRecord.set("free", (double)relaxation.free);
+                relaxRecord.set("moves", (double)relaxation.moves);
+                relaxRecord.set("kept_folding", (double)relaxation.keptFolding);
+                relaxRecord.set("seconds", std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - relaxStart).count());
+                run.diagnostics.push_back(std::move(relaxRecord));
             }
         }
         updateProgress(islandIndex, 1.0f);
@@ -1372,6 +1389,19 @@ bool AutoRemesher::remeshIslands()
             run.capturedExtractedConnectionMoved.begin(),
             run.capturedExtractedConnectionMoved.end());
         m_isotropicExtractedConnectionMoved.resize(m_isotropicExtractedConnections.size(), 0);
+    }
+    m_remeshedIslands.clear();
+    m_remeshedIslands.reserve(islandRuns.size());
+    for (size_t i = 0; i < islandRuns.size(); ++i) {
+        const auto& run = islandRuns[i];
+        const auto& input = islandContexes[i].inputTopology;
+        RemeshedIsland island;
+        island.closedInput = 0 == input.boundaryEdges && 0 == input.nonManifoldEdges;
+        if (!run.remeshedQuads.empty()) {
+            island.vertexCount = run.remeshedVertices.size();
+            island.faceCount = run.remeshedQuads.size();
+        }
+        m_remeshedIslands.push_back(island);
     }
     for (const auto& run : islandRuns) {
         if (run.remeshedQuads.empty())
