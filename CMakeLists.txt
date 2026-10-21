@@ -126,7 +126,8 @@ if(NOT AUTOREMESHER_QEX STREQUAL "0")
         "${libqex_SOURCE_DIR}/src/predicates.c")
     target_compile_features(autoremesher_qex PUBLIC cxx_std_14)
     target_include_directories(autoremesher_qex PUBLIC "${OPENMESH_SRC}" "${libqex_SOURCE_DIR}/interfaces/c")
-    target_compile_definitions(autoremesher_qex PUBLIC _USE_MATH_DEFINES OM_STATIC_BUILD)
+    # qex.h marks its functions dllimport on Windows unless DLLEXPORT is set; this is a static library.
+    target_compile_definitions(autoremesher_qex PUBLIC _USE_MATH_DEFINES OM_STATIC_BUILD DLLEXPORT=)
     if(NOT MSVC)
         # Shewchuk's predicates need SSE arithmetic, not x87 (libQEx's CMakeLists does the same).
         target_compile_options(autoremesher_qex PRIVATE -w $<$<COMPILE_LANGUAGE:C>:-std=gnu99>)
