@@ -1373,6 +1373,19 @@ bool AutoRemesher::remeshIslands()
             run.capturedExtractedConnectionMoved.end());
         m_isotropicExtractedConnectionMoved.resize(m_isotropicExtractedConnections.size(), 0);
     }
+    m_remeshedIslands.clear();
+    m_remeshedIslands.reserve(islandRuns.size());
+    for (size_t i = 0; i < islandRuns.size(); ++i) {
+        const auto& run = islandRuns[i];
+        const auto& input = islandContexes[i].inputTopology;
+        RemeshedIsland island;
+        island.closedInput = 0 == input.boundaryEdges && 0 == input.nonManifoldEdges;
+        if (!run.remeshedQuads.empty()) {
+            island.vertexCount = run.remeshedVertices.size();
+            island.faceCount = run.remeshedQuads.size();
+        }
+        m_remeshedIslands.push_back(island);
+    }
     for (const auto& run : islandRuns) {
         if (run.remeshedQuads.empty())
             continue;

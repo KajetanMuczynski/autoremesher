@@ -18,15 +18,26 @@
  */
 #ifndef AUTO_REMESHER_MEASURE_MESH_H
 #define AUTO_REMESHER_MEASURE_MESH_H
+#include <AutoRemesher/AutoRemesher>
 #include <AutoRemesher/Remesh>
+#include <vector>
 
 namespace AutoRemesher {
 
 // Adds the counts that depend only on the mesh to report: vertices, faces,
 // quads, non-quads, boundary, non-manifold and flipped edges, folded and
-// degenerate faces, components.  Definitions in INTERFACE.md §3.1.  Used by
-// remesh(); not part of the stable interface.
+// degenerate faces, components, boundary loops, non-manifold vertices.
+// Definitions in INTERFACE.md §3.1.  Used by remesh(); not part of the stable
+// interface.
 void measureMesh(const RemeshMesh& mesh, QualityReport* report);
+
+// Adds the closed-island counts to report (closedInputIslandCount and the
+// three after it) by running measureMesh() on the output of each island,
+// where mesh is the islands' outputs one after the other, as remesh() returns
+// them.
+void measureClosedIslands(const RemeshMesh& mesh,
+    const std::vector<::AutoRemesher::AutoRemesher::RemeshedIsland>& islands,
+    QualityReport* report);
 
 }
 
