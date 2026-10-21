@@ -41,7 +41,9 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
-CORPUS = os.path.join(HERE, "corpus.json")
+# AR_CORPUS points at another file of the same shape, e.g. private meshes that must not enter the
+# repo; its "file" entries may be absolute paths.
+CORPUS = os.environ.get("AR_CORPUS") or os.path.join(HERE, "corpus.json")
 METRICS = os.path.join(HERE, "metrics.py")
 # Everything compiled into autoremesher-cli. A change elsewhere (docs, add-on, tools, CI) keeps the key.
 KEY_PATHS = ["src", "include", "thirdparty", "CMakeLists.txt"]
