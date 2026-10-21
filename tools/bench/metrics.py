@@ -18,7 +18,12 @@ named *_rel_edge, which are relative to the output mean edge length):
               (interior valence != 4) count and per 1k quads
   quads       corner-angle deviation from 90 deg, scaled Jacobian (min over the
               4 corners, w.r.t. the quad's Newell normal; <= 0 means folded or
-              non-convex), edge-length aspect ratio
+              non-convex) with its 1st/5th percentile (TARGETS G1), skew (per quad
+              the largest |corner angle - 90|) 95th percentile (G2), edge-length
+              aspect ratio
+  creases     (TARGETS A1) share of the length of input edges sharper than 40 deg
+              that has an output edge within 0.1 h and 10 deg, h = output mean
+              edge (the remesher comparison's definition; TARGETS wants local h)
   degenerate  faces with a repeated vertex, near-zero area or near-zero edge
   flipped     output faces whose normal opposes the input normal at the closest
               input point (minority orientation, so a globally reversed output
@@ -126,6 +131,54 @@ def sha256_file(path):
     return h.hexdigest()
 
 
+def sharp_edges(Vin, Fin, sharp_deg=40.0):
+    """Input edges with two faces whose normals differ by more than sharp_deg (TARGETS A1)."""
+    he = np.concatenate([Fin[:, [0, 1]], Fin[:, [1, 2]], Fin[:, [2, 0]]])
+    fid = np.tile(np.arange(len(Fin)), 3)
+    key = he.min(1) * len(Vin) + he.max(1)
+    order = np.argsort(key, kind="stable")
+    he, fid = he[order], fid[order]
+    _, start, cnt = np.unique(key[order], return_index=True, return_counts=True)
+    man = cnt == 2
+    f1, f2 = fid[start[man]], fid[start[man] + 1]
+    n = np.cross(Vin[Fin[:, 1]] - Vin[Fin[:, 0]], Vin[Fin[:, 2]] - Vin[Fin[:, 0]])
+    n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-300)
+    ang = np.degrees(np.arccos(np.clip(np.sum(n[f1] * n[f2], 1), -1, 1)))
+    return he[start[man]][ang > sharp_deg].reshape(-1, 2)
+
+
+def crease_coverage(Vin, sharp, V, E_out, h, dist_tol=0.1, ang_tol=10.0):
+    """TARGETS A1: share of the sharp input edges' length that an output edge follows."""
+    if len(sharp) == 0 or len(E_out) == 0:
+        return {"input_length_rel_h": 0.0, "coverage": None}
+    # Input sharp edges sampled at h/4, output edges at h/10.
+    A, B = Vin[sharp[:, 0]], Vin[sharp[:, 1]]
+    L = np.linalg.norm(B - A, axis=1)
+    ns = np.maximum(1, np.ceil(L / (h / 4)).astype(int))
+    idx = np.repeat(np.arange(len(sharp)), ns)
+    t = (np.concatenate([np.arange(k) for k in ns]) + 0.5) / ns[idx]
+    P = A[idx] + t[:, None] * (B - A)[idx]
+    T = (B - A)[idx] / np.maximum(L[idx, None], 1e-300)
+    w = (L / ns)[idx]
+    OA, OB = V[E_out[:, 0]], V[E_out[:, 1]]
+    OL = np.linalg.norm(OB - OA, axis=1)
+    ons = np.maximum(1, np.ceil(OL / (h / 10)).astype(int))
+    oidx = np.repeat(np.arange(len(E_out)), ons)
+    ot = (np.concatenate([np.arange(k) for k in ons]) + 0.5) / ons[oidx]
+    OP = OA[oidx] + ot[:, None] * (OB - OA)[oidx]
+    OT = (OB - OA) / np.maximum(OL[:, None], 1e-300)
+    _, nn = cKDTree(OP).query(P, k=min(16, len(OP)))
+    nn = nn.reshape(len(P), -1)
+    covered = np.zeros(len(P), bool)
+    for j in range(nn.shape[1]):
+        e = oidx[nn[:, j]]
+        d = OB[e] - OA[e]
+        tt = np.clip(np.sum((P - OA[e]) * d, 1) / np.maximum(np.sum(d * d, 1), 1e-300), 0, 1)
+        dist = np.linalg.norm(P - (OA[e] + tt[:, None] * d), axis=1)
+        covered |= (dist < dist_tol * h) & (np.abs(np.sum(T * OT[e], 1)) > np.cos(np.radians(ang_tol)))
+    return {"input_length_rel_h": float(L.sum() / h), "coverage": float(w[covered].sum() / w.sum())}
+
+
 def input_side(input_path, cache_dir=None):
     """Everything compute() derives from the input alone (on large inputs most of its time).
 
@@ -148,7 +201,8 @@ def input_side(input_path, cache_dir=None):
          "diag": np.float64(np.linalg.norm(Vin[used_in].max(0) - Vin[used_in].min(0))),
          "euler_input": np.int64(len(used_in) - len(ein) + len(Fin)),
          "components_input": np.int64(len(np.unique(comps(len(Vin), ein)[used_in]))),
-         "boundary_loops_input": np.int64(loops(len(Vin), ein_u[ein_c == 1]))}
+         "boundary_loops_input": np.int64(loops(len(Vin), ein_u[ein_c == 1])),
+         "sharp_edges": sharp_edges(Vin, Fin)}
     if path:
         os.makedirs(cache_dir, exist_ok=True)
         tmp = f"{path}.{os.getpid()}.tmp"
@@ -250,7 +304,10 @@ def compute(input_path, output_path, target_quads=None, sym_axis=None, sym_cente
         sj = np.sum(np.cross(nxt, prv) * n[:, None, :], axis=2) / np.maximum(ln * lp, 1e-300)
         sjmin = sj.min(1)
         aspect = ln.max(1) / np.maximum(ln.min(1), 1e-300)
+        skew = dev.max(1)
         out["quads"] = {**stats(dev.ravel(), "angle_dev_"),
+                        "sj_p1": float(np.percentile(sjmin, 1)), "sj_p5": float(np.percentile(sjmin, 5)),
+                        "skew_p95": float(np.percentile(skew, 95)),
                         "angle_dev_gt30": float(np.mean(dev.max(1) > 30)),
                         "angle_dev_gt45": float(np.mean(dev.max(1) > 45)),
                         "min_angle": float(ang.min()), "max_angle": float(ang.max()),
@@ -259,6 +316,8 @@ def compute(input_path, output_path, target_quads=None, sym_axis=None, sym_cente
                         "sj_le_0": int(np.sum(sjmin <= 0)), **stats(aspect, "aspect_"),
                         "angle_hist_10deg": np.histogram(ang.ravel(), bins=18, range=(0, 180))[0].tolist(),
                         "sj_hist": np.histogram(sjmin, bins=10, range=(-1, 1))[0].tolist()}
+
+    out["creases"] = crease_coverage(Vin, inp["sharp_edges"], V, E, mean_edge)
 
     # Flips against the input surface and distances.
     Ftri = triangulate(faces)
