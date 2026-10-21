@@ -4,7 +4,9 @@ Which inputs and settings the remesher is expected to handle. **Inside the envel
 [TARGETS.md](TARGETS.md) applies as written, and a failure is a bug. Outside it a failure is reported as
 an *expected limit*:** it is still counted and ratcheted, but it does not fail a gate. Written
 2026-10-21 (thread "Supported-input envelope for the remesher") for Kajetan's "strict, but not stupidly
-strict". **Status: proposal.** The thresholds and user-facing behaviour are his call (§6).
+strict". **Status: decided in part** by Kajetan on 2026-10-21 (§6): warn and run, the handle bands, eyeball
+caps inside the envelope, and the 2 h₀ radius (provisional). Non-default settings (row 15) are still open.
+The [I] thresholds stay provisional until their experiments (§4) run.
 
 Tags as in [README.md](README.md): **[M]** measured, **[C]** checked in code, **[I]** inferred. Every [I]
 threshold names the experiment that would turn it into [M] (§4). Sources: the research notes named in each
@@ -74,7 +76,7 @@ for the add-on panel to show before Remesh. *report* means the core's quality re
 | 3 | **Sub-quad tips and crests**: input faces in the sharp/thin band (normal spread within one h₀ < 0.7, `sculpt_report.py`) | Not a run condition, a location. Non-quads there are tolerated (V1 rewording); folds are expected limits | Non-quads up to 5× concentrated in the band, folds often 100 % in it [M]. Kajetan's crater tip: 1 fold at a valence 10–12 pole [M, reported] | sculpt_voxel horn tips / spot (smooth: no exemption) | Folds and valence ≥ 7 within 2 h₀ of a band face. Counted and ratcheted | *report:* "N folds at sharp tips" | temporary: 5.3, 4.1 |
 | 4 | **Input size**: triangles; **target**: quads | ≤ 6.4M triangles [M]; target ≤ 100k quads [M], 100k–200k [I] | 6.4M triangles in 27.5 s on the ladder (TODO 8.2) [M]. Memory 21 KB per quad at Quality, linear over 25k–100k [M] | koala ladder / spot 100k | Time and memory only. Quality gates still apply | Exists: the CLI warns above 200,000 with an estimate; the add-on asks; the core refuses above 2,000,000 [C] | permanent (hardware) |
 | 5 | **Target vs input detail**: input triangles ÷ target quads | ≥ 2 [I] | Kajetan's coarse 3.7k-triangle blob at 1500 quads (ratio 2.5): 0 non-quads, 1 fold [M, one run]. Nothing measured below 2 | needs a mesh (E3) | Nothing exempt until E3 measures it | *pre:* "input coarser than the requested quads: the result follows the facets; consider Subdivision first" | open (E3) |
-| 6 | **Joined / intersecting parts** (separate closed islands that intersect each other: eyes in sockets, teeth) | **Inside.** Ordinary sculpt layout | sculpt_parts: eyeballs come out as open caps in 19/36 runs, with non-manifold output vertices in 15/36 [M]. Cause not traced | sculpt_parts / sculpt_steps | **Nothing.** These are bugs (§2) | – | bug: eyeball-caps item (not yet in TODO) |
+| 6 | **Joined / intersecting parts** (separate closed islands that intersect each other: eyes in sockets, teeth) | **Inside.** Ordinary sculpt layout | sculpt_parts: eyeballs come out as open caps in 19/36 runs, with non-manifold output vertices in 15/36 [M]. Cause not traced | sculpt_parts / sculpt_steps | **Nothing.** These are bugs (§2) | *report* (follow-up, §3.2): "island N was closed in the input and came out open" | bug: eyeball-caps item (not yet in TODO) |
 | 7 | **Self-intersection of one island** (a surface pushed through itself; triangle–triangle intersections within an island, BVH) | No self-intersection | Not in any test set. The map assumes an embedded surface [I] | needs a mesh (E4) | Folds and flips within 2 h₀ of the intersection | *pre:* "N self-intersections; result may fold there" | permanent [I] until E4 |
 | 8 | **Degenerate input**: zero-length edges, zero-area triangles | Inside **after #51** (cleanup pre-pass) | sculpt_degenerate (21 % zero-area triangles) at 15k: 500–777 non-quads, wrong genus, 89–202 s. Cleaned: 0–8 non-quads, 4–16 s [M] | sculpt_degenerate / sculpt_steps | Until #51 merges: everything on that island | *report:* "Input cleanup: N degenerate triangles removed" (#51) | temporary: #51 (2.7) |
 | 9 | **Inconsistent orientation** (manifold edges used twice in the same direction) | Inside after orientation repair (2.7, not in #51) | sculpt_dirty: a flipped patch tears off as its own island in 36/36 runs [M] | sculpt_dirty | Until 2.7: the torn patch and its hole | *pre:* "N faces with flipped normals" | temporary: 2.7 |
@@ -83,7 +85,7 @@ for the add-on panel to show before Remesh. *report* means the core's quality re
 | 12 | **Islands**: count, and the smallest island's area ÷ h₀² | ≤ 14 islands [M]; smallest island ≥ 0.1 h₀² [I] | spot_x8 (8) and sculpt_parts (14, crumbs of radius 0.008–0.02) keep every island in 35/36 runs [M]. 64-triangle floor and retries (TODO 2.14) [C]. Thousands of islands never run | needs a mesh (E5) | Above the measured count: time only. Below the area floor: the island may come out coarser than asked, never dropped | *pre:* "N islands; small ones get the minimum detail" | open (E5) |
 | 13 | **Triangle size ratio**: edge length p99 ÷ p1 | ≤ 30 [M] | sculpt_dyntopo (p99/p1 = 30, 5:1 density jumps): 2 folds, topology 6/6 [M]; Kajetan's Dyntopo sculpt fine [M] | needs a mesh beyond 30 (E6) | Nothing measured to exempt | – | open (E6) |
 | 14 | **Scale and position**: bounding-box diagonal d; centre offset | d ∈ [10⁻², 10⁴] [I]; centre at 10⁵ [M] | CI's output gate passes a sphere centred at 10⁵ [C]. `PositionKey` no longer overflows (now doubles) [C]. It still merges positions in absolute 10⁻⁵ cells, which is 1 % of a 10⁻³ model [C, I]. 1e-12 guards are absolute (TODO 2.7) [C] | needs a mesh (E7) | Below or above: everything, until 2.7 normalises scale | *pre:* "model is N m across; scale is normalised internally" after 2.7 | temporary: 2.7 (scale to a unit box) |
-| 15 | **Settings**: adaptivity, anisotropy, sharp edge | Defaults (adaptivity 0.5, sharp 90°) [M]; adaptivity 1 [M] | Gates are measured at the defaults; csg_bracket opens a hole at adaptivity 1 (H5, 2.13) [M] | – | Non-default settings: the ratchet only, not the 1.0 bar | *panel:* "outside tested settings" next to a non-default value | permanent policy |
+| 15 | **Settings**: adaptivity, anisotropy, sharp edge | Defaults (adaptivity 0.5, sharp 90°) [M]; adaptivity 1 [M] | Gates are measured at the defaults; csg_bracket opens a hole at adaptivity 1 (H5, 2.13) [M] | – | Non-default settings: the ratchet only, not the 1.0 bar. *Ratchet only* means no release may be worse than the previous one on that metric (runs clean, defects per 1k), with no promise of zero failures (TARGETS §3.2) | *panel:* "outside tested settings" next to a non-default value | permanent policy |
 
 ### 3.1 Handles: three bands
 
@@ -103,6 +105,16 @@ Two open edges:
   ℤ²; no handle has been measured between 1.4 and 2.1. E1 settles it.
 - H is a stage diagnostic, not an input property. The pre-run check can only use L/h₀. Adaptive sizing
   makes the local quads smaller, so H ≥ L/h₀ as a rule [I], and the proxy errs on the side of warning.
+
+### 3.2 Runtime warning for an opened closed island (follow-up, not in this PR)
+
+Kajetan's addition (2026-10-21): when the row 6 bug happens anyway, the user should see it named, not
+only as a count. Detection is cheap, per island after extraction: the input island is closed (no
+boundary edges) and its output component has boundary edges or non-manifold vertices. The core's report
+already counts boundary edges and islands (TODO 2.3); this needs the count per island, matched to its
+input island. The add-on then shows "Island N (closed in the input) came out open: try another Target
+Quads". The warning is not an exemption: the run still fails H5 as a bug. It belongs with the
+eyeball-caps fix or with 2.3.
 
 Two corrections to the brief: the add-on's Target Quads guard is 200,000 (warn) and 2,000,000 (refuse),
 not 300,000 (TODO 2.17) [C]; and #51 collapses zero-length edges only, without orientation repair (PR
@@ -155,15 +167,15 @@ Before each tag: re-run every row's test mesh and canary. A canary that fails is
 release. An outside mesh that now passes tightens its row. The envelope is re-signed with the release
 version at the top of this file.
 
-## 6. Open questions for Kajetan
+## 6. Decisions (Kajetan, 2026-10-21) and what is open
 
-1. **User-facing behaviour outside the envelope:** warn and run (my proposal: the panel shows *pre*
-   warnings and runs anyway), or refuse? I'd refuse only above the memory ceiling, which already
-   happens. Refusing a thin leaf would be "stupidly strict".
-2. **Row 1, band 2 ≤ H < 3:** accept it as a known limit owned by the quantization work (7.2) until a
-   lattice that allows odd meridians without regressing rounding exists, then make it a bug? Below 2 is permanent, because no lattice can make a ring there.
-3. **Row 6, eyeball caps:** keep it inside the envelope (my proposal), which makes 19/36 sculpt_parts
-   runs count as gate failures today?
-4. **Locality radius 2 h₀** (§5.3): no data says 1 or 3 is better. E2 measures it for folds. Accept 2 as
-   provisional?
-5. **Non-default settings** (row 15): does the 1.0 bar apply only at the defaults?
+1. **Outside the envelope: warn and run.** *Decided.* The panel shows the *pre* warnings and runs anyway.
+   Only the memory ceiling refuses, as it already does.
+2. **Handle bands (§3.1):** *decided as written.* H < 2 is permanent. 2 ≤ H < 3 is a known limit owned by
+   the quantization work (7.2) and becomes a bug once a lattice exists that allows odd meridians without
+   regressing rounding. H ≥ 3 is a bug.
+3. **Eyeball caps (row 6):** *decided: inside the envelope, a bug.* Kajetan added that the user should get
+   a specific warning when it happens. The design is in §3.2, as a follow-up.
+4. **Locality radius 2 h₀ (§5.3):** *accepted as provisional.* E2 measures it.
+5. **Non-default settings (row 15):** *open.* The question is whether a run at non-default settings must
+   meet the 1.0 bar or only the ratchet (defined in row 15).
