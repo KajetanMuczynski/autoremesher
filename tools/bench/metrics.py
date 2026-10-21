@@ -22,6 +22,7 @@ named *_rel_edge, which are relative to the output mean edge length):
   flipped     output faces whose normal opposes the input normal at the closest
               input point (minority orientation, so a globally reversed output
               counts as reversed, not as all-flipped)
+  normal_deviation_deg  angle between output face and input normal at the closest point (D3)
   distance    one-sided mean / max and two-sided Hausdorff on area samples
   symmetry    (with --sym-axis) input reflection error, output geometric
               reflection error, and output *topological* symmetry: distance from
@@ -227,6 +228,10 @@ def compute(input_path, output_path, target_quads=None, sym_axis=None, sym_cente
     neg = int(np.sum(dots < 0))
     out["flipped"] = {"faces_vs_input": min(neg, len(faces) - neg),
                       "output_reversed": bool(neg > len(faces) - neg)}
+    # Normal deviation (TARGETS D3): angle between each output face and the input face closest to its
+    # centroid, after the global orientation fix above, so flipped faces count as > 90 degrees.
+    cos_in = (-dots if neg > len(faces) - neg else dots) / np.maximum(np.linalg.norm(nin, axis=1) * np.linalg.norm(normals, axis=1), 1e-300)
+    out["normal_deviation_deg"] = stats(np.degrees(np.arccos(np.clip(cos_in, -1, 1))))
     Pout = np.concatenate([sample_surface(V, Ftri, samples, rng), V[used]])
     d_out, _ = point_to_mesh(Pout, Vin, Fin)
     Pin = np.concatenate([sample_surface(Vin, Fin, samples, rng), Vin[rng.choice(used_in, min(len(used_in), samples))]])
@@ -234,7 +239,9 @@ def compute(input_path, output_path, target_quads=None, sym_axis=None, sym_cente
     out["distance"] = {"out_to_in_mean": float(d_out.mean() / diag), "out_to_in_max": float(d_out.max() / diag),
                        "in_to_out_mean": float(d_in.mean() / diag), "in_to_out_max": float(d_in.max() / diag),
                        "hausdorff": float(max(d_out.max(), d_in.max()) / diag),
-                       "in_to_out_p99": float(np.percentile(d_in, 99) / diag)}
+                       "in_to_out_p99": float(np.percentile(d_in, 99) / diag),
+                       # Output vertices (the tail of Pout): zero once they are projected onto the input.
+                       "vertex_to_in_median": float(np.median(d_out[-len(used):]) / diag)}
 
     if sym_axis:
         a = "xyz".index(sym_axis)

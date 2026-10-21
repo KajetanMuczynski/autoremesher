@@ -21,6 +21,7 @@
 #include <AutoRemesher/MeshSeparator>
 #include <AutoRemesher/PositionKey>
 #include <AutoRemesher/QuadExtractor>
+#include <AutoRemesher/SurfaceProjector>
 #include <algorithm>
 #include <axisalignedboundingbox.h>
 #include <axisalignedboundingboxtree.h>
@@ -1774,62 +1775,6 @@ bool QuadExtractor::removeNonManifoldFaces()
     }
     m_remeshedPolygons = manifoldFaces;
     return changed;
-}
-
-namespace {
-
-    Vector3 closestPointOnTriangle(const Vector3& p,
-        const Vector3& a, const Vector3& b, const Vector3& c)
-    {
-        const auto ab = b - a;
-        const auto ac = c - a;
-        const auto ap = p - a;
-        double d1 = Vector3::dotProduct(ab, ap);
-        double d2 = Vector3::dotProduct(ac, ap);
-        if (d1 <= 0.0 && d2 <= 0.0)
-            return a;
-
-        const auto bp = p - b;
-        double d3 = Vector3::dotProduct(ab, bp);
-        double d4 = Vector3::dotProduct(ac, bp);
-        if (d3 >= 0.0 && d4 <= d3)
-            return b;
-
-        double vc = d1 * d4 - d3 * d2;
-        if (vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0) {
-            double denom = d1 - d3;
-            double v = 0.0 != denom ? d1 / denom : 0.0;
-            return a + v * ab;
-        }
-
-        const auto cp = p - c;
-        double d5 = Vector3::dotProduct(ab, cp);
-        double d6 = Vector3::dotProduct(ac, cp);
-        if (d6 >= 0.0 && d5 <= d6)
-            return c;
-
-        double vb = d5 * d2 - d1 * d6;
-        if (vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0) {
-            double denom = d2 - d6;
-            double w = 0.0 != denom ? d2 / denom : 0.0;
-            return a + w * ac;
-        }
-
-        double va = d3 * d6 - d5 * d4;
-        if (va <= 0.0 && (d4 - d3) >= 0.0 && (d5 - d6) >= 0.0) {
-            double denom = (d4 - d3) + (d5 - d6);
-            double w = 0.0 != denom ? (d4 - d3) / denom : 0.0;
-            return b + w * (c - b);
-        }
-
-        double denom = va + vb + vc;
-        if (0.0 == denom)
-            return a;
-        double v = vb / denom;
-        double w = vc / denom;
-        return a + ab * v + ac * w;
-    }
-
 }
 
 void QuadExtractor::smoothAndProject(size_t iterations,
