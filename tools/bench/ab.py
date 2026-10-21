@@ -14,6 +14,7 @@ $AR_WORK, else ~/ar-work) needs the meshes from fetch_meshes.sh and make_synthet
 <work>/meshes; builds, perturbed inputs and runs go next to it:
 
     <work>/builds/<key>/        source export of REF and its CMake Release build
+    <work>/inputs/              1-ulp replicate inputs, metrics.py's input cache (inputs/metrics)
     <work>/runs/<key>[+<args>]/<set>/<mesh>/<resolution>-t<target>/u<k>/
                                 out.obj, report.json, stages.jsonl, metrics.json, record.json
 
@@ -35,6 +36,7 @@ import os
 import statistics as st
 import subprocess
 import sys
+import threading
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -109,7 +111,7 @@ def perturbed(src, k, work):
         return dst
     os.makedirs(os.path.dirname(dst), exist_ok=True)
     rng = np.random.default_rng(k)
-    tmp = dst + ".tmp"
+    tmp = f"{dst}.{os.getpid()}.{threading.get_ident()}.tmp"  # parallel runs of one replicate race here
     with open(src) as fi, open(tmp, "w") as fo:
         for line in fi:
             if line.startswith("v "):
@@ -123,10 +125,20 @@ def perturbed(src, k, work):
     return dst
 
 
-def measure(rec, d, mesh, target, src):
+def metrics_cache(work):
+    return os.path.join(work, "inputs", "metrics")
+
+
+def prepare_input(src, work):
+    """Fills metrics.py's input cache once per mesh, so runs started together don't each fill it."""
+    subprocess.call([sys.executable, METRICS, "--input", src, "--input-cache", metrics_cache(work), "--prepare-input"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def measure(rec, d, mesh, target, src, work):
     mj = os.path.join(d, "metrics.json")
     cmd = [sys.executable, METRICS, "--input", src, "--output", os.path.join(d, "out.obj"),
-           "--target-quads", str(target), "--samples", "100000", "--json", mj]
+           "--target-quads", str(target), "--samples", "100000", "--json", mj, "--input-cache", metrics_cache(work)]
     if mesh.get("sym"):
         axis, center = mesh["sym"]
         if center == "auto":  # bounding-box centre on that axis, as run_corpus.py does
@@ -160,7 +172,7 @@ def call_measured(cmd, log, timeout):
         time.sleep(0.05)
 
 
-def run_one(cli, mesh, setname, target, res, k, out, cli_args, work, metrics, remeasure=False, timeout=None):
+def run_one(cli, mesh, setname, target, res, k, out, cli_args, work, metrics, jobs, remeasure=False, timeout=None):
     d = os.path.join(out, setname, mesh["id"], f"{res}-t{target}", f"u{k}")
     record_path = os.path.join(d, "record.json")
     src = os.path.join(work, "meshes", mesh["file"])
@@ -168,7 +180,7 @@ def run_one(cli, mesh, setname, target, res, k, out, cli_args, work, metrics, re
         rec = json.load(open(record_path))
         # A finished run is never repeated, but its metrics can be recomputed after metrics.py changed.
         if remeasure and rec["rc"] == 0 and os.path.exists(os.path.join(d, "out.obj")):
-            measure(rec, d, mesh, target, src)
+            measure(rec, d, mesh, target, src, work)
             with open(record_path, "w") as fp:
                 json.dump(rec, fp, indent=1)
         return rec
@@ -181,7 +193,8 @@ def run_one(cli, mesh, setname, target, res, k, out, cli_args, work, metrics, re
     with open(os.path.join(d, "log.txt"), "w") as log:
         rc, rss = call_measured(cmd, log, timeout)
     rec = {"mesh": mesh["id"], "set": setname, "target": target, "res": res, "replicate": k, "rc": rc,
-           "wall": time.time() - t0, "peak_rss_mb": rss, "cli_args": cli_args}
+           "wall": time.time() - t0, "peak_rss_mb": rss, "cli_args": cli_args, "jobs": jobs,
+           "input_sha": file_hash(inp)}
     if os.path.exists(os.path.join(d, "out.obj")):
         rec["out_sha"] = file_hash(os.path.join(d, "out.obj"))
     try:
@@ -199,7 +212,7 @@ def run_one(cli, mesh, setname, target, res, k, out, cli_args, work, metrics, re
     except (OSError, ValueError) as ex:
         rec["stage_error"] = str(ex)
     if metrics and rc == 0 and os.path.exists(os.path.join(d, "out.obj")):
-        measure(rec, d, mesh, target, src)
+        measure(rec, d, mesh, target, src, work)
     with open(record_path, "w") as fp:
         json.dump(rec, fp, indent=1)
     return rec
@@ -247,8 +260,13 @@ def cmd_run(a):
     jobs = [(m, t, r, k) for m in meshes for t in targets for r in resolutions for k in range(a.replicates + 1)]
     print(f"{len(jobs)} runs into {out}", flush=True)
     with cf.ThreadPoolExecutor(max_workers=a.jobs) as pool:
+        if not a.no_metrics:
+            pending = {m["id"]: m for m, t, r, k in jobs
+                       if a.remeasure or not os.path.exists(os.path.join(out, a.set, m["id"], f"{r}-t{t}", f"u{k}",
+                                                                         "record.json"))}
+            list(pool.map(lambda m: prepare_input(os.path.join(a.work, "meshes", m["file"]), a.work), pending.values()))
         futs = [pool.submit(run_one, cli, m, a.set, t, r, k, out, a.cli_arg, a.work, not a.no_metrics,
-                            a.remeasure, a.timeout)
+                            a.jobs, a.remeasure, a.timeout)
                 for m, t, r, k in jobs]
         for f in futs:
             rec = f.result()
@@ -373,6 +391,13 @@ def cmd_compare(a):
               f"{better} / {worse} |")
     print("\nCounts are summed over runs (geo-mean of (B+1)/(A+1)), the rest averaged. time is the CLI's own "
           "total under --jobs parallel load: use it for large effects only.\n")
+    # Each parallel run slows the others (4 jobs on 4 cores: about +20 % CLI time against 2 jobs), so
+    # a time row is only fair between sides run with the same --jobs. Records before 2026-10-21 lack it.
+    ja = {A[k][u].get("jobs") for k in keys for u in reps}
+    jb = {B[k][u].get("jobs") for k in keys for u in reps}
+    if ja != jb or len(ja) > 1:
+        fj = lambda j: ", ".join(sorted(str(x) if x else "unrecorded" for x in j))  # noqa: E731
+        print(f"**time is not comparable**: A ran with --jobs {fj(ja)}, B with --jobs {fj(jb)}.\n")
 
     # Noise: with replicates, how often B's spread separates from A's.
     if len(reps) > 1:

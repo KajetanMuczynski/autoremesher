@@ -22,6 +22,7 @@ directory you choose.
 | `summarize.py` | Markdown tables + CSV from `summary.json`. |
 | `claims.py` | Aggregates per REFERENCE claim (stage shares, M1/M2 counts, P3 correlations and scaling slopes, thread/ladder/allocator/adaptivity comparisons). |
 | `experiments.sh` | Thread sweep (P1), input-size ladder (P4/P6), allocator swap (P5), adaptivity off (M7), perf profiles. |
+| `tests/` | Python tests of the bench tools (`python -m unittest discover -s tools/bench/tests`; run in CI by `qt-app`). |
 | `perf_buckets.py` | Groups a `perf report` listing into allocator / containers / solver / remesher / extractor buckets. |
 
 The counters-only `probes.patch` and the CHOLMOD experiment patch were retired on 2026-10-20: they no
@@ -65,8 +66,20 @@ $P tools/bench/ab.py run HEAD --set closed   # genus check; also --set suzanne
 - **Options.** `--only a,b`, `--skip`, `--targets`, `--resolutions` override the set's defaults;
   `--timeout S` kills a run after S seconds (recorded as `rc: "timeout"`); every record has the run's
   own peak RSS (`peak_rss_mb`). `--cli-arg=--adaptivity=0` (repeatable) passes CLI options, and those runs get their own folder, so
-  compare folders, not refs: `compare $AR_WORK/runs/<key> $AR_WORK/runs/<key>+<hash>`. `--jobs 2`
-  (default) runs two meshes at once, each using all cores; on a hot laptop use `--jobs 1`.
+  compare folders, not refs: `compare $AR_WORK/runs/<key> $AR_WORK/runs/<key>+<hash>`.
+- **Speed.** `--jobs N` (default 2) runs N meshes at once. The CLI uses one core per island (TBB
+  splits work by island only), so most corpus runs keep one core busy and `--jobs 2` leaves half of
+  a 4-core machine idle. In a cloud container use `--jobs $(nproc)`. Measured 2026-10-21 on a 4-vCPU
+  container: corpus set with `--replicates 5` 35 min → 20 min, closed set 59 s → 41 s per replicate
+  (`--jobs 2` before this change → `--jobs 4` with the input cache below). Outputs don't depend on
+  `--jobs` or the thread count (72 of 72 `out.obj` byte-identical), only the `time` row does
+  (+20 % CLI time at 4 jobs), so `compare` flags a time row whose sides ran with different `--jobs`; keep `--jobs` equal on both
+  sides with `--timeout` too, since a run near the limit can time out under heavier load.
+  On Kajetan's laptop keep the default, or `--jobs 1` when it runs hot. metrics.py caches the
+  input's share of its work (reading the OBJ, input topology; most of its time on large meshes) in
+  `$AR_WORK/inputs/metrics`, keyed by the input's content and metrics.py's own hash, so the cached
+  numbers are bit-identical (`tools/bench/tests`) and an edit of metrics.py starts a fresh cache.
+  Builds take about a minute and happen once per key, so they are not worth caching further.
 - **What it records.** Per run in `<set>/<mesh>/<resolution>-t<target>/u<k>/`: the output OBJ, the CLI's
   `report.json` and `stages.jsonl`, `metrics.json` and a `record.json` summary. `compare` reports the
   report's UV flips (continuous, rounded, final), degenerate UV triangles, non-quads, SJ ≤ 0 quads,
