@@ -7,6 +7,9 @@ current default; an independent critique changed the first draft (§8). **Status
 on 2026-10-20 (§6): positioning, priority with margins and release bar accepted; the artist-side
 reference is deferred. **2026-10-21, provisional:** V1 no longer asks for all-quad outside hard
 surface; isolated or paired triangles and pentagons are tolerated (§3.2, §6 item 5).
+**Scope:** the gates apply as written inside the supported-input envelope ([ENVELOPE.md](ENVELOPE.md));
+outside it a defect within 2 h₀ of the out-of-envelope region is an expected limit, still counted and
+ratcheted. ENVELOPE §2 lists the defects that are never exempt.
 
 Tags as in [README.md](README.md): **[M]** measured, **[I]** inferred, **[P]** primary source, **[E]**
 external claim. Metric IDs (T*, G*, D*, A*, P*, S*) are those of research/extraction-layout-metrics.md
@@ -120,7 +123,7 @@ marked), and a release needs them on every corpus run and replicate.
 | ID | Gate | Today [M] | In CI |
 |---|---|---|---|
 | H1 | Completes: exit 0, status ok, non-empty output; no input refused | 54/54; Blender refuses 2 meshes | yes |
-| H2 | 2-manifold: no non-manifold edge or vertex | 54/54 edges; vertices: 0 in 150 corpus and closed runs on master `124aeb8`, but 18 of 154 sculpt-set runs (15 of them sculpt_parts, the sunk-eyeball caps) [M] | edges; vertices counted by `sculpt_report.py`, a gate once 2.18 is fixed |
+| H2 | 2-manifold: no non-manifold edge or vertex | 54/54 edges; vertices: 0 in 150 corpus and closed runs on master `124aeb8`, but 18 of 154 sculpt-set runs (15 of them sculpt_parts, the sunk-eyeball caps) [M] | edges; vertices counted by `sculpt_report.py`, a gate once 2.18 is fixed. A non-manifold vertex is a bug wherever it occurs (ENVELOPE §2); the gate waits only so CI isn't red on a known, owned bug |
 | H8 | No face with 6 or more sides | 0 in 304 runs (corpus, closed, sculpt set) [M] | add |
 | H3 | Consistently oriented | 54/54 | add |
 | H4 | Islands kept: one output component per input island | 54/54; QuadriFlow 50/54 | add (reported today) |
@@ -178,6 +181,10 @@ research/targets-v1-2026-10-21/):
   every run with a 2-cluster outside hard surface also fails V2–V5. So 2 is chosen to avoid failing harmless runs, not to
   gain clean runs; re-derive it when Kajetan's own sculpts are in (1.12).
 - 6+-gons: none in 304 runs, so they are a structural gate (H8), not part of the ratchet.
+- Same line as ENVELOPE §2: 6+-gons and clusters of more than 2 are never exempt, inside or outside
+  the envelope, so the 2 h₀ locality rule (ENVELOPE §5.3) never excuses them. Single non-quads and
+  pairs need no exemption outside hard surface. On hard surface, non-quads at sub-quad tips (ENVELOPE
+  row 3) are not exempt either: row 3 exempts folds and valence ≥ 7 there, not non-quads.
 
 **What the provisional V1 can hide, and the guard for each:**
 - *A fold carried by the non-quads themselves.* V2 tests the scaled Jacobian of quads only
