@@ -68,6 +68,9 @@ $P tools/bench/ab.py run HEAD --set closed   # genus check; also --set suzanne
   `--timeout S` kills a run after S seconds (recorded as `rc: "timeout"`); every record has the run's
   own peak RSS (`peak_rss_mb`). `--cli-arg=--adaptivity=0` (repeatable) passes CLI options, and those runs get their own folder, so
   compare folders, not refs: `compare $AR_WORK/runs/<key> $AR_WORK/runs/<key>+<hash>`.
+  `--cmake-arg=-DAUTOREMESHER_QEX=1` (repeatable) configures the build with a CMake option, for
+  experiments behind a build switch; such builds and runs get their own key. Each run's log keeps its
+  first 8 MB, so a hung run that keeps printing can't fill the disk.
 - **Speed.** `--jobs N` (default 2) runs N meshes at once. The CLI uses one core per island (TBB
   splits work by island only), so most corpus runs keep one core busy and `--jobs 2` leaves half of
   a 4-core machine idle. In a cloud container use `--jobs $(nproc)`. Measured 2026-10-21 on a 4-vCPU

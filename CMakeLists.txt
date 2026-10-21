@@ -22,6 +22,10 @@ else()
 endif()
 option(AUTOREMESHER_BUNDLED_TBB "Build oneTBB from source and link it statically" ${AUTOREMESHER_DEFAULT_BUNDLED_TBB})
 option(AUTOREMESHER_BUILD_TESTS "Build the core tests in tests/ (run with ctest)" OFF)
+# Experiment for TODO 6.1, never shipped: extract quads with libQEx (Ebke et al. 2013) instead of
+# QuadExtractor's own graph tracing. 1 = QEx faces, then all of QuadExtractor's repair and cleanup;
+# 2 = QEx faces with only the hole and topology repair; 3 = as 2, then smoothing and projection. Fetches libQEx and OpenMesh's core.
+set(AUTOREMESHER_QEX 0 CACHE STRING "libQEx extraction experiment: 0 off, 1 QEx + cleanup, 2 QEx + repair only, 3 QEx + repair + smoothing")
 option(AUTOREMESHER_STATIC_RUNTIME "Link the MSVC C++ runtime statically (/MT)" ON)
 
 # Before project(): the runtime choice must reach oneTBB's targets too.
@@ -95,6 +99,49 @@ target_include_directories(autoremesher_core
 # _USE_MATH_DEFINES: M_PI on MSVC. NOMINMAX: <windows.h> must not define min/max.
 target_compile_definitions(autoremesher_core PUBLIC _USE_MATH_DEFINES NOMINMAX)
 target_link_libraries(autoremesher_core PUBLIC TBB::tbb Threads::Threads)
+
+if(NOT AUTOREMESHER_QEX STREQUAL "0")
+    include(FetchContent)
+    # OpenMesh 9.1.0 core (BSD-3-Clause), from the openmesh 1.2.1 sdist on PyPI: the RWTH download
+    # server is not reachable from every build machine.
+    FetchContent_Declare(openmesh
+        URL https://files.pythonhosted.org/packages/66/34/fd86bf3ca48d010f3a588fa997595c13162bc07563382f9a4d5ec8855dfb/openmesh-1.2.1.tar.gz
+        URL_HASH SHA256=6fd3fa41a68148e4a7523f562426aa9758bf65ccc6642abcf79c37bae9c6af3c
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+    # libQEx (GPL-3.0-or-later), master of 2026-05-27.
+    FetchContent_Declare(libqex
+        GIT_REPOSITORY https://github.com/hcebke/libQEx.git
+        GIT_TAG 517dcaa0cc87646baa89e52cfc8e23766776f6d5)
+    FetchContent_GetProperties(openmesh)
+    if(NOT openmesh_POPULATED)
+        FetchContent_Populate(openmesh)
+    endif()
+    FetchContent_GetProperties(libqex)
+    if(NOT libqex_POPULATED)
+        FetchContent_Populate(libqex)
+    endif()
+    set(OPENMESH_SRC "${openmesh_SOURCE_DIR}/OpenMesh/src")
+    file(GLOB_RECURSE OPENMESH_CORE_SOURCES "${OPENMESH_SRC}/OpenMesh/Core/*.cc")
+    enable_language(C)
+    add_library(autoremesher_qex STATIC ${OPENMESH_CORE_SOURCES}
+        "${libqex_SOURCE_DIR}/interfaces/c/qex.cc"
+        "${libqex_SOURCE_DIR}/src/MeshExtractor.cc"
+        "${libqex_SOURCE_DIR}/src/predicates.c")
+    target_compile_features(autoremesher_qex PUBLIC cxx_std_14)
+    target_include_directories(autoremesher_qex PUBLIC "${OPENMESH_SRC}" "${libqex_SOURCE_DIR}/interfaces/c")
+    # qex.h marks its functions dllimport on Windows unless DLLEXPORT is set; this is a static library.
+    target_compile_definitions(autoremesher_qex PUBLIC _USE_MATH_DEFINES OM_STATIC_BUILD DLLEXPORT=)
+    if(NOT MSVC)
+        # Shewchuk's predicates need SSE arithmetic, not x87 (libQEx's CMakeLists does the same).
+        target_compile_options(autoremesher_qex PRIVATE -w $<$<COMPILE_LANGUAGE:C>:-std=gnu99>)
+        if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+            target_compile_options(autoremesher_qex PRIVATE -msse2 -mfpmath=sse)
+        endif()
+    endif()
+    target_sources(autoremesher_core PRIVATE src/AutoRemesher/qexextraction.cpp)
+    target_compile_definitions(autoremesher_core PRIVATE AUTOREMESHER_QEX=${AUTOREMESHER_QEX})
+    target_link_libraries(autoremesher_core PRIVATE autoremesher_qex)
+endif()
 
 if(MSVC)
     # /bigobj: Eigen-heavy translation units exceed the default section count.
