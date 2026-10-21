@@ -69,7 +69,7 @@ for the add-on panel to show before Remesh. *report* means the core's quality re
 
 | # | Quantity (how measured) | Inside the envelope | Evidence | Test mesh (outside) / canary (inside) | Outside: what is exempt | User sees | Kind / owner |
 |---|---|---|---|---|---|---|---|
-| 1 | **Handle size**: per input handle, the continuous map's meridian holonomy H (grid units = quads, along the shortest homology loop of T; `seam-lattice-2026-10-21/holonomy.py`). Pre-run proxy: shortest input loop L ÷ h₀ (`handles.py`) | H ≥ 3 | Three bands, §3.1 | demosthenes 2k (H ≈ 1) / torus_0.1 at 150 (bug band) and torus_0.05 at 150 (owner band) | H < 2: the handle may close. 2 ≤ H < 3: may close until the owner's fix lands. Never: an extra handle | *pre:* "N handles narrower than 3 quads: raise Target Quads to ≈ N·(3/H)² to keep them, or they may close". *report:* handles closed | §3.1 |
+| 1 | **Handle size**: per input handle, the continuous map's meridian holonomy H (grid units = quads, along the shortest homology loop of T; `seam-lattice-2026-10-21/holonomy.py`). Pre-run proxy: shortest input loop L ÷ h₀ (`handles.py`) | H ≥ 3 | Three bands, §3.1 | demosthenes 2k (H ≈ 1) / torus_0.1 at 150 (bug band) and torus_0.05 at 150 (owner band) | H < 2: the handle may close. 2 ≤ H < 3: may close until the lattice problem is solved (7.2). Never: an extra handle | *pre:* "N handles narrower than 3 quads: raise Target Quads to ≈ N·(3/H)² to keep them, or they may close". *report:* handles closed | §3.1 |
 | 2 | **Thin sheet**: local thickness t (inward ray from each input face centroid to the opposite side, area-weighted) ÷ h₀; the fraction of area with t < h₀ | t ≥ 1 h₀ everywhere for V2/V3 (folds, flips); **any t** for topology | Every tool folds on parts thinner than a quad (13/54 pairs have no fold-free tool) [M]. Yet topology holds: ellipsoid_0.4_0.003 (t ≈ 0.17 h₀ at 2k) keeps genus on 4d15d5f; on the closed set only the tori fail [M]. thin_leaf (t ≈ 0.32 h₀ at 2k, 0.71 at 10k): folds 2–12 in every replicate [M] | thin_leaf 2k / ellipsoid_0.4_0.1 (t ≈ 5 h₀ at 2k) | Folds and flips within 2 h₀ of the thin region. Topology, islands and the count are **not** exempt | *pre:* "thin parts below quad size: expect folds there" | permanent below 1 h₀ until 5.3/4.1 add a thin-part cap |
 | 3 | **Sub-quad tips and crests**: input faces in the sharp/thin band (normal spread within one h₀ < 0.7, `sculpt_report.py`) | Not a run condition, a location. Non-quads there are tolerated (V1 rewording); folds are expected limits | Non-quads up to 5× concentrated in the band, folds often 100 % in it [M]. Kajetan's crater tip: 1 fold at a valence 10–12 pole [M, reported] | sculpt_voxel horn tips / spot (smooth: no exemption) | Folds and valence ≥ 7 within 2 h₀ of a band face. Counted and ratcheted | *report:* "N folds at sharp tips" | temporary: 5.3, 4.1 |
 | 4 | **Input size**: triangles; **target**: quads | ≤ 6.4M triangles [M]; target ≤ 100k quads [M], 100k–200k [I] | 6.4M triangles in 27.5 s on the ladder (TODO 8.2) [M]. Memory 21 KB per quad at Quality, linear over 25k–100k [M] | koala ladder / spot 100k | Time and memory only. Quality gates still apply | Exists: the CLI warns above 200,000 with an estimate; the add-on asks; the core refuses above 2,000,000 [C] | permanent (hardware) |
@@ -95,7 +95,7 @@ demosthenes) [M].
 | Band | Status | Evidence | What changes it |
 |---|---|---|---|
 | H < 2 | **Permanent limit** at this count. No lattice gives a ring of ≥ 3 without stretching the map by more than half (needs ×1.5 or more); the user is told the count that keeps it | demosthenes' three scan tunnels sit at H ≈ 1: 2ℤ² rounds them to 0 and ℤ² to 1, still no ring [M] | Nothing at this count: raise the count |
-| 2 ≤ H < 3 | **Known limit with an owner.** Expected and ratcheted, and the canary below must not get worse | torus_0.03 / 0.05 at 150 (2.1–2.7 h₀). On master: 2ℤ² rounds to 2 (collapsed) or 4. ℤ² plus the torus thread's two extractor fixes keeps them (torus_0.05 Quality 0 → 5/6, Fast 1 → 5/6), but ℤ² alone regresses the corpus (flips ×1.35, plane 2k broken in 6/6) [M, seam-lattice and torus threads] | The ℤ² lattice landing together with the extractor fix. From then on this band is a **bug** |
+| 2 ≤ H < 3 | **Known limit with an owner.** Expected and ratcheted, and the canary below must not get worse | torus_0.03 / 0.05 at 150 (2.1–2.7 h₀). On master: 2ℤ² rounds to 2 (collapsed) or 4. ℤ² plus the torus thread's two extractor fixes keeps them (torus_0.05 Quality 0 → 5/6, Fast 1 → 5/6), but ℤ² alone regresses the corpus (flips ×1.35, plane 2k broken in 6/6) [M, seam-lattice and torus threads] | Owner: the quantization work (7.2), i.e. a lattice that allows odd meridians without regressing rounding. ℤ² as measured is not adopted. Until that problem is solved this band stays a known limit; after it, a **bug** |
 | H ≥ 3 | **Bug.** Every loss here is the extractor's (2.13, 6.1) | 64 of 75 wrong replicate-runs on master are extractor losses or additions with the map right [M] | – |
 
 Two open edges:
@@ -112,7 +112,7 @@ body, checked 2026-10-21), so row 9 stays open after #51.
 
 | ID | Row | Experiment (all through `ab.py` with `--replicates 5`, per CLAUDE.md) | Settles |
 |---|---|---|---|
-| E1 | 1 | Tori at r ∈ {0.03, 0.05} over targets that sweep H from 1 to 4 (≈ 8 targets), demosthenes 2k/5k/10k, on master and on ℤ² + extractor fix. Log H per handle (holonomy probe) next to kept/lost | The 2.0 band edge, and how well L/h₀ predicts H |
+| E1 | 1 | Tori at r ∈ {0.03, 0.05} over targets that sweep H from 1 to 4 (≈ 8 targets), demosthenes 2k/5k/10k, on master and on any candidate lattice. Log H per handle (holonomy probe) next to kept/lost | The 2.0 band edge, and how well L/h₀ predicts H |
 | E2 | 2 | Thickness column (ray cast) added to the metrics; ellipsoid set at 2k–10k | Whether folds are confined to within 2 h₀ of thin parts, as row 2 assumes |
 | E3 | 5 | spot and sculpt_steps decimated to 1k / 3k / 10k triangles, run at 1k–15k quads (ratio 0.1–10) | The lower bound of input ÷ target |
 | E4 | 7 | Generator: one island folded through itself (a sphere with a dent pushed out through the opposite wall) | Whether self-intersection breaks only locally |
@@ -160,8 +160,8 @@ version at the top of this file.
 1. **User-facing behaviour outside the envelope:** warn and run (my proposal: the panel shows *pre*
    warnings and runs anyway), or refuse? I'd refuse only above the memory ceiling, which already
    happens. Refusing a thin leaf would be "stupidly strict".
-2. **Row 1, band 2 ≤ H < 3:** accept "known limit with an owner" until ℤ² and the extractor fix land
-   together, then make it a bug? Below 2 is permanent, because no lattice can make a ring there.
+2. **Row 1, band 2 ≤ H < 3:** accept it as a known limit owned by the quantization work (7.2) until a
+   lattice that allows odd meridians without regressing rounding exists, then make it a bug? Below 2 is permanent, because no lattice can make a ring there.
 3. **Row 6, eyeball caps:** keep it inside the envelope (my proposal), which makes 19/36 sculpt_parts
    runs count as gate failures today?
 4. **Locality radius 2 h₀** (§5.3): no data says 1 or 3 is better. E2 measures it for folds. Accept 2 as
