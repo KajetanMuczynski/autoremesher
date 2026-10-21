@@ -44,3 +44,17 @@ target_compile_definitions(${BENCH_TARGET} PRIVATE NDEBUG _USE_MATH_DEFINES NOMI
 target_compile_options(${BENCH_TARGET} PRIVATE -O3 -funroll-loops -march=x86-64-v2 -w)
 set_property(TARGET ${BENCH_TARGET} PROPERTY INTERPROCEDURAL_OPTIMIZATION ON)
 target_link_libraries(${BENCH_TARGET} PRIVATE TBB::tbb Threads::Threads)
+# Checkouts with the vendored libQEx front end (TODO 6.1b) need it and the
+# OpenMesh core; older checkouts don't have them.
+if(EXISTS "${AR_THIRDPARTY}/libQEx/interfaces/c/qex.cc")
+    enable_language(C)
+    file(GLOB_RECURSE AR_OPENMESH_SOURCES "${AR_THIRDPARTY}/OpenMesh/src/OpenMesh/Core/*.cc")
+    add_library(ar_qex STATIC ${AR_OPENMESH_SOURCES}
+        "${AR_THIRDPARTY}/libQEx/interfaces/c/qex.cc"
+        "${AR_THIRDPARTY}/libQEx/src/MeshExtractor.cc"
+        "${AR_THIRDPARTY}/libQEx/src/predicates.c")
+    target_include_directories(ar_qex PUBLIC "${AR_THIRDPARTY}/OpenMesh/src" "${AR_THIRDPARTY}/libQEx/interfaces/c")
+    target_compile_definitions(ar_qex PUBLIC _USE_MATH_DEFINES OM_STATIC_BUILD DLLEXPORT= NDEBUG)
+    target_compile_options(ar_qex PRIVATE -O3 -w -msse2 -mfpmath=sse $<$<COMPILE_LANGUAGE:C>:-std=gnu99>)
+    target_link_libraries(${BENCH_TARGET} PRIVATE ar_qex)
+endif()

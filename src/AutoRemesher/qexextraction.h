@@ -20,23 +20,53 @@
 #define AUTO_REMESHER_QEX_EXTRACTION_H
 #include <AutoRemesher/Vector2>
 #include <AutoRemesher/Vector3>
+#include <cstddef>
 #include <string>
 #include <vector>
 
 namespace AutoRemesher {
 
-// Experiment for TODO 6.1 (built only with -DAUTOREMESHER_QEX=1 or 2): the
-// polygons libQEx (Ebke et al. 2013) extracts from the integer-grid map,
+// libQEx's deterministic limits (thirdparty/libQEx/PATCHES.md). Steps, not
+// seconds, so that a run is the same on every machine and under any load.
+// On the corpus, closed and real-sculpt runs that libQEx finished, the most a
+// run used was 1,361 steps per triangle (a thin torus; median 1.5, a real
+// sculpt head up to 470); 4,000 leaves room above that and still ends a
+// runaway trace in seconds.
+constexpr size_t QexStepsPerTriangle = 4000;
+// Grid vertices are about one per quad; 8 per target quad bounds libQEx's
+// memory by the target rather than by how far the map folds.
+constexpr size_t QexGridVerticesPerQuad = 8;
+
+struct QexLimits {
+    size_t maxSteps = 0; // 0: none
+    size_t maxGridVertices = 0; // 0: none
+};
+
+struct QexOutcome {
+    bool attempted = false;
+    bool used = false;
+    // Why the island fell back to our own tracing, empty if it didn't.
+    std::string reason;
+    size_t steps = 0;
+    size_t faces = 0;
+    size_t nonQuads = 0;
+    // Faces dropped by dropUnrepairableFaces() (an edge used by more than two).
+    size_t droppedFaces = 0;
+};
+
+// The polygons libQEx (Ebke et al. 2013) extracts from the integer-grid map,
 // given per triangle corner as QuadExtractor takes it.  Faces QEx leaves as
-// n-gons are kept.  Returns false, with the reason in *why, when OpenMesh
-// rejects the triangle mesh (a non-manifold edge or vertex) or QEx fails, so
-// the caller can fall back to its own extraction.
+// n-gons are kept.  Returns false, with the reason in outcome->reason, when
+// OpenMesh rejects the triangle mesh (a non-manifold edge or vertex), libQEx
+// hits a limit or one of its connectivity guards, or returns no face; the
+// caller then falls back to its own extraction.
 bool extractWithQex(const std::vector<Vector3>& vertices,
     const std::vector<std::vector<size_t>>& triangles,
     const std::vector<std::vector<Vector2>>& triangleUvs,
+    const QexLimits& limits,
     std::vector<Vector3>* outVertices,
     std::vector<std::vector<size_t>>* outPolygons,
-    std::string* why);
+    QexOutcome* outcome);
 
 }
 

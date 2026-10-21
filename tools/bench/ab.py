@@ -4,7 +4,7 @@
 
     ab.py run REF [--set corpus] [--targets 2000,10000] [--resolutions fast,quality]
                   [--only a,b | --skip a,b] [--replicates N] [--cli-arg=--adaptivity=0 ...]
-                  [--cmake-arg=-DAUTOREMESHER_QEX=1 ...] [--jobs 2] [--no-metrics] [--remeasure]
+                  [--cmake-arg=-DX=1 ...] [--jobs 2] [--no-metrics] [--remeasure]
                   [--timeout S] [--work DIR]
     ab.py compare A B [--set corpus] [--per-run] [--work DIR]
     ab.py build REF [--cmake-arg=... ...] [--work DIR]
@@ -234,6 +234,7 @@ def run_one(cli, mesh, setname, target, res, k, out, cli_args, work, metrics, jo
         rec["cover"] = [{k2: s.get(k2) for k2 in ("continuous_energy", "rounded_energy", "iterations")}
                         for s in stages if s.get("stage") == "cover_result"]
         rec["t_topology"] = t_topology(stages)
+        rec["extractor"] = extractor_summary(stages)
     except (OSError, ValueError) as ex:
         rec["stage_error"] = str(ex)
     if metrics and rc == 0 and os.path.exists(os.path.join(d, "out.obj")):
@@ -241,6 +242,13 @@ def run_one(cli, mesh, setname, target, res, k, out, cli_args, work, metrics, jo
     with open(record_path, "w") as fp:
         json.dump(rec, fp, indent=1)
     return rec
+
+
+def extractor_summary(stages):
+    """Islands libQEx extracted and those that fell back to our tracing (TODO 6.1b), with the reasons."""
+    recs = [s for s in stages if s.get("stage") == "extractor"]
+    return {"islands": len(recs), "fallbacks": sum(1 for s in recs if s.get("used") == "trace"),
+            "reasons": sorted({s.get("fallback_reason") for s in recs if s.get("used") == "trace"})}
 
 
 def t_topology(stages):
@@ -311,9 +319,10 @@ def load_runs(path, setname):
             r = json.load(open(os.path.join(root, "record.json")))
             if "out_sha" not in r and os.path.exists(os.path.join(root, "out.obj")):
                 r["out_sha"] = file_hash(os.path.join(root, "out.obj"))
-            if "t_topology" not in r and os.path.exists(os.path.join(root, "stages.jsonl")):
-                r["t_topology"] = t_topology([json.loads(line) for line in open(os.path.join(root, "stages.jsonl"))
-                                              if line.strip()])
+            if ("t_topology" not in r or "extractor" not in r) and os.path.exists(os.path.join(root, "stages.jsonl")):
+                stages = [json.loads(line) for line in open(os.path.join(root, "stages.jsonl")) if line.strip()]
+                r.setdefault("t_topology", t_topology(stages))
+                r.setdefault("extractor", extractor_summary(stages))
             runs.setdefault((r["mesh"], r["res"], r["target"]), {})[r["replicate"]] = r
     return runs
 
@@ -347,11 +356,14 @@ def value(r, k):
     if k == "peak_rss_mb": return r.get("peak_rss_mb")
     if k == "t_non_manifold": return (r.get("t_topology") or {}).get("isotropic_non_manifold_edges")
     if k == "t_opened": return (r.get("t_topology") or {}).get("isotropic_opened_closed_islands")
+    if k == "qex_fallbacks":
+        e = r.get("extractor") or {}
+        return e.get("fallbacks") if e.get("islands") else None
     raise KeyError(k)
 
 
 COUNTS = ["flips_cont", "flips_round", "flips", "degenerate", "non_quads", "sj_le_0", "flipped_vs_input",
-          "t_non_manifold", "t_opened"]
+          "t_non_manifold", "t_opened", "qex_fallbacks"]
 MEANS = ["irregular_1k", "in_out_p99", "hausdorff", "in_out_mean", "normal_dev", "vertex_dist", "count_err",
          "energy_ratio", "time", "peak_rss_mb"]
 

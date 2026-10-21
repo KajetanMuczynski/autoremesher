@@ -60,3 +60,9 @@ add_test(NAME map_check COMMAND map_check_test)
 add_executable(input_cleanup_test input_cleanup_test.cpp)
 target_link_libraries(input_cleanup_test PRIVATE autoremesher_core)
 add_test(NAME input_cleanup COMMAND input_cleanup_test)
+
+add_executable(qex_guard_test qex_guard_test.cpp)
+target_link_libraries(qex_guard_test PRIVATE autoremesher_core)
+add_test(NAME qex_guard COMMAND qex_guard_test "${CMAKE_CURRENT_SOURCE_DIR}/data/qex-budget-ellipsoid.obj")
+# A guard that stops working shows as a hang; unguarded, this map never ends.
+set_tests_properties(qex_guard PROPERTIES TIMEOUT 120)

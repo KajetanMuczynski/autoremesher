@@ -1,0 +1,170 @@
+/*
+ *  Copyright (C) 2026 Quadami contributors
+ *
+ *  This program is free software: you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation, either version 3 of the License, or
+ *  (at your option) any later version.
+ *
+ *  This program is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ *  SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+// libQEx with the fork's guards (TODO 6.1b, thirdparty/libQEx/PATCHES.md).
+//
+// A flat square mapped onto the grid comes out as its quads. The same map
+// under a grid-vertex cap below its size, and a recorded folded map on which
+// unguarded libQEx looped forever (data/qex-budget-ellipsoid.obj: the thin
+// ellipsoid_0.4_0.003 of the closed set, fast, 500 quads, replicate 5), both
+// end with a reason, so the caller can fall back. ctest's timeout catches a
+// guard that stops working.
+
+#include <AutoRemesher/QexExtraction>
+#include <cstdio>
+#include <cstring>
+#include <fstream>
+#include <sstream>
+#include <string>
+#include <vector>
+
+namespace {
+
+using AutoRemesher::QexLimits;
+using AutoRemesher::QexOutcome;
+using AutoRemesher::Vector2;
+using AutoRemesher::Vector3;
+
+int failures = 0;
+
+void expect(bool condition, const char* what)
+{
+    if (!condition) {
+        std::printf("FAIL: %s\n", what);
+        ++failures;
+    }
+}
+
+struct Map {
+    std::vector<Vector3> vertices;
+    std::vector<std::vector<size_t>> triangles;
+    std::vector<std::vector<Vector2>> uvs;
+};
+
+// n x n cells, two triangles each, `uvPerCell` grid units per cell edge.
+Map makeSquare(size_t n, double uvPerCell)
+{
+    Map map;
+    for (size_t j = 0; j <= n; ++j) {
+        for (size_t i = 0; i <= n; ++i)
+            map.vertices.emplace_back((double)i, (double)j, 0.0);
+    }
+    const auto at = [n](size_t i, size_t j) { return j * (n + 1) + i; };
+    const auto uv = [uvPerCell](size_t i, size_t j) { return Vector2(i * uvPerCell, j * uvPerCell); };
+    for (size_t j = 0; j < n; ++j) {
+        for (size_t i = 0; i < n; ++i) {
+            map.triangles.push_back({ at(i, j), at(i + 1, j), at(i + 1, j + 1) });
+            map.uvs.push_back({ uv(i, j), uv(i + 1, j), uv(i + 1, j + 1) });
+            map.triangles.push_back({ at(i, j), at(i + 1, j + 1), at(i, j + 1) });
+            map.uvs.push_back({ uv(i, j), uv(i + 1, j + 1), uv(i, j + 1) });
+        }
+    }
+    return map;
+}
+
+// The OBJ the fixture is stored as: `v` per vertex, `vt` per triangle corner,
+// `f a/ta b/tb c/tc`, all doubles in round-trip precision.
+bool readMap(const char* path, Map* map)
+{
+    std::ifstream in(path);
+    if (!in)
+        return false;
+    std::vector<Vector2> cornerUvs;
+    std::string line;
+    while (std::getline(in, line)) {
+        std::istringstream fields(line);
+        std::string tag;
+        fields >> tag;
+        if ("v" == tag) {
+            double x, y, z;
+            fields >> x >> y >> z;
+            map->vertices.emplace_back(x, y, z);
+        } else if ("vt" == tag) {
+            double u, v;
+            fields >> u >> v;
+            cornerUvs.emplace_back(u, v);
+        } else if ("f" == tag) {
+            std::vector<size_t> triangle;
+            std::vector<Vector2> uvs;
+            std::string corner;
+            while (fields >> corner) {
+                const size_t slash = corner.find('/');
+                triangle.push_back(std::stoul(corner.substr(0, slash)) - 1);
+                uvs.push_back(cornerUvs.at(std::stoul(corner.substr(slash + 1)) - 1));
+            }
+            map->triangles.push_back(triangle);
+            map->uvs.push_back(uvs);
+        }
+    }
+    return !map->triangles.empty();
+}
+
+// As QuadExtractor sets them.
+QexLimits limitsFor(const Map& map, size_t targetQuads)
+{
+    QexLimits limits;
+    limits.maxSteps = AutoRemesher::QexStepsPerTriangle * (map.triangles.size() + 100);
+    limits.maxGridVertices = AutoRemesher::QexGridVerticesPerQuad * targetQuads + 1000;
+    return limits;
+}
+
+}
+
+int main(int argc, char* argv[])
+{
+    if (argc < 2) {
+        std::printf("usage: qex_guard_test <data/qex-budget-ellipsoid.obj>\n");
+        return 1;
+    }
+    std::vector<Vector3> vertices;
+    std::vector<std::vector<size_t>> polygons;
+    QexOutcome outcome;
+
+    {
+        // 8 x 8 cells, half a grid unit each: 4 x 4 quads.
+        const Map square = makeSquare(8, 0.5);
+        const bool used = AutoRemesher::extractWithQex(square.vertices, square.triangles, square.uvs,
+            limitsFor(square, 16), &vertices, &polygons, &outcome);
+        expect(used, "a flat square is extracted");
+        expect(16 == polygons.size(), "a flat square gives its 16 quads");
+        expect(0 == outcome.nonQuads, "a flat square gives quads only");
+        expect(outcome.reason.empty(), "no fallback reason when extracted");
+
+        QexLimits tight;
+        tight.maxGridVertices = 4;
+        const bool capped = AutoRemesher::extractWithQex(square.vertices, square.triangles, square.uvs,
+            tight, &vertices, &polygons, &outcome);
+        expect(!capped, "the grid-vertex cap stops the extraction");
+        expect(std::string::npos != outcome.reason.find("grid vertex cap"), "the cap is named as the reason");
+    }
+
+    {
+        Map folded;
+        expect(readMap(argv[1], &folded), "the folded map fixture reads");
+        const bool used = AutoRemesher::extractWithQex(folded.vertices, folded.triangles, folded.uvs,
+            limitsFor(folded, 500), &vertices, &polygons, &outcome);
+        expect(!used, "the folded map falls back");
+        expect(std::string::npos != outcome.reason.find("step budget"), "the step budget is named as the reason");
+    }
+
+    if (failures)
+        return 1;
+    std::printf("qex guards: all passed\n");
+    return 0;
+}

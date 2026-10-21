@@ -20,6 +20,7 @@
  */
 #ifndef AUTO_REMESHER_QUAD_EXTRACTOR_H
 #define AUTO_REMESHER_QUAD_EXTRACTOR_H
+#include "qexextraction.h"
 #include <AutoRemesher/Progress>
 #include <AutoRemesher/Vector2>
 #include <AutoRemesher/Vector3>
@@ -73,6 +74,24 @@ public:
     void setProgressHandler(ProgressHandler progressHandler)
     {
         m_progressHandler = std::move(progressHandler);
+    }
+
+    // libQEx first (default), or only our own graph tracing.
+    void setUseQex(bool useQex)
+    {
+        m_useQex = useQex;
+    }
+
+    // The island's target; sizes libQEx's memory cap (0: no cap).
+    void setTargetQuadCount(size_t targetQuadCount)
+    {
+        m_targetQuadCount = targetQuadCount;
+    }
+
+    // Whether libQEx extracted this island, and if not, why.
+    const QexOutcome& qexOutcome() const
+    {
+        return m_qexOutcome;
     }
 
     // Per connection of extractedConnections(): 0 untouched, 1 on a triangle whose uv
@@ -141,10 +160,15 @@ private:
     const std::vector<size_t>* m_singularVertices = nullptr;
     const Boundary* m_inputBoundary = nullptr;
     ProgressHandler m_progressHandler;
+    bool m_useQex = true;
+    size_t m_targetQuadCount = 0;
+    QexOutcome m_qexOutcome;
     std::map<std::pair<size_t, size_t>, ConnectionInfo> m_connectionInfos;
     std::set<std::pair<size_t, size_t>> m_addedConnections;
     std::set<std::pair<size_t, size_t>> m_halfEdges;
 
+    bool extractWithQexFrontEnd();
+    void traceMesh();
     void extractConnections(std::vector<Vector3>* crossPoints,
         std::vector<size_t>* sourceTriangles,
         std::set<std::pair<size_t, size_t>>* connections);

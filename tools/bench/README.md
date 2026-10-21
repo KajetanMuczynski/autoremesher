@@ -68,7 +68,7 @@ $P tools/bench/ab.py run HEAD --set closed   # genus check; also --set suzanne
   `--timeout S` kills a run after S seconds (recorded as `rc: "timeout"`); every record has the run's
   own peak RSS (`peak_rss_mb`). `--cli-arg=--adaptivity=0` (repeatable) passes CLI options, and those runs get their own folder, so
   compare folders, not refs: `compare $AR_WORK/runs/<key> $AR_WORK/runs/<key>+<hash>`.
-  `--cmake-arg=-DAUTOREMESHER_QEX=1` (repeatable) configures the build with a CMake option, for
+  `--cmake-arg=-DCMAKE_CXX_FLAGS=-fsanitize=address` (repeatable) configures the build with a CMake option, for
   experiments behind a build switch; such builds and runs get their own key. Each run's log keeps its
   first 8 MB, so a hung run that keeps printing can't fill the disk.
 - **Speed.** `--jobs N` (default 2) runs N meshes at once. The CLI uses one core per island (TBB
@@ -91,7 +91,9 @@ $P tools/bench/ab.py run HEAD --set closed   # genus check; also --set suzanne
   time, the runs that fail, and topology (Euler characteristic, components and boundary loops equal to
   the input, no non-manifold edge). `t_non_manifold` and `t_opened` count T's own defects from the
   core's run record: non-manifold edges after isotropic remeshing, and closed input islands that T
-  left open or non-manifold (blank for cores before 2026-10-20). `--per-run` adds one row per run.
+  left open or non-manifold (blank for cores before 2026-10-20). `qex_fallbacks` counts islands where
+  libQEx gave up and our own tracing extracted the faces (blank for cores before TODO 6.1b; compare
+  `--cli-arg=--extractor=trace` against the default to see what libQEx itself does). `--per-run` adds one row per run.
 - **Re-measuring.** After a change to `metrics.py`, `run <ref> --remeasure` recomputes `metrics.json` of the
   finished runs without running the CLI again.
 - **Timing.** The `time` row is the CLI's own total under `--jobs` load. Use it for effects of 20 % or

@@ -55,6 +55,14 @@ enum class MeshResolution {
     Quality
 };
 
+// Which code turns the integer-grid map into faces.  Qex: libQEx (Ebke et al.
+// 2013) with the fork's guards; an island it can't take falls back to Trace,
+// our own graph tracing (TODO 6.1b).  Trace alone is for comparisons.
+enum class Extractor {
+    Qex,
+    Trace
+};
+
 // Defaults are those of the command line.
 struct RemeshParameters {
     uint32_t targetQuadCount = 50000;
@@ -74,6 +82,7 @@ struct RemeshParameters {
     double smoothNormalDegrees = 0.0;
     // Since 1.2.
     MeshResolution resolution = MeshResolution::Quality;
+    Extractor extractor = Extractor::Qex;
 };
 
 struct RemeshRequest {
@@ -183,6 +192,10 @@ const char* toString(RemeshStatus status);
 // "fast" and "quality", as in the JSON report and on the command line.
 const char* toString(MeshResolution resolution);
 bool parseMeshResolution(const std::string& text, MeshResolution* resolution);
+
+// "qex" and "trace".
+const char* toString(Extractor extractor);
+bool parseExtractor(const std::string& text, Extractor* extractor);
 
 }
 
