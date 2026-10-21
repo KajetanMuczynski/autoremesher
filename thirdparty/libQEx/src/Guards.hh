@@ -24,6 +24,7 @@
 #ifndef QEX_GUARDS_HH
 #define QEX_GUARDS_HH
 
+#include <algorithm>
 #include <cstddef>
 #include <iostream>
 #include <stdexcept>
@@ -47,9 +48,30 @@ struct Limits {
     size_t max_grid_vertices = 0;  // grid vertices, which bound QEx's memory
 };
 
-// Throws unless every vertex rotation h -> next(opposite(h)) of the polygon
-// mesh returns to its start, which OpenMesh's vertex circulators assume.
-// O(#halfedges).
+// Throws unless the loop h -> next(h) of face f returns to its start and every
+// halfedge on it belongs to f. A loop that never closed made the face
+// circulators of the post-processing grow a vector until memory ran out:
+// OpenMesh's delete_face relinks the neighbours of a deleted boundary edge,
+// which at a pinched vertex can cut into another face's loop. O(face size)
+// when the loop is sound, O(#halfedges) at most.
+template <class MeshT>
+void checkFaceLoopCloses(const MeshT& m, typename MeshT::FaceHandle f, const char* where)
+{
+    const auto h0 = m.halfedge_handle(f);
+    auto h = h0;
+    for (size_t n = 0; n <= m.n_halfedges(); ++n) {
+        if (!h.is_valid() || m.face_handle(h) != f)
+            break;
+        h = m.next_halfedge_handle(h);
+        if (h == h0)
+            return;
+    }
+    throw Abort(std::string("face loop does not close ") + where);
+}
+
+// Throws unless every vertex rotation h -> next(opposite(h)) and every face
+// loop h -> next(h) of the polygon mesh returns to its start, which OpenMesh's
+// circulators assume. O(#halfedges).
 template <class MeshT>
 void checkCirculatorsTerminate(const MeshT& m, const char* where)
 {
@@ -71,6 +93,10 @@ void checkCirculatorsTerminate(const MeshT& m, const char* where)
             if (!h.is_valid())
                 throw Abort(std::string("vertex rotation is open ") + where);
         } while (h != h0);
+    }
+    for (auto f = m.faces_begin(); f != m.faces_end(); ++f) {
+        if (!(m.has_face_status() && m.status(*f).deleted()))
+            checkFaceLoopCloses(m, *f, where);
     }
 }
 

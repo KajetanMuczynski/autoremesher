@@ -1300,7 +1300,16 @@ bool AutoRemesher::remeshIslands()
                     parameterizeIsland(i, ctx, run);
                     const bool healthy = isHealthyIslandResult(ctx.inputTopology, run.remeshedVertices, run.remeshedQuads);
                     // Prefer a torn island to a missing one.
-                    if (healthy || (islandRuns[i].remeshedQuads.empty() && !run.remeshedQuads.empty())) {
+                    const bool replace = healthy || (islandRuns[i].remeshedQuads.empty() && !run.remeshedQuads.empty());
+                    // The extractor records of the attempt that is dropped stay, marked
+                    // superseded, so libQEx fallbacks are counted per attempt (TODO 6.1b).
+                    IslandRun& dropped = replace ? islandRuns[i] : run;
+                    IslandRun& kept = replace ? run : islandRuns[i];
+                    for (auto& record : dropped.diagnostics) {
+                        if (record.stage == "extractor")
+                            kept.diagnostics.push_back(std::move(record.label("superseded", "yes")));
+                    }
+                    if (replace) {
                         islandContexes[i] = std::move(ctx);
                         islandRuns[i] = std::move(run);
                     }

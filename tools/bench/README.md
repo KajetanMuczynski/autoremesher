@@ -93,7 +93,9 @@ $P tools/bench/ab.py run HEAD --set closed   # genus check; also --set suzanne
   core's run record: non-manifold edges after isotropic remeshing, and closed input islands that T
   left open or non-manifold (blank for cores before 2026-10-20). `qex_fallbacks` counts islands where
   libQEx gave up and our own tracing extracted the faces (blank for cores before TODO 6.1b; compare
-  `--cli-arg=--extractor=trace` against the default to see what libQEx itself does). `--per-run` adds one row per run.
+  `--cli-arg=--extractor=trace` against the default to see what libQEx itself does). When B has libQEx
+  records, a **libQEx fallbacks** section lists the replicate-runs with a fallback, the reasons, and folds,
+  non-quads and topology on exactly those runs for both sides. `--per-run` adds one row per run.
 - **Re-measuring.** After a change to `metrics.py`, `run <ref> --remeasure` recomputes `metrics.json` of the
   finished runs without running the CLI again.
 - **Timing.** The `time` row is the CLI's own total under `--jobs` load. Use it for effects of 20 % or

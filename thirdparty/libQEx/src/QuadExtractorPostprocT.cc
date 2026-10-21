@@ -17,7 +17,7 @@
  * You should have received a copy of the GNU General Public License
  * along with QEx.  If not, see <http://www.gnu.org/licenses/>.
  *
- * Modified by the Quadami fork, 2026-10-21 (TODO 6.1b): connectivity checks before vertex deletion (Guards.hh); no log output.
+ * Modified by the Quadami fork, 2026-10-21 (TODO 6.1b): connectivity checks before vertex deletion and before each merged face is rebuilt (Guards.hh); no log output.
  * See thirdparty/libQEx/PATCHES.md.
  */
 
@@ -177,6 +177,9 @@ bool QuadExtractorPostprocT<MeshT>::compute_face_image(FH face, const std::vecto
 
     out_newFaceVertices.clear();
     bool identity = true;
+    // Quadami fork: an earlier face's deletion in the same pass can cut this
+    // loop open (Guards.hh).
+    checkFaceLoopCloses(mesh_, face, "while rebuilding merged faces");
 
     for (typename MeshT::FaceHalfedgeIter fh_it = mesh_.fh_begin(face), fh_end = mesh_.fh_end(face);
             fh_it != fh_end; ++fh_it) {

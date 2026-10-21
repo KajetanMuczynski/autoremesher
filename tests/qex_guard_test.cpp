@@ -20,11 +20,11 @@
 // libQEx with the fork's guards (TODO 6.1b, thirdparty/libQEx/PATCHES.md).
 //
 // A flat square mapped onto the grid comes out as its quads. The same map
-// under a grid-vertex cap below its size, and a recorded folded map on which
-// unguarded libQEx looped forever (data/qex-budget-ellipsoid.obj: the thin
-// ellipsoid_0.4_0.003 of the closed set, fast, 500 quads, replicate 5), both
-// end with a reason, so the caller can fall back. ctest's timeout catches a
-// guard that stops working.
+// under a grid-vertex cap below its size ends with a reason, and so do three
+// recorded folded maps (data/README.md) on which unguarded libQEx looped
+// forever, overflowed the heap, or grew until memory ran out, so the caller
+// can fall back. ctest's timeout and sanitizer builds catch a guard that stops
+// working.
 
 #include <AutoRemesher/QexExtraction>
 #include <cstdio>
@@ -128,8 +128,9 @@ QexLimits limitsFor(const Map& map, size_t targetQuads)
 
 int main(int argc, char* argv[])
 {
-    if (argc < 2) {
-        std::printf("usage: qex_guard_test <data/qex-budget-ellipsoid.obj>\n");
+    if (argc < 4) {
+        std::printf("usage: qex_guard_test <data/qex-budget-ellipsoid.obj> <data/qex-oneway-sculpt-parts.obj> "
+                    "<data/qex-faceloop-sculpt-parts.obj>\n");
         return 1;
     }
     std::vector<Vector3> vertices;
@@ -154,13 +155,30 @@ int main(int argc, char* argv[])
         expect(std::string::npos != outcome.reason.find("grid vertex cap"), "the cap is named as the reason");
     }
 
-    {
-        Map folded;
-        expect(readMap(argv[1], &folded), "the folded map fixture reads");
-        const bool used = AutoRemesher::extractWithQex(folded.vertices, folded.triangles, folded.uvs,
-            limitsFor(folded, 500), &vertices, &polygons, &outcome);
-        expect(!used, "the folded map falls back");
-        expect(std::string::npos != outcome.reason.find("step budget"), "the step budget is named as the reason");
+    // Each fixture with the target of the run it came from and the guard that must stop it.
+    const struct {
+        const char* path;
+        size_t targetQuads;
+        const char* reason;
+    } folded[] = {
+        { argv[1], 500, "step budget" },
+        { argv[2], 5000, "connected one way only" },
+        { argv[3], 15000, "face loop does not close" },
+    };
+    for (const auto& fixture : folded) {
+        Map map;
+        if (!readMap(fixture.path, &map)) {
+            std::printf("FAIL: %s does not read\n", fixture.path);
+            ++failures;
+            continue;
+        }
+        const bool used = AutoRemesher::extractWithQex(map.vertices, map.triangles, map.uvs,
+            limitsFor(map, fixture.targetQuads), &vertices, &polygons, &outcome);
+        if (used || std::string::npos == outcome.reason.find(fixture.reason)) {
+            std::printf("FAIL: %s: expected a fallback for \"%s\", got %s \"%s\"\n", fixture.path,
+                fixture.reason, used ? "an extraction" : "a fallback", outcome.reason.c_str());
+            ++failures;
+        }
     }
 
     if (failures)

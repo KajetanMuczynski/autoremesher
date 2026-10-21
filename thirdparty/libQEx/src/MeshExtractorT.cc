@@ -18,7 +18,7 @@
  * You should have received a copy of the GNU General Public License
  * along with QEx.  If not, see <http://www.gnu.org/licenses/>.
  *
- * Modified by the Quadami fork, 2026-10-21 (TODO 6.1b): connectivity checks, step budget and grid-vertex cap (Guards.hh); getNextConnectedLeiWithHE returns null instead of an edge without a halfedge; faces of more than 4 boundary grid vertices (boundary caps) are not added; no log output.
+ * Modified by the Quadami fork, 2026-10-21 (TODO 6.1b): connectivity checks, step budget and grid-vertex cap (Guards.hh); getNextConnectedLeiWithHE returns null instead of an edge without a halfedge; add_face refuses local edges connected one way only; faces of more than 4 boundary grid vertices (boundary caps) are not added; no log output.
  * See thirdparty/libQEx/PATCHES.md.
  */
 
@@ -3181,6 +3181,19 @@ typename PolyMeshT::FaceHandle MeshExtractorT<TMeshT>::add_face(PolyMeshT &qmesh
     typedef typename std::vector<LocalEdgeInfo*> LEI_VEC;
 
     assert(!leis.empty());
+
+    // Quadami fork: on folded maps a local edge can be connected one way only
+    // (its opposite carries a signal, not a grid vertex index); the lookups
+    // below then indexed gvertices_ with it (heap overflow, then crashes and
+    // runaway memory).
+    for (typename LEI_VEC::iterator lei_it = leis.begin(), lei_end = leis.end(); lei_it != lei_end; ++lei_it) {
+        if (!(*lei_it)->isConnected() || (size_t)(*lei_it)->connected_to_idx >= gvertices_.size()
+                || gvertices_[(*lei_it)->connected_to_idx].n_edges() == 0)
+            throw Abort("face through an unconnected local edge");
+        const LocalEdgeInfo &opposite = gvertices_[(*lei_it)->connected_to_idx].local_edge((*lei_it)->orientation_idx);
+        if (!opposite.isConnected() || (size_t)opposite.connected_to_idx >= gvertices_.size())
+            throw Abort("local edge connected one way only");
+    }
 
     /*
      * Check if operation will yield manifold result.
