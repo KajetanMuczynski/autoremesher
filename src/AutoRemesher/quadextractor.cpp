@@ -77,6 +77,9 @@ bool QuadExtractor::extract()
             std::cerr << "QEx: fallback to own extraction: " << why << std::endl;
         }
     }
+    // The tracing below keeps its indentation while the experiment lasts
+    // (6.1b replaces the switch).
+    // clang-format off
     if (!extractedWithQex) {
 #endif
     report(0.0f, "Extracting connections");
@@ -189,6 +192,7 @@ bool QuadExtractor::extract()
         m_extractedConnectionMoved.clear();
         rebuildHalfEdges();
     }
+    // clang-format on
 #endif
 
     report(0.29f, "Fixing holes");

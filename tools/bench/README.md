@@ -62,7 +62,10 @@ $P tools/bench/ab.py run HEAD --set closed   # genus check; also --set suzanne
   a finished run is never repeated (delete its folder under `$AR_WORK/runs` to force it).
 - **Options.** `--only a,b`, `--skip`, `--targets`, `--resolutions` override the set's defaults;
   `--cli-arg=--adaptivity=0` (repeatable) passes CLI options, and those runs get their own folder, so
-  compare folders, not refs: `compare $AR_WORK/runs/<key> $AR_WORK/runs/<key>+<hash>`. `--jobs 2`
+  compare folders, not refs: `compare $AR_WORK/runs/<key> $AR_WORK/runs/<key>+<hash>`.
+  `--cmake-arg=-DAUTOREMESHER_QEX=1` (repeatable) configures the build with a CMake option, for
+  experiments behind a build switch; such builds and runs get their own key. `--timeout` (default 900 s)
+  kills a run that hangs and counts it as failed; each run's log keeps its first 8 MB. `--jobs 2`
   (default) runs two meshes at once, each using all cores; on a hot laptop use `--jobs 1`.
 - **What it records.** Per run in `<set>/<mesh>/<resolution>-t<target>/u<k>/`: the output OBJ, the CLI's
   `report.json` and `stages.jsonl`, `metrics.json` and a `record.json` summary. `compare` reports the
