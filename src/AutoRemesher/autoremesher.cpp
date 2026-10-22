@@ -21,6 +21,7 @@
  *  SOFTWARE.
  */
 #include <AutoRemesher/AutoRemesher>
+#include <AutoRemesher/FoldRepair>
 #include <AutoRemesher/IsotropicRemesher>
 #include <AutoRemesher/MeshSeparator>
 #include <AutoRemesher/Parameterizer>
@@ -964,6 +965,16 @@ bool AutoRemesher::remeshIslands()
         return false;
     }
 
+    // After orientation: the fold test is a sign test.  Moves vertices only.
+    // Always detected, so the report can say where the input folds; only
+    // repaired when asked for.
+    if (nullptr != m_progressHandler)
+        m_progressHandler(m_tag, 0.0f, m_repairInputFolds ? "Repairing folded input" : "Checking for folded input");
+    const FoldRepair::Stats folds = m_repairInputFolds
+        ? FoldRepair::repair(&m_vertices, m_triangles, FoldRepair::Options())
+        : FoldRepair::survey(m_vertices, m_triangles, FoldRepair::Options());
+    throwIfCancelled();
+
     // Each label names the step that is about to run, not the one that just
     // finished, so the status line matches what the process is actually doing.
     if (nullptr != m_progressHandler)
@@ -1600,6 +1611,20 @@ bool AutoRemesher::remeshIslands()
         run.set("input_zero_area_triangles", (double)cleanup.zeroAreaTriangles);
         run.set("input_flipped_triangles", (double)cleanup.flippedTriangles);
         run.set("input_non_orientable_pieces", (double)cleanup.nonOrientablePieces);
+        {
+            // Distances as fractions of the detector radius.
+            const double radius = folds.radius > 0.0 ? folds.radius : 1.0;
+            run.set("input_fold_repair", m_repairInputFolds ? 1.0 : 0.0);
+            run.set("input_folded_triangles", (double)folds.foldedTriangles);
+            run.set("input_fold_clusters", (double)folds.clusters);
+            run.set("input_fold_patches_repaired", (double)folds.repairedPatches);
+            run.set("input_folded_triangles_after", (double)folds.foldedTrianglesAfter);
+            run.set("input_fold_clusters_after", (double)folds.clustersAfter);
+            run.set("input_fold_moved_vertices", (double)folds.movedVertices);
+            run.set("input_fold_max_offset", folds.maximumOffset / radius);
+            run.set("input_fold_max_move", folds.maximumMove / radius);
+            run.set("fold_repair_ms", folds.seconds * 1000.0);
+        }
         {
             // T's defects beyond the input's: a non-manifold edge or a hole in
             // T becomes a hole or a wrong genus in the output.

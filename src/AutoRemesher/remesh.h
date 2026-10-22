@@ -36,7 +36,7 @@
 namespace AutoRemesher {
 
 const int InterfaceVersionMajor = 1;
-const int InterfaceVersionMinor = 4;
+const int InterfaceVersionMinor = 6;
 
 // Since 1.3.  Peak memory grows linearly with the target, by about this much
 // per quad at Quality resolution (21 KB measured on spot at 25k-100k quads;
@@ -82,6 +82,11 @@ struct RemeshParameters {
     double smoothNormalDegrees = 0.0;
     // Since 1.2.
     MeshResolution resolution = MeshResolution::Quality;
+    // Since 1.5.  Untangle folded-over input triangles (brush leftovers)
+    // before remeshing; moves input vertices only, along the input surface.
+    // Off: the folds are only counted (diagnostics input_fold_*).
+    bool repairFolds = false;
+    // Since 1.6.
     Extractor extractor = Extractor::Qex;
 };
 

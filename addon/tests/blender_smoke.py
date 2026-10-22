@@ -93,10 +93,15 @@ try:
     assert len(obj.data.vertices) == output["vertices"]
     assert tuple(obj.matrix_world.translation) == (1.0, 2.0, 3.0)
     assert addon.REPORT_PROPERTY in obj
+    assert obj[addon.SOURCE_PROPERTY] == source.name
     for label, value, problem in report.summary_rows(final_report):
         print("  %-20s %s%s" % (label, value, "  <-" if problem else ""))
     for text, first, problem in report.warning_lines(final_report):
         print("  %s%s" % ("" if first else "  ", text))
+    # "Repair Folds and Re-run" runs the same worker with the repair on.
+    repaired = worker.remesh(executable, positions, triangles, dict(settings.parameters(), repair_folds=True))
+    assert repaired.ok and repaired.report["parameters"]["repair_folds"] is True, (repaired.status, repaired.log)
+    assert not report.offers_fold_repair(repaired.report)
     print("blender_smoke: OK, Blender %s" % bpy.app.version_string)
 finally:
     if installed:

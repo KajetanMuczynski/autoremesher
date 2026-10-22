@@ -426,6 +426,7 @@ RemeshResult remeshWithPreview(const RemeshRequest& request,
     engine.setSharpEdgeDegrees(parameters.sharpEdgeDegrees);
     engine.setSmoothNormalDegrees(parameters.smoothNormalDegrees);
     engine.setUseQex(Extractor::Qex == parameters.extractor);
+    engine.setRepairInputFolds(parameters.repairFolds);
     engine.setTrianglesPerQuad(MeshResolution::Fast == parameters.resolution
             ? ::AutoRemesher::FastTrianglesPerQuad
             : ::AutoRemesher::QualityTrianglesPerQuad);
@@ -532,6 +533,7 @@ std::string toJson(const RemeshResult& result)
         << ", \"sharp_edge_degrees\": " << jsonNumber(parameters.sharpEdgeDegrees)
         << ", \"smooth_normal_degrees\": " << jsonNumber(parameters.smoothNormalDegrees)
         << ", \"resolution\": " << jsonString(toString(parameters.resolution))
+        << ", \"repair_folds\": " << (parameters.repairFolds ? "true" : "false")
         << ", \"extractor\": " << jsonString(toString(parameters.extractor))
         << "},\n";
     out << "  \"input\": {"
