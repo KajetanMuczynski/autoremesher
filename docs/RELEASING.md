@@ -87,14 +87,14 @@ Copy into the release PR's description and tick each line there.
 - **No corpus release check in CI.** TARGETS §2.5 asks for the corpus × 6 on all three platforms
   (about 3 CPU hours each); only Linux can run it today, by hand in the cloud. A manual workflow
   for it is a follow-up.
-- **Tag ruleset for `v*`** (Kajetan's setting; approved 2026-10-22, see below): until it exists,
-  anyone with write access, and any workflow token with `contents: write`, can create or move a
-  `v*` tag.
 
-## Tag ruleset for `v*` (set up by hand)
+## Tag ruleset for `v*`
 
-Only repository admins may create, move or delete release tags; GitHub Actions' token and future
-collaborators with write access may not. Click path *(from memory, check)*:
+**Active since 2026-10-22** (set up by Kajetan): only repository admins may create, move or delete
+release tags; GitHub Actions' token and future collaborators with write access may not. Checked the
+same day: Kajetan's push of `v0.1.0-test.2` printed "Bypassed rule violations ... Cannot create ref
+due to creations being restricted", so the rule is on and his bypass works. To set it up again
+(e.g. on a fork) *(from memory; Kajetan followed it without reporting a difference)*:
 
 1. Repository **Settings** > **Rules** > **Rulesets** > **New ruleset** > **New tag ruleset**.
 2. **Ruleset name**: `release tags`. **Enforcement status**: **Active**.
@@ -103,7 +103,8 @@ collaborators with write access may not. Click path *(from memory, check)*:
 4. **Target tags** > **Add target** > **Include by pattern** > `v*`.
 5. **Rules**: tick **Restrict creations**, **Restrict updates**, **Restrict deletions** and
    **Block force pushes**. Leave the rest.
-6. **Create**. Check: Settings > Rules > Rulesets lists `release tags` as Active, targeting `v*`.
+6. **Create**. Check: Settings > Rules > Rulesets lists `release tags` as Active, targeting `v*`;
+   an admin's tag push then prints "Bypassed rule violations".
 
 Only Kajetan has write access today, so this mostly guards against a compromised workflow or token
 (the release job holds `contents: write`) and against future collaborators. It does not stop an

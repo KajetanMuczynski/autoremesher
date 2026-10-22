@@ -226,7 +226,6 @@ Everything we know about and deliberately left undone, with the reason and what 
 | Standalone Qt app packages (AppImage, Windows zip, DMG) | Only the add-on ships; the app is still built and smoke-tested on Linux | He wants the app shipped again | K | 2026-10-15 |
 | Composite quality score | Pareto comparisons per metric family until SQ-M1 is answered (0.7) | SQ-M1 answered | K | 2026-10-14 |
 | Third-party Claude plugins (devil-advocate, token-usage, Headroom) | Audited, install none (`research/plugin-audit-2026-10-19.md` in project files) | A new plugin, after its own audit | K | 2026-10-19 |
-| Tag ruleset (`v*`) | **Approved by Kajetan 2026-10-22**, to be set up by him (his setting): click path in RELEASING.md "Tag ruleset". Since 2026-10-22 a `v*` tag makes a draft release, but only a draft, and only Kajetan has write access | Done once the ruleset is active | K | 2026-10-22 |
 | CodeQL default setup | Left off by choice when the security settings were switched on | A reason to scan (e.g. a public release) | K | 2026-10-19 |
 | "Require branches up to date before merging" on the master ruleset | Left off by choice: every merge would force an update and a new CI run on every other open PR | Two PRs that pass alone break master together | K | 2026-10-19 |
 | **G1** nanobind binding of the core for the add-on | The subprocess worker is what ships: a crash can't take Blender down, and there is no rebuild per Blender Python version | The OBJ round trip proves slow on large meshes (P4, P6; measure with G8) | K | 2026-10-19 |
