@@ -3,7 +3,7 @@
 - Did: reproduced Kajetan's Blender report (private joined sword, Quality 3000: 1979 quads, vines mostly gone,
   no warning) with `ab.py` on the private `realsword` set, 2k-6k, 6 replicates. Found the cause, fixed it in
   `extractWithQex` (cut each vertex into one copy per fan of manifold, oppositely oriented edges before OpenMesh),
-  added a unit test (three sheets on one edge) and an `uncovered` metric to `metrics.py`/`ab.py`.
+  added a unit test (three sheets on one edge) and #75's `area_uncovered` as a `compare --per-run` column.
 - Found:
   - The sword's vine island has 33 edges with three triangles (ribbons glued along an edge). OpenMesh refused
     every such island, so it always fell back to our tracing: master, `--extractor trace` and 158b12e give the
@@ -19,8 +19,8 @@
     past 8 rings, mostly steep patches and repairs that do not reduce the flags. On the sword the "folds" sit on
     ribbons thinner than the detector's radius (19 units), so many are likely false positives.
 - Measured (`ab.py compare`, realsword sword 2k-6k × 6 replicates, master → fix): non-quads 179 → 1,
-  SJ ≤ 0 ×0.70, Hausdorff ×0.85, count error ×0.51, uncovered area 0.134 → 0.090 (3k 0.242 → 0.093,
-  4k 0.131 → 0.042), libQEx fallbacks 48 → 0. Corpus (72 runs), closed (78) and realsculpt (6): identical.
+  SJ ≤ 0 ×0.70, folded faces ×0.61, Hausdorff ×0.85, count error ×0.51, area_uncovered 0.138 → 0.094
+  (3k 0.247 → 0.098, 4k 0.132 → 0.044), islands dropped 1.17 → 0 per run, libQEx fallbacks 48 → 0. Corpus (72 runs), closed (78) and realsculpt (6): identical.
 - Next: the thin-strip cleanup passes (separate PR); a panel warning when the output leaves part of the input
   uncovered (share of input area farther than one quad edge from the output, per island); thickness-aware
   fold detection (radius below the local thickness).
