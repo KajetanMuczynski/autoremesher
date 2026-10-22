@@ -82,10 +82,15 @@ CI (`.github/workflows/`):
     yet), worker tests, zip installed into a real Blender (4.2 LTS on Linux, 5.2 on Windows and
     macOS). All three zips (Linux glibc 2.28+, macOS 11.2+ Apple silicon) are uploaded as artifacts
     `addon-<platform>`. One macOS job per PR, since macOS runners are the scarce ones.
+  - `site`: tests and builds the website (`tools/site/`, whitelist in `site.json`); fails on broken links,
+    upstream links outside the credits page, images outside the media folders, private paths. Artifact `site-preview`.
   - `release (draft)`: only on a `v*` tag, after **CI passed**: `ci/release.py` checks the tag
     against the manifest version and the zips, and makes a **draft** GitHub release with the three
     zips, `SHA256SUMS.txt` and notes from `docs/releases/`. Publishing is Kajetan's click.
     Procedure, version rule and release checklist: `docs/RELEASING.md`.
+- `pages.yml` (push to master touching `docs/`, `README.md` or `tools/site/`, a release event, manual):
+  builds the site from master and deploys it to GitHub Pages (needs Settings > Pages > Source: GitHub Actions).
+  Only the whitelisted pages are published; never add private models or anything from `private-sculpts`.
 - `rerun-dropped.yml` (when a ci run completes): GitHub drops a macOS arm64 job that waits ~15 min
   for a runner (cancelled, no runner, no steps), which turns **CI passed** red. `ci/rerun_dropped.py`
   then re-runs the failed jobs of that same run, only if every failed job never got a runner, the
