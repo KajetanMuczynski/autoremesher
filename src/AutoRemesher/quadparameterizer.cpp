@@ -1350,6 +1350,48 @@ namespace {
         return s.converged();
     }
 
+    // Clears the valence of each vertex the final map winds differently from
+    // the field, as measureWinding() counts it (a cone at -pi / 2 instead of
+    // 3 pi / 2, a regular vertex folded over): the map's edges there cannot
+    // meet the field's count, and asking libQEx for it made it connect quads
+    // across the fold (sword at 6000 quads, PR #84). Fans with an edge of
+    // zero length in the map keep the field's valence. Returns how many.
+    size_t clearMiswoundValences(const SurfaceMesh& mesh, const std::vector<int>& rotation,
+        const std::vector<std::vector<Vector2>>& triangleUvs, std::vector<unsigned int>* valences)
+    {
+        const auto uvOf = [&](size_t c) { return triangleUvs[c / 3][c % 3]; };
+        const double quarter = .5 * M_PI;
+        size_t cleared = 0;
+        for (size_t vertex = 0; vertex < mesh.vertexCount(); ++vertex) {
+            const auto& incident = mesh.cornersAroundVertex(vertex);
+            if (0 == (*valences)[vertex] || incident.empty())
+                continue;
+            const size_t start = incident.front();
+            size_t c = start, steps = 0;
+            double mapSum = 0.0;
+            bool closed = true, degenerate = false;
+            do {
+                const size_t oc = mesh.oppositeCorner(c);
+                if (oc == SurfaceMesh::npos) {
+                    closed = false;
+                    break;
+                }
+                const size_t other = mesh.nextCorner(oc);
+                const Vector2 out = uvOf(mesh.nextCorner(c)) - uvOf(c), in = uvOf(mesh.previousCorner(c)) - uvOf(c);
+                degenerate = degenerate || out.lengthSquared() == 0.0 || in.lengthSquared() == 0.0;
+                mapSum += signedAngle(out, in) - signedAngle(turnedQuarters(out, rotation[c]), uvOf(oc) - uvOf(other));
+                c = other;
+            } while (c != start && ++steps <= incident.size());
+            if (!closed || c != start || degenerate)
+                continue;
+            if (std::lround(mapSum / quarter) != (long)(*valences)[vertex]) {
+                (*valences)[vertex] = 0;
+                ++cleared;
+            }
+        }
+        return cleared;
+    }
+
     void buildResultUv(const SurfaceMesh& mesh, const std::vector<int>& rotation,
         const std::vector<double>& allValues,
         size_t uvVariables, QuadParameterizer::Result* result, DiagnosticRecord* diagnostics)
@@ -1555,6 +1597,8 @@ bool QuadParameterizer::parameterize(const std::vector<Vector3>& vertices,
 
     report(0.99f, "Building cover uvs");
     buildResultUv(mesh, rotation, allValues, uvVariables, result, &coverResult);
+    coverResult.set("valences_cleared_miswound",
+        (double)clearMiswoundValences(mesh, rotation, result->triangleUvs, &result->vertexValences));
     coverResult.set("ok", 1.0);
     result->diagnostics.push_back(std::move(coverResult));
     return true;

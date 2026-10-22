@@ -40,8 +40,9 @@ public:
         std::vector<int> cornerRotations;
         std::vector<size_t> singularVertices;
         // The valence the cross field asks for at each vertex (3 or 5 at the
-        // usual cones, 4 elsewhere), 0 where unknown: boundary vertices and
-        // fans that do not close. Passed to libQEx (TODO 6.1b).
+        // usual cones, 4 elsewhere), 0 where unknown: boundary vertices, fans
+        // that do not close, and vertices the map winds differently from the
+        // field. Passed to libQEx (TODO 6.1b).
         std::vector<unsigned int> vertexValences;
         // Sizes, solver statistics, rounding behaviour and map validity of
         // this solve, also filled in when it fails.
