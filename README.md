@@ -25,6 +25,8 @@ a programmer to use it: the [user guide](docs/USER-GUIDE.md) is written for Blen
 - **Finds folded sculpt input.** Twist, Rotate and Pinch brushes can fold a sculpt's surface over
   itself where you cannot see it; that is where most defects come from. Quadami detects these spots
   and offers **Repair Folds and Re-run**, which smooths only those spots in the remesher's copy.
+  The warning can also appear on CAD or scanned models whose result is clean (its text still
+  blames a sculpt brush); if the result looks fine, ignore it.
 - **Builds quads with libQEx**, a robust quad extractor from RWTH Aachen, with our own extractor as
   a per-piece fallback.
 - **Asks before a huge job.** Above 200,000 quads it shows the memory it needs (about 2 GB per
@@ -53,9 +55,9 @@ the install scripts and the snap version of Blender on Linux: [user guide §2](d
 
 ## Limits and warnings
 
-- **Thin parts** (leaves, vines, cloth, blade edges) thinner than one quad fold, and the result's
-  handles and holes can come out wrong there. Raise Target Quads, or give flat sheets a Solidify
-  modifier.
+- **Thin parts** (leaves, vines, cloth, blade edges) thinner than one quad fold or lose their shape,
+  and the result's handles and holes can come out wrong there. **The panel does not warn about this
+  yet.** Raise Target Quads, or give flat sheets a Solidify modifier.
 - **Folded sculpt input** causes nearly all folds, non-quads and holes on our test sculpts. Use
   **Repair Folds and Re-run**, or smooth those spots by hand; folds wider than about 1 % of the
   model are not detected.
