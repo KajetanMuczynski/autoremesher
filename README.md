@@ -42,7 +42,7 @@ There is no release download yet. What is available today:
 
 | System | Where the zip comes from | Tested |
 |---|---|---|
-| **Linux** (x64, Ubuntu 24.04 or newer, glibc 2.38+) | Build it yourself ([addon/BEGINNERS.md](addon/BEGINNERS.md), one command), or get a test build from the maintainer. CI builds a Linux zip only for its own tests and does not publish it. | CI (Ubuntu 24.04, Blender 4.2, headless) and the maintainer's laptop (Ubuntu, Blender 4.5 snap) |
+| **Linux** (x64, any distribution with glibc 2.28 or newer, e.g. Ubuntu 20.04+, Debian 10+, Fedora 29+, RHEL 8+) | GitHub: **Actions > ci**, a green run on `master`, **Artifacts > `addon-linux-x64`** (built in AlmaLinux 8, so it does not need a new distribution). Works with Blender from blender.org and the snap (`/snap/bin/blender`). Or build it yourself ([addon/BEGINNERS.md](addon/BEGINNERS.md)). | CI (Ubuntu 24.04, Blender 4.2, headless) and the maintainer's laptop (Ubuntu, Blender 4.5 snap) |
 | **Windows** 10/11 (x64) | GitHub: **Actions > ci**, a green run on `master`, **Artifacts > `addon-windows-x64`** (you must be signed in to GitHub). | In CI only (Blender 5.2, headless); not yet on a real Windows desktop |
 | **macOS** (Apple silicon, macOS 11.2+) | GitHub: **Actions > ci**, a green run on `master`, **Artifacts > `addon-macos-arm64`**. | In CI only; **never tried on a real Mac**, and the program is not notarized, so Gatekeeper may block it |
 | macOS on Intel | Build it yourself ([docs/BUILDING.md](docs/BUILDING.md)). | No |
