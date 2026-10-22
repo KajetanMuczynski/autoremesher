@@ -16,39 +16,23 @@
  *
  *  SPDX-License-Identifier: GPL-3.0-or-later
  */
-// Built only with -DAUTOREMESHER_QEX; empty otherwise, for builds that glob
-// the core's sources (tools/bench/bench/CMakeLists.txt).
-#if AUTOREMESHER_QEX
 #include "qexextraction.h"
 #include <algorithm>
-#include <cmath>
 #include <exception>
 #include <map>
 #include <qex.h>
+#include <string>
 #include <utility>
 
 namespace AutoRemesher {
 
 namespace {
 
-    double distanceToSegment(const Vector3& p, const Vector3& a, const Vector3& b)
-    {
-        const Vector3 ab = b - a;
-        const double length2 = Vector3::dotProduct(ab, ab);
-        double t = length2 > 0 ? Vector3::dotProduct(p - a, ab) / length2 : 0.0;
-        t = std::max(0.0, std::min(1.0, t));
-        return (p - (a + ab * t)).length();
-    }
-
-    // Two kinds of QEx faces QuadExtractor's repair can't take, dropped so
-    // that the hole filling sees an ordinary hole:
-    // - faces on an edge more than two faces use, or on a directed edge
-    //   another face uses too (sheets of a fold touching along an edge);
-    //   the repair keys faces by directed edge and misses both;
-    // - an n-gon all of whose vertices lie on the triangle mesh's boundary:
-    //   QEx closes each boundary loop with such a face.
-    void dropUnrepairableFaces(const QEx::TriMesh& mesh, const std::vector<Vector3>& vertices,
-        std::vector<std::vector<size_t>>* polygons)
+    // Faces on an edge more than two faces use, or on a directed edge another
+    // face uses too (sheets of a fold touching along an edge): QuadExtractor's
+    // repair keys faces by directed edge and misses both, so they are dropped
+    // and the hole filling sees an ordinary hole.  Returns how many.
+    size_t dropUnrepairableFaces(std::vector<std::vector<size_t>>* polygons)
     {
         std::map<std::pair<size_t, size_t>, size_t> undirected, directed;
         for (const auto& face : *polygons) {
@@ -58,32 +42,6 @@ namespace {
                 ++directed[std::make_pair(a, b)];
             }
         }
-        std::vector<std::pair<Vector3, Vector3>> boundary;
-        double diagonal2 = 0.0;
-        {
-            Vector3 low = vertices.empty() ? Vector3() : vertices.front(), high = low;
-            for (const auto& v : vertices) {
-                low = Vector3(std::min(low.x(), v.x()), std::min(low.y(), v.y()), std::min(low.z(), v.z()));
-                high = Vector3(std::max(high.x(), v.x()), std::max(high.y(), v.y()), std::max(high.z(), v.z()));
-            }
-            diagonal2 = (high - low).lengthSquared();
-        }
-        for (auto e = mesh.edges_begin(); e != mesh.edges_end(); ++e) {
-            if (!mesh.is_boundary(*e))
-                continue;
-            const auto h = mesh.halfedge_handle(*e, 0);
-            const auto& a = mesh.point(mesh.from_vertex_handle(h));
-            const auto& b = mesh.point(mesh.to_vertex_handle(h));
-            boundary.emplace_back(Vector3(a[0], a[1], a[2]), Vector3(b[0], b[1], b[2]));
-        }
-        const double tolerance = 1e-9 * std::sqrt(diagonal2);
-        const auto onBoundary = [&](const Vector3& p) {
-            for (const auto& segment : boundary) {
-                if (distanceToSegment(p, segment.first, segment.second) <= tolerance)
-                    return true;
-            }
-            return false;
-        };
         std::vector<std::vector<size_t>> kept;
         kept.reserve(polygons->size());
         for (auto& face : *polygons) {
@@ -93,34 +51,29 @@ namespace {
                 drop = undirected[std::make_pair(std::min(a, b), std::max(a, b))] > 2
                     || directed[std::make_pair(a, b)] > 1;
             }
-            if (!drop && face.size() > 4 && !boundary.empty()) {
-                drop = true;
-                for (size_t v : face) {
-                    if (!onBoundary(vertices[v])) {
-                        drop = false;
-                        break;
-                    }
-                }
-            }
             if (!drop)
                 kept.push_back(std::move(face));
         }
+        const size_t dropped = polygons->size() - kept.size();
         *polygons = std::move(kept);
+        return dropped;
     }
-
 }
 
 bool extractWithQex(const std::vector<Vector3>& vertices,
     const std::vector<std::vector<size_t>>& triangles,
     const std::vector<std::vector<Vector2>>& triangleUvs,
+    const QexLimits& limits,
     std::vector<Vector3>* outVertices,
     std::vector<std::vector<size_t>>* outPolygons,
-    std::string* why)
+    QexOutcome* outcome)
 {
+    *outcome = QexOutcome();
+    outcome->attempted = true;
     outVertices->clear();
     outPolygons->clear();
     if (triangleUvs.size() != triangles.size()) {
-        *why = "uv count differs from triangle count";
+        outcome->reason = "uv count differs from triangle count";
         return false;
     }
     QEx::TriMesh mesh;
@@ -132,13 +85,13 @@ bool extractWithQex(const std::vector<Vector3>& vertices,
     for (size_t t = 0; t < triangles.size(); ++t) {
         const auto& tri = triangles[t];
         if (tri.size() != 3 || triangleUvs[t].size() != 3) {
-            *why = "a face is not a triangle";
+            outcome->reason = "a face is not a triangle";
             return false;
         }
         const auto fh = mesh.add_face(mesh.vertex_handle((int)tri[0]),
             mesh.vertex_handle((int)tri[1]), mesh.vertex_handle((int)tri[2]));
         if (!fh.is_valid()) {
-            *why = "OpenMesh rejected triangle " + std::to_string(t) + " (non-manifold)";
+            outcome->reason = "OpenMesh rejected a triangle (non-manifold input)";
             return false;
         }
         faces.push_back(fh);
@@ -156,9 +109,10 @@ bool extractWithQex(const std::vector<Vector3>& vertices,
     }
     QEx::QuadMesh quadMesh;
     try {
-        QEx::extractQuadMeshOM(&mesh, &uvs, nullptr, &quadMesh);
+        outcome->steps = QEx::extractQuadMeshOMLimited(&mesh, &uvs, nullptr, &quadMesh,
+            (unsigned long)limits.maxSteps, (unsigned long)limits.maxGridVertices);
     } catch (const std::exception& e) {
-        *why = std::string("QEx threw: ") + e.what();
+        outcome->reason = e.what();
         return false;
     }
     outVertices->reserve(quadMesh.n_vertices());
@@ -174,14 +128,86 @@ bool extractWithQex(const std::vector<Vector3>& vertices,
         if (polygon.size() >= 3)
             outPolygons->push_back(std::move(polygon));
     }
-    dropUnrepairableFaces(mesh, *outVertices, outPolygons);
+    outcome->droppedFaces = dropUnrepairableFaces(outPolygons);
     if (outPolygons->empty()) {
-        *why = "QEx returned no faces";
+        outcome->reason = "QEx returned no faces";
         return false;
     }
+    outcome->faces = outPolygons->size();
+    for (const auto& face : *outPolygons)
+        outcome->nonQuads += face.size() != 4;
     return true;
 }
 
+long long twiceHandleCount(size_t vertexCount, const std::vector<std::vector<size_t>>& faces)
+{
+    // Corners (face, position) around a vertex are one fan when their faces
+    // share an edge at it that exactly two faces use; each fan counts as its
+    // own vertex, so a pinch or a non-manifold edge splits the surface instead
+    // of adding a handle.
+    std::vector<size_t> cornerBase(faces.size() + 1, 0);
+    for (size_t f = 0; f < faces.size(); ++f)
+        cornerBase[f + 1] = cornerBase[f] + faces[f].size();
+    std::vector<size_t> fan(cornerBase.back());
+    for (size_t c = 0; c < fan.size(); ++c)
+        fan[c] = c;
+    const auto find = [](std::vector<size_t>& parent, size_t x) {
+        while (parent[x] != x)
+            x = parent[x] = parent[parent[x]];
+        return x;
+    };
+    const auto unite = [&find](std::vector<size_t>& parent, size_t a, size_t b) { parent[find(parent, a)] = find(parent, b); };
+    // Undirected edge -> the corners at its two ends, per face using it.
+    std::map<std::pair<size_t, size_t>, std::vector<std::pair<size_t, size_t>>> edges;
+    for (size_t f = 0; f < faces.size(); ++f) {
+        const auto& face = faces[f];
+        for (size_t i = 0; i < face.size(); ++i) {
+            const size_t j = (i + 1) % face.size();
+            const size_t a = face[i], b = face[j];
+            if (a >= vertexCount || b >= vertexCount || a == b)
+                continue;
+            const size_t ca = cornerBase[f] + i, cb = cornerBase[f] + j;
+            edges[std::make_pair(std::min(a, b), std::max(a, b))].push_back(a < b ? std::make_pair(ca, cb) : std::make_pair(cb, ca));
+        }
+    }
+    for (const auto& edge : edges) {
+        if (2 != edge.second.size())
+            continue;
+        unite(fan, edge.second[0].first, edge.second[1].first);
+        unite(fan, edge.second[0].second, edge.second[1].second);
+    }
+    // Faces join their fans into components; boundary edges (one face, or a
+    // sheet of a non-manifold edge) join them into boundary loops.
+    std::vector<size_t> component(fan.size()), loop(fan.size());
+    for (size_t c = 0; c < fan.size(); ++c)
+        component[c] = loop[c] = c;
+    for (size_t f = 0; f < faces.size(); ++f) {
+        for (size_t c = cornerBase[f] + 1; c < cornerBase[f + 1]; ++c)
+            unite(component, find(fan, c), find(fan, cornerBase[f]));
+    }
+    long long edgeCount = 0;
+    std::vector<char> onBoundary(fan.size(), 0);
+    for (const auto& edge : edges) {
+        const bool boundary = 2 != edge.second.size();
+        edgeCount += boundary ? (long long)edge.second.size() : 1;
+        if (!boundary)
+            continue;
+        for (const auto& ends : edge.second) {
+            const size_t a = find(fan, ends.first), b = find(fan, ends.second);
+            onBoundary[a] = onBoundary[b] = 1;
+            unite(loop, a, b);
+        }
+    }
+    long long fans = 0, components = 0, loops = 0;
+    for (size_t c = 0; c < fan.size(); ++c) {
+        if (find(fan, c) != c)
+            continue;
+        ++fans;
+        components += find(component, c) == c;
+        loops += onBoundary[c] && find(loop, c) == c;
+    }
+    const long long euler = fans - edgeCount + (long long)faces.size();
+    return 2 * components - euler - loops;
 }
 
-#endif
+}

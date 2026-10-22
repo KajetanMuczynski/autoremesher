@@ -242,6 +242,22 @@ SOURCES += thirdparty/meshoptimizer/src/simplifier.cpp
 SOURCES += thirdparty/meshoptimizer/src/indexgenerator.cpp
 HEADERS += thirdparty/meshoptimizer/src/meshoptimizer.h
 
+# libQEx (GPL-3.0-or-later) and the OpenMesh core (BSD-3-Clause) it needs, as
+# in CMakeLists.txt: the quad extractor's front end (TODO 6.1b).
+INCLUDEPATH += thirdparty/OpenMesh/src
+INCLUDEPATH += thirdparty/libQEx/interfaces/c
+DEFINES += OM_STATIC_BUILD DLLEXPORT=
+SOURCES += $$files(thirdparty/OpenMesh/src/OpenMesh/Core/*.cc, true)
+SOURCES += thirdparty/libQEx/interfaces/c/qex.cc
+SOURCES += thirdparty/libQEx/src/MeshExtractor.cc
+SOURCES += thirdparty/libQEx/src/predicates.c
+# predicates.c uses K&R definitions, which C23 rejects; Shewchuk's predicates
+# need SSE arithmetic, not x87. It is the only C file here.
+!win32 {
+    QMAKE_CFLAGS += -std=gnu99 -w
+    !macx: QMAKE_CFLAGS += -msse2 -mfpmath=sse
+}
+
 SOURCES += src/AutoRemesher/parameterizer.cpp
 HEADERS += src/AutoRemesher/parameterizer.h
 
@@ -281,6 +297,9 @@ HEADERS += src/AutoRemesher/diagnostics.h
 HEADERS += include/AutoRemesher/Diagnostics
 SOURCES += src/AutoRemesher/predicates.cpp
 HEADERS += src/AutoRemesher/predicates.h
+
+SOURCES += src/AutoRemesher/qexextraction.cpp
+HEADERS += src/AutoRemesher/qexextraction.h
 HEADERS += include/AutoRemesher/Predicates
 
 

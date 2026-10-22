@@ -22,10 +22,6 @@ else()
 endif()
 option(AUTOREMESHER_BUNDLED_TBB "Build oneTBB from source and link it statically" ${AUTOREMESHER_DEFAULT_BUNDLED_TBB})
 option(AUTOREMESHER_BUILD_TESTS "Build the core tests in tests/ (run with ctest)" OFF)
-# Experiment for TODO 6.1, never shipped: extract quads with libQEx (Ebke et al. 2013) instead of
-# QuadExtractor's own graph tracing. 1 = QEx faces, then all of QuadExtractor's repair and cleanup;
-# 2 = QEx faces with only the hole and topology repair; 3 = as 2, then smoothing and projection. Fetches libQEx and OpenMesh's core.
-set(AUTOREMESHER_QEX 0 CACHE STRING "libQEx extraction experiment: 0 off, 1 QEx + cleanup, 2 QEx + repair only, 3 QEx + repair + smoothing")
 option(AUTOREMESHER_STATIC_RUNTIME "Link the MSVC C++ runtime statically (/MT)" ON)
 
 # Before project(): the runtime choice must reach oneTBB's targets too.
@@ -34,7 +30,7 @@ if(AUTOREMESHER_STATIC_RUNTIME)
     set(CMAKE_POLICY_DEFAULT_CMP0091 NEW)
 endif()
 
-project(autoremesher VERSION 1.2.0 LANGUAGES CXX)
+project(autoremesher VERSION 1.2.0 LANGUAGES C CXX)
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
@@ -76,6 +72,7 @@ add_library(autoremesher_core STATIC
     src/AutoRemesher/parameterizer.cpp
     src/AutoRemesher/positionkey.cpp
     src/AutoRemesher/predicates.cpp
+    src/AutoRemesher/qexextraction.cpp
     src/AutoRemesher/quadextractor.cpp
     src/AutoRemesher/quadparameterizer.cpp
     src/AutoRemesher/remesh.cpp
@@ -101,48 +98,28 @@ target_include_directories(autoremesher_core
 target_compile_definitions(autoremesher_core PUBLIC _USE_MATH_DEFINES NOMINMAX)
 target_link_libraries(autoremesher_core PUBLIC TBB::tbb Threads::Threads)
 
-if(NOT AUTOREMESHER_QEX STREQUAL "0")
-    include(FetchContent)
-    # OpenMesh 9.1.0 core (BSD-3-Clause), from the openmesh 1.2.1 sdist on PyPI: the RWTH download
-    # server is not reachable from every build machine.
-    FetchContent_Declare(openmesh
-        URL https://files.pythonhosted.org/packages/66/34/fd86bf3ca48d010f3a588fa997595c13162bc07563382f9a4d5ec8855dfb/openmesh-1.2.1.tar.gz
-        URL_HASH SHA256=6fd3fa41a68148e4a7523f562426aa9758bf65ccc6642abcf79c37bae9c6af3c
-        DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
-    # libQEx (GPL-3.0-or-later), master of 2026-05-27.
-    FetchContent_Declare(libqex
-        GIT_REPOSITORY https://github.com/hcebke/libQEx.git
-        GIT_TAG 517dcaa0cc87646baa89e52cfc8e23766776f6d5)
-    FetchContent_GetProperties(openmesh)
-    if(NOT openmesh_POPULATED)
-        FetchContent_Populate(openmesh)
-    endif()
-    FetchContent_GetProperties(libqex)
-    if(NOT libqex_POPULATED)
-        FetchContent_Populate(libqex)
-    endif()
-    set(OPENMESH_SRC "${openmesh_SOURCE_DIR}/OpenMesh/src")
-    file(GLOB_RECURSE OPENMESH_CORE_SOURCES "${OPENMESH_SRC}/OpenMesh/Core/*.cc")
-    enable_language(C)
-    add_library(autoremesher_qex STATIC ${OPENMESH_CORE_SOURCES}
-        "${libqex_SOURCE_DIR}/interfaces/c/qex.cc"
-        "${libqex_SOURCE_DIR}/src/MeshExtractor.cc"
-        "${libqex_SOURCE_DIR}/src/predicates.c")
-    target_compile_features(autoremesher_qex PUBLIC cxx_std_14)
-    target_include_directories(autoremesher_qex PUBLIC "${OPENMESH_SRC}" "${libqex_SOURCE_DIR}/interfaces/c")
-    # qex.h marks its functions dllimport on Windows unless DLLEXPORT is set; this is a static library.
-    target_compile_definitions(autoremesher_qex PUBLIC _USE_MATH_DEFINES OM_STATIC_BUILD DLLEXPORT=)
-    if(NOT MSVC)
+# libQEx (Ebke et al. 2013, GPL-3.0-or-later) extracts the quads, with the fork's termination and
+# memory guards (thirdparty/libQEx/PATCHES.md); it needs OpenMesh's core (BSD-3-Clause). Both vendored.
+file(GLOB_RECURSE OPENMESH_CORE_SOURCES "${THIRDPARTY}/OpenMesh/src/OpenMesh/Core/*.cc")
+add_library(autoremesher_qex STATIC ${OPENMESH_CORE_SOURCES}
+    "${THIRDPARTY}/libQEx/interfaces/c/qex.cc"
+    "${THIRDPARTY}/libQEx/src/MeshExtractor.cc"
+    "${THIRDPARTY}/libQEx/src/predicates.c")
+target_compile_features(autoremesher_qex PUBLIC cxx_std_14)
+target_include_directories(autoremesher_qex PUBLIC "${THIRDPARTY}/OpenMesh/src" "${THIRDPARTY}/libQEx/interfaces/c")
+# qex.h marks its functions dllimport on Windows unless DLLEXPORT is set; this is a static library.
+target_compile_definitions(autoremesher_qex PUBLIC _USE_MATH_DEFINES OM_STATIC_BUILD DLLEXPORT=)
+if(NOT MSVC)
+    # Third-party warnings are not ours to fix. predicates.c uses K&R definitions, which C23 rejects.
+    target_compile_options(autoremesher_qex PRIVATE -w $<$<COMPILE_LANGUAGE:C>:-std=gnu99>)
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
         # Shewchuk's predicates need SSE arithmetic, not x87 (libQEx's CMakeLists does the same).
-        target_compile_options(autoremesher_qex PRIVATE -w $<$<COMPILE_LANGUAGE:C>:-std=gnu99>)
-        if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
-            target_compile_options(autoremesher_qex PRIVATE -msse2 -mfpmath=sse)
-        endif()
+        target_compile_options(autoremesher_qex PRIVATE -msse2 -mfpmath=sse)
     endif()
-    target_sources(autoremesher_core PRIVATE src/AutoRemesher/qexextraction.cpp)
-    target_compile_definitions(autoremesher_core PRIVATE AUTOREMESHER_QEX=${AUTOREMESHER_QEX})
-    target_link_libraries(autoremesher_core PRIVATE autoremesher_qex)
+else()
+    target_compile_options(autoremesher_qex PRIVATE /bigobj /utf-8 /W0)
 endif()
+target_link_libraries(autoremesher_core PRIVATE autoremesher_qex)
 
 if(MSVC)
     # /bigobj: Eigen-heavy translation units exceed the default section count.
@@ -198,6 +175,10 @@ install(FILES "${AUTOREMESHER_GENERATED}/build-id.txt" DESTINATION .)
 install(FILES LICENSE LICENSE-MIT-upstream DESTINATION licenses)
 install(FILES "${THIRDPARTY}/isotropicremesher/LICENSE" DESTINATION licenses RENAME isotropicremesher-LICENSE)
 install(FILES "${THIRDPARTY}/meshoptimizer/LICENSE.md" DESTINATION licenses RENAME meshoptimizer-LICENSE.md)
+install(FILES "${THIRDPARTY}/OpenMesh/LICENSE" DESTINATION licenses RENAME OpenMesh-LICENSE)
+# libQEx is GPL-3.0-or-later like the fork (licenses/LICENSE); its notice and the list of our changes.
+install(FILES "${THIRDPARTY}/libQEx/README.md" DESTINATION licenses RENAME libQEx-README.md)
+install(FILES "${THIRDPARTY}/libQEx/PATCHES.md" DESTINATION licenses RENAME libQEx-PATCHES.md)
 foreach(eigen_license COPYING.MPL2 COPYING.BSD COPYING.APACHE COPYING.README)
     install(FILES "${THIRDPARTY}/eigen/${eigen_license}" DESTINATION licenses RENAME eigen-${eigen_license})
 endforeach()

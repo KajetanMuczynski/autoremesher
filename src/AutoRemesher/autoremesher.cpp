@@ -1217,9 +1217,24 @@ bool AutoRemesher::remeshIslands()
             extractor.setOriginalTriangleUvs(&run.capturedOriginalUvs);
             extractor.setSingularVertices(&run.capturedSingularVertexIndices);
             extractor.setInputBoundary(&ctx.inputBoundary);
+            extractor.setUseQex(m_useQex);
+            extractor.setTargetQuadCount((size_t)std::max(0.0, ctx.targetQuadCount));
             extractor.setProgressHandler(
                 makeStageProgress(islandIndex, islandParameterizeEnd, 1.0f, 1.0f));
-            if (extractor.extract()) {
+            const bool extracted = extractor.extract();
+            const QexOutcome& qex = extractor.qexOutcome();
+            if (qex.attempted) {
+                DiagnosticRecord record("extractor");
+                record.label("used", qex.used ? "qex" : "trace");
+                record.label("fallback_reason", qex.reason);
+                record.set("qex_steps", (double)qex.steps);
+                record.set("qex_steps_per_triangle", triangles.empty() ? 0.0 : (double)qex.steps / (double)triangles.size());
+                record.set("qex_faces", (double)qex.faces);
+                record.set("qex_non_quads", (double)qex.nonQuads);
+                record.set("qex_dropped_faces", (double)qex.droppedFaces);
+                run.diagnostics.push_back(std::move(record));
+            }
+            if (extracted) {
                 run.extracted = true;
                 run.capturedExtractedConnections = extractor.extractedConnections();
                 run.capturedExtractedConnectionMoved = extractor.extractedConnectionMoved();
@@ -1313,7 +1328,16 @@ bool AutoRemesher::remeshIslands()
                     parameterizeIsland(i, ctx, run);
                     const bool healthy = isHealthyIslandResult(ctx.inputTopology, run.remeshedVertices, run.remeshedQuads);
                     // Prefer a torn island to a missing one.
-                    if (healthy || (islandRuns[i].remeshedQuads.empty() && !run.remeshedQuads.empty())) {
+                    const bool replace = healthy || (islandRuns[i].remeshedQuads.empty() && !run.remeshedQuads.empty());
+                    // The extractor records of the attempt that is dropped stay, marked
+                    // superseded, so libQEx fallbacks are counted per attempt (TODO 6.1b).
+                    IslandRun& dropped = replace ? islandRuns[i] : run;
+                    IslandRun& kept = replace ? run : islandRuns[i];
+                    for (auto& record : dropped.diagnostics) {
+                        if (record.stage == "extractor")
+                            kept.diagnostics.push_back(std::move(record.label("superseded", "yes")));
+                    }
+                    if (replace) {
                         islandContexes[i] = std::move(ctx);
                         islandRuns[i] = std::move(run);
                     }
@@ -1562,6 +1586,7 @@ bool AutoRemesher::remeshIslands()
         run.set("islands", (double)islandContexes.size());
         run.set("adaptivity", m_adaptivity);
         run.set("anisotropy", m_anisotropy);
+        run.label("extractor", m_useQex ? "qex" : "trace");
         run.set("output_vertices", (double)m_remeshedVertices.size());
         run.set("output_faces", (double)m_remeshedQuads.size());
         run.set("output_non_quads", (double)nonQuadFaces);

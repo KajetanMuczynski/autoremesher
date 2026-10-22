@@ -4,7 +4,7 @@
 
     ab.py run REF [--set corpus] [--targets 2000,10000] [--resolutions fast,quality]
                   [--only a,b | --skip a,b] [--replicates N] [--cli-arg=--adaptivity=0 ...]
-                  [--cmake-arg=-DAUTOREMESHER_QEX=1 ...] [--jobs 2] [--no-metrics] [--remeasure]
+                  [--cmake-arg=-DX=1 ...] [--jobs 2] [--no-metrics] [--remeasure]
                   [--timeout S] [--work DIR]
     ab.py compare A B [--set corpus] [--per-run] [--work DIR]
     ab.py build REF [--cmake-arg=... ...] [--work DIR]
@@ -34,6 +34,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import statistics as st
 import subprocess
 import sys
@@ -234,6 +235,7 @@ def run_one(cli, mesh, setname, target, res, k, out, cli_args, work, metrics, jo
         rec["cover"] = [{k2: s.get(k2) for k2 in ("continuous_energy", "rounded_energy", "iterations")}
                         for s in stages if s.get("stage") == "cover_result"]
         rec["t_topology"] = t_topology(stages)
+        rec["extractor"] = extractor_summary(stages)
     except (OSError, ValueError) as ex:
         rec["stage_error"] = str(ex)
     if metrics and rc == 0 and os.path.exists(os.path.join(d, "out.obj")):
@@ -241,6 +243,19 @@ def run_one(cli, mesh, setname, target, res, k, out, cli_args, work, metrics, jo
     with open(record_path, "w") as fp:
         json.dump(rec, fp, indent=1)
     return rec
+
+
+def extractor_summary(stages):
+    """Islands libQEx extracted and those that fell back to our tracing (TODO 6.1b), with the reasons.
+
+    An island whose result was unhealthy is run again; the records of dropped attempts are marked
+    superseded. `fallbacks` counts the islands whose output came from our tracing, `attempt_fallbacks`
+    every extraction attempt that fell back."""
+    recs = [s for s in stages if s.get("stage") == "extractor"]
+    final = [s for s in recs if s.get("superseded") != "yes"]
+    return {"islands": len(final), "fallbacks": sum(1 for s in final if s.get("used") == "trace"),
+            "attempts": len(recs), "attempt_fallbacks": sum(1 for s in recs if s.get("used") == "trace"),
+            "reasons": sorted({s.get("fallback_reason") for s in recs if s.get("used") == "trace"})}
 
 
 def t_topology(stages):
@@ -311,9 +326,10 @@ def load_runs(path, setname):
             r = json.load(open(os.path.join(root, "record.json")))
             if "out_sha" not in r and os.path.exists(os.path.join(root, "out.obj")):
                 r["out_sha"] = file_hash(os.path.join(root, "out.obj"))
-            if "t_topology" not in r and os.path.exists(os.path.join(root, "stages.jsonl")):
-                r["t_topology"] = t_topology([json.loads(line) for line in open(os.path.join(root, "stages.jsonl"))
-                                              if line.strip()])
+            if ("t_topology" not in r or "extractor" not in r) and os.path.exists(os.path.join(root, "stages.jsonl")):
+                stages = [json.loads(line) for line in open(os.path.join(root, "stages.jsonl")) if line.strip()]
+                r.setdefault("t_topology", t_topology(stages))
+                r.setdefault("extractor", extractor_summary(stages))
             runs.setdefault((r["mesh"], r["res"], r["target"]), {})[r["replicate"]] = r
     return runs
 
@@ -350,11 +366,14 @@ def value(r, k):
     if k == "peak_rss_mb": return r.get("peak_rss_mb")
     if k == "t_non_manifold": return (r.get("t_topology") or {}).get("isotropic_non_manifold_edges")
     if k == "t_opened": return (r.get("t_topology") or {}).get("isotropic_opened_closed_islands")
+    if k == "qex_fallbacks":
+        e = r.get("extractor") or {}
+        return e.get("fallbacks") if e.get("islands") else None
     raise KeyError(k)
 
 
 COUNTS = ["flips_cont", "flips_round", "flips", "degenerate", "non_quads", "sj_le_0", "flipped_vs_input",
-          "t_non_manifold", "t_opened"]
+          "t_non_manifold", "t_opened", "qex_fallbacks"]
 MEANS = ["irregular_1k", "in_out_p99", "hausdorff", "in_out_mean", "normal_dev", "vertex_dist", "sj_p1",
          "skew_p95", "crease_cov", "count_err", "energy_ratio", "time", "peak_rss_mb"]
 # Rows where a higher value is the better one (for "runs B better / worse").
@@ -418,6 +437,14 @@ def cmd_compare(a):
               f"{better} / {worse} |")
     print("\nCounts are summed over runs (geo-mean of (B+1)/(A+1)), the rest averaged. time is the CLI's own "
           "total under --jobs parallel load: use it for large effects only.\n")
+    # Gates like "no run over 2× master's time or memory" look at the worst run, not the mean.
+    for metric in ("time", "peak_rss_mb"):
+        ratios = [(mean_over(B, k, metric) / mean_over(A, k, metric), k) for k in keys
+                  if mean_over(A, k, metric) and mean_over(B, k, metric) is not None]
+        if ratios:
+            r, k = max(ratios)
+            print(f"Worst run for {metric} (mean over replicates): B/A ×{r:.2f}, {k[0]} {k[1]} {k[2]}")
+    print()
     # Each parallel run slows the others (4 jobs on 4 cores: about +20 % CLI time against 2 jobs), so
     # a time row is only fair between sides run with the same --jobs. Records before 2026-10-21 lack it.
     ja = {A[k][u].get("jobs") for k in keys for u in reps}
@@ -473,6 +500,35 @@ def cmd_compare(a):
         if noisy:
             print("- replicates disagree (noise, count neither way): "
                   + ", ".join(f"{name(k)} (A {sum(ta[k])}/{n}, B {sum(tb[k])}/{n})" for k in noisy))
+
+    # libQEx fallbacks (TODO 6.1b): how often B's islands went to our tracing, why, and what those
+    # replicate-runs look like on both sides.
+    ex = {(k, u): B[k][u].get("extractor") or {} for k in keys for u in reps}
+    if any(e.get("islands") for e in ex.values()):
+        fb = [ku for ku, e in ex.items() if e.get("attempt_fallbacks", e.get("fallbacks"))]
+        reasons = {}
+        for ku in fb:
+            for r in ex[ku].get("reasons") or []:
+                r = re.sub(r"\d+", "#", r or "?")
+                reasons[r] = reasons.get(r, 0) + 1
+        print(f"\n**libQEx fallbacks in B**: {len(fb)} of {len(ex)} replicate-runs, "
+              f"{sum(e.get('fallbacks', 0) for e in ex.values())} of {sum(e.get('islands', 0) for e in ex.values())} "
+              f"islands output by our tracing, "
+              f"{sum(e.get('attempt_fallbacks', e.get('fallbacks', 0)) for e in ex.values())} of "
+              f"{sum(e.get('attempts', e.get('islands', 0)) for e in ex.values())} extraction attempts fell back "
+              f"(an unhealthy island is run again)")
+        for r, c in sorted(reasons.items(), key=lambda x: -x[1]):
+            print(f"- {c}× {r}")
+        if fb:
+            print("\n| on those replicate-runs | A | B |\n|---|---|---|")
+            for metric in ("flipped_vs_input", "sj_le_0", "non_quads"):
+                xs = [(value(A[k][u], metric), value(B[k][u], metric)) for k, u in fb]
+                xs = [(x, y) for x, y in xs if x is not None and y is not None]
+                if xs:
+                    print(f"| {metric} (sum) | {fmt(sum(x for x, _ in xs))} | {fmt(sum(y for _, y in xs))} |")
+            print(f"| topology same as input | {sum(bool(topology_ok(A[k][u])) for k, u in fb)} | "
+                  f"{sum(bool(topology_ok(B[k][u])) for k, u in fb)} |")
+            print("\nFallback replicate-runs: " + ", ".join(f"{k[0]} {k[1]} {k[2]} u{u}" for k, u in sorted(fb)))
 
     if a.per_run:
         cols = ["flips", "non_quads", "sj_le_0", "hausdorff"]

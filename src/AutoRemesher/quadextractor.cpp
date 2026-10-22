@@ -18,14 +18,12 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
+#include "qexextraction.h"
 #include <AutoRemesher/Double>
 #include <AutoRemesher/MeshSeparator>
 #include <AutoRemesher/PositionKey>
 #include <AutoRemesher/QuadExtractor>
 #include <AutoRemesher/SurfaceProjector>
-#if AUTOREMESHER_QEX
-#include "qexextraction.h"
-#endif
 #include <algorithm>
 #include <axisalignedboundingbox.h>
 #include <axisalignedboundingboxtree.h>
@@ -52,6 +50,39 @@ namespace AutoRemesher {
 
 bool QuadExtractor::extract()
 {
+    // libQEx extracts the faces (TODO 6.1b); an island it can't take, or one
+    // where it hits a guard, falls back to tracing the graph ourselves. The
+    // repair and cleanup below run on either.
+    m_qexOutcome = QexOutcome();
+    const bool usedQex = m_useQex && extractWithQexFrontEnd();
+    if (!usedQex)
+        traceMesh();
+    finishMesh();
+
+    // Across a fold libQEx can join two sheets into a handle that tracing the
+    // same map does not make (suzanne_sub2 Quality 5000, 6 of 6 replicates on
+    // master b4995a6); the raw QEx output is too torn to judge, so the island
+    // is checked after the repair and traced again if it gained a handle.
+    if (usedQex) {
+        const long long handlesIn = twiceHandleCount(m_vertices->size(), *m_triangles);
+        const long long handlesOut = twiceHandleCount(m_remeshedVertices.size(), m_remeshedPolygons);
+        if (handlesOut > handlesIn) {
+            m_qexOutcome.used = false;
+            m_qexOutcome.reason = "QEx output has more handles (2g " + std::to_string(handlesIn) + " -> "
+                + std::to_string(handlesOut) + ")";
+            std::cerr << "QEx: falling back to own extraction: " << m_qexOutcome.reason << std::endl;
+            m_remeshedVertices.clear();
+            m_remeshedPolygons.clear();
+            m_halfEdges.clear();
+            traceMesh();
+            finishMesh();
+        }
+    }
+    return true;
+}
+
+void QuadExtractor::finishMesh()
+{
     // The fractions are the measured share of extraction each step costs.  The
     // topology cleanup passes at the end are over half of it, so they report
     // individually instead of as one long silent block.
@@ -60,30 +91,150 @@ bool QuadExtractor::extract()
             m_progressHandler(fraction, name);
     };
 
-#if AUTOREMESHER_QEX
-    // TODO 6.1 experiment: QEx's faces replace the traced graph; the repair
-    // (and with AUTOREMESHER_QEX 1 the cleanup) below runs on them as usual.
-    // An island OpenMesh or QEx can't take falls back to the tracing.
-    bool extractedWithQex = false;
+    report(0.29f, "Fixing holes");
+    fixHoles();
+
+#if AUTO_REMESHER_DEV
     {
-        std::string why;
-        extractedWithQex = extractWithQex(*m_vertices, *m_triangles, *m_triangleUvs,
-            &m_remeshedVertices, &m_remeshedPolygons, &why);
-        if (extractedWithQex) {
-            size_t nonQuads = 0;
-            for (const auto& face : m_remeshedPolygons)
-                nonQuads += face.size() != 4;
-            std::cerr << "QEx: extracted " << m_remeshedPolygons.size() << " faces, "
-                      << nonQuads << " not quads" << std::endl;
-        } else {
-            std::cerr << "QEx: fallback to own extraction: " << why << std::endl;
+        FILE* fp = fopen("debug-quadextractor-quads-withoutfix.obj", "wb");
+        for (size_t i = 0; i < m_remeshedVertices.size(); ++i) {
+            const auto& vertex = m_remeshedVertices[i];
+            fprintf(fp, "v %f %f %f\n", vertex.x(), vertex.y(), vertex.z());
+        }
+        for (const auto& it : m_remeshedPolygons) {
+            fprintf(fp, "f");
+            std::unordered_set<size_t> indices;
+            for (const auto& v : it) {
+                indices.insert(v);
+                fprintf(fp, " %zu", 1 + v);
+            }
+            if (indices.size() != it.size()) {
+                std::cerr << "Found repeated vertices in face:";
+                for (const auto& v : it) {
+                    std::cerr << v << " ";
+                }
+                std::cerr << std::endl;
+            }
+            fprintf(fp, "\n");
+        }
+        fclose(fp);
+    }
+#endif
+
+    report(0.30f, "Removing non-manifold faces");
+    repairTopology();
+
+    {
+        std::set<size_t> usedVertices;
+        for (const auto& face : m_remeshedPolygons) {
+            for (const auto& v : face)
+                usedVertices.insert(v);
+        }
+        if (usedVertices.size() < m_remeshedVertices.size()) {
+            std::vector<Vector3> compactedVertices;
+            std::unordered_map<size_t, size_t> oldToNew;
+            compactedVertices.reserve(usedVertices.size());
+            for (const auto& oldIndex : usedVertices) {
+                oldToNew[oldIndex] = compactedVertices.size();
+                compactedVertices.push_back(m_remeshedVertices[oldIndex]);
+            }
+            for (auto& face : m_remeshedPolygons) {
+                for (auto& v : face)
+                    v = oldToNew[v];
+            }
+            m_remeshedVertices = std::move(compactedVertices);
         }
     }
-    // The tracing below keeps its indentation while the experiment lasts
-    // (6.1b replaces the switch).
-    // clang-format off
-    if (!extractedWithQex) {
+
+    report(0.31f, "Smoothing and projecting");
+    std::cerr << "Smooth and project..." << std::endl;
+    smoothAndProject(5);
+    std::cerr << "Smooth and project done" << std::endl;
+
+    report(0.44f, "Splitting seven edge faces");
+    splitSevenEdgeFaces();
+    report(0.45f, "Splitting six edge faces");
+    splitSixEdgeFaces();
+    // A pentagon is the best place for a triangle to end up, it comes out of the
+    // collapse as a quad, so the triangles run first and the merge takes care of
+    // whatever pentagons are left over
+    report(0.46f, "Cleaning up triangles");
+    cleanupTriangles();
+    report(0.53f, "Merging shared five edge faces");
+    ProgressHandler mergeProgress;
+    if (m_progressHandler) {
+        mergeProgress = [this](float fraction, const char* name) {
+            m_progressHandler(0.53f + (0.85f - 0.53f) * fraction, name);
+        };
+    }
+    mergeSharedFiveEdgeFaces(mergeProgress ? &mergeProgress : nullptr);
+    // Runs last, it only reconnects quad pairs, so it wants the triangles and
+    // pentagons to have become quads already
+    report(0.85f, "Switching high valence edges");
+    switchHighValenceEdges();
+    report(0.89f, "Converting triangle and five edge fans");
+    convertTriangleAndFiveEdgeFans();
+    report(0.93f, "Collapsing three valence diagonals");
+    collapseThreeValenceDiagonals();
+    report(0.95f, "Merging double shared edge quads");
+    mergeDoubleSharedEdgeQuads();
+    report(0.96f, "Merging three and five valence triangles");
+    mergeThreeAndFiveValenceTriangles();
+    report(0.97f, "Collapsing three valence corners");
+    collapseThreeValenceCorners();
+    report(0.98f, "Splitting high valence triangle fans");
+    splitHighValenceTriangleFans();
+    report(0.99f, "Collapsing three valence edge pairs");
+    collapseThreeValenceEdgePairs();
+    report(1.0f, "");
+
+#if AUTO_REMESHER_DEV
+    {
+        FILE* fp = fopen("debug-quadextractor-quads.obj", "wb");
+        for (size_t i = 0; i < m_remeshedVertices.size(); ++i) {
+            const auto& vertex = m_remeshedVertices[i];
+            fprintf(fp, "v %f %f %f\n", vertex.x(), vertex.y(), vertex.z());
+        }
+        for (const auto& it : m_remeshedPolygons) {
+            fprintf(fp, "f");
+            for (const auto& v : it)
+                fprintf(fp, " %zu", 1 + v);
+            fprintf(fp, "\n");
+        }
+        fclose(fp);
+    }
 #endif
+}
+
+bool QuadExtractor::extractWithQexFrontEnd()
+{
+    if (m_progressHandler)
+        m_progressHandler(0.0f, "Extracting quads");
+    QexLimits limits;
+    limits.maxSteps = QexStepsPerTriangle * (m_triangles->size() + 100);
+    if (m_targetQuadCount > 0)
+        limits.maxGridVertices = QexGridVerticesPerQuad * m_targetQuadCount + 1000;
+    m_qexOutcome.attempted = true;
+    m_qexOutcome.used = extractWithQex(*m_vertices, *m_triangles, *m_triangleUvs, limits,
+        &m_remeshedVertices, &m_remeshedPolygons, &m_qexOutcome);
+    if (!m_qexOutcome.used) {
+        std::cerr << "QEx: falling back to own extraction: " << m_qexOutcome.reason << std::endl;
+        m_remeshedVertices.clear();
+        m_remeshedPolygons.clear();
+        return false;
+    }
+    m_extractedConnections.clear();
+    m_extractedConnectionMoved.clear();
+    rebuildHalfEdges();
+    return true;
+}
+
+void QuadExtractor::traceMesh()
+{
+    const auto report = [this](float fraction, const char* name) {
+        if (m_progressHandler)
+            m_progressHandler(fraction, name);
+    };
     report(0.0f, "Extracting connections");
     std::cerr << "Extract connections..." << std::endl;
     std::vector<Vector3> crossPoints;
@@ -188,142 +339,6 @@ bool QuadExtractor::extract()
     std::cerr << "Extract mesh..." << std::endl;
     extractMesh(crossPoints, crossPointSourceTriangles, edgeConnectMap, &m_remeshedPolygons);
     std::cerr << "Extract mesh done" << std::endl;
-#if AUTOREMESHER_QEX
-    } else {
-        m_extractedConnections.clear();
-        m_extractedConnectionMoved.clear();
-        rebuildHalfEdges();
-    }
-    // clang-format on
-#endif
-
-    report(0.29f, "Fixing holes");
-    fixHoles();
-
-#if AUTO_REMESHER_DEV
-    {
-        FILE* fp = fopen("debug-quadextractor-quads-withoutfix.obj", "wb");
-        for (size_t i = 0; i < m_remeshedVertices.size(); ++i) {
-            const auto& vertex = m_remeshedVertices[i];
-            fprintf(fp, "v %f %f %f\n", vertex.x(), vertex.y(), vertex.z());
-        }
-        for (const auto& it : m_remeshedPolygons) {
-            fprintf(fp, "f");
-            std::unordered_set<size_t> indices;
-            for (const auto& v : it) {
-                indices.insert(v);
-                fprintf(fp, " %zu", 1 + v);
-            }
-            if (indices.size() != it.size()) {
-                std::cerr << "Found repeated vertices in face:";
-                for (const auto& v : it) {
-                    std::cerr << v << " ";
-                }
-                std::cerr << std::endl;
-            }
-            fprintf(fp, "\n");
-        }
-        fclose(fp);
-    }
-#endif
-
-    report(0.30f, "Removing non-manifold faces");
-    repairTopology();
-
-    {
-        std::set<size_t> usedVertices;
-        for (const auto& face : m_remeshedPolygons) {
-            for (const auto& v : face)
-                usedVertices.insert(v);
-        }
-        if (usedVertices.size() < m_remeshedVertices.size()) {
-            std::vector<Vector3> compactedVertices;
-            std::unordered_map<size_t, size_t> oldToNew;
-            compactedVertices.reserve(usedVertices.size());
-            for (const auto& oldIndex : usedVertices) {
-                oldToNew[oldIndex] = compactedVertices.size();
-                compactedVertices.push_back(m_remeshedVertices[oldIndex]);
-            }
-            for (auto& face : m_remeshedPolygons) {
-                for (auto& v : face)
-                    v = oldToNew[v];
-            }
-            m_remeshedVertices = std::move(compactedVertices);
-        }
-    }
-
-#if AUTOREMESHER_QEX == 2
-    if (extractedWithQex) {
-        report(1.0f, "");
-        return true;
-    }
-#endif
-    report(0.31f, "Smoothing and projecting");
-    std::cerr << "Smooth and project..." << std::endl;
-    smoothAndProject(5);
-    std::cerr << "Smooth and project done" << std::endl;
-#if AUTOREMESHER_QEX == 3
-    if (extractedWithQex) {
-        report(1.0f, "");
-        return true;
-    }
-#endif
-
-    report(0.44f, "Splitting seven edge faces");
-    splitSevenEdgeFaces();
-    report(0.45f, "Splitting six edge faces");
-    splitSixEdgeFaces();
-    // A pentagon is the best place for a triangle to end up, it comes out of the
-    // collapse as a quad, so the triangles run first and the merge takes care of
-    // whatever pentagons are left over
-    report(0.46f, "Cleaning up triangles");
-    cleanupTriangles();
-    report(0.53f, "Merging shared five edge faces");
-    ProgressHandler mergeProgress;
-    if (m_progressHandler) {
-        mergeProgress = [this](float fraction, const char* name) {
-            m_progressHandler(0.53f + (0.85f - 0.53f) * fraction, name);
-        };
-    }
-    mergeSharedFiveEdgeFaces(mergeProgress ? &mergeProgress : nullptr);
-    // Runs last, it only reconnects quad pairs, so it wants the triangles and
-    // pentagons to have become quads already
-    report(0.85f, "Switching high valence edges");
-    switchHighValenceEdges();
-    report(0.89f, "Converting triangle and five edge fans");
-    convertTriangleAndFiveEdgeFans();
-    report(0.93f, "Collapsing three valence diagonals");
-    collapseThreeValenceDiagonals();
-    report(0.95f, "Merging double shared edge quads");
-    mergeDoubleSharedEdgeQuads();
-    report(0.96f, "Merging three and five valence triangles");
-    mergeThreeAndFiveValenceTriangles();
-    report(0.97f, "Collapsing three valence corners");
-    collapseThreeValenceCorners();
-    report(0.98f, "Splitting high valence triangle fans");
-    splitHighValenceTriangleFans();
-    report(0.99f, "Collapsing three valence edge pairs");
-    collapseThreeValenceEdgePairs();
-    report(1.0f, "");
-
-#if AUTO_REMESHER_DEV
-    {
-        FILE* fp = fopen("debug-quadextractor-quads.obj", "wb");
-        for (size_t i = 0; i < m_remeshedVertices.size(); ++i) {
-            const auto& vertex = m_remeshedVertices[i];
-            fprintf(fp, "v %f %f %f\n", vertex.x(), vertex.y(), vertex.z());
-        }
-        for (const auto& it : m_remeshedPolygons) {
-            fprintf(fp, "f");
-            for (const auto& v : it)
-                fprintf(fp, " %zu", 1 + v);
-            fprintf(fp, "\n");
-        }
-        fclose(fp);
-    }
-#endif
-
-    return true;
 }
 
 void QuadExtractor::extractEdges(const std::set<std::pair<size_t, size_t>>& connections,

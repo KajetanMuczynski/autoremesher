@@ -117,6 +117,12 @@ public:
         m_anisotropy = anisotropy;
     }
 
+    // As RemeshParameters::extractor: libQEx first, or our tracing only.
+    void setUseQex(bool useQex)
+    {
+        m_useQex = useQex;
+    }
+
     void setSmoothNormalDegrees(double degrees)
     {
         m_smoothNormalDegrees = degrees;
@@ -380,6 +386,7 @@ private:
     double m_anisotropy = 1.0;
     double m_sharpEdgeDegrees = m_defaultSharpEdgeDegrees;
     double m_smoothNormalDegrees = 0.0;
+    bool m_useQex = true;
     bool m_repairInputFolds = false;
     ModelType m_modelType = ModelType::Organic;
     AutoRemesherProgressHandler m_progressHandler = nullptr;

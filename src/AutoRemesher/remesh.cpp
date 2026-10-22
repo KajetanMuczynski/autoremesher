@@ -66,6 +66,8 @@ namespace {
             return "parameters must be finite numbers";
         if (MeshResolution::Fast != parameters.resolution && MeshResolution::Quality != parameters.resolution)
             return "resolution must be fast or quality";
+        if (Extractor::Qex != parameters.extractor && Extractor::Trace != parameters.extractor)
+            return "extractor must be qex or trace";
         return nullptr;
     }
 
@@ -366,6 +368,22 @@ bool parseMeshResolution(const std::string& text, MeshResolution* resolution)
     return true;
 }
 
+const char* toString(Extractor extractor)
+{
+    return Extractor::Trace == extractor ? "trace" : "qex";
+}
+
+bool parseExtractor(const std::string& text, Extractor* extractor)
+{
+    if ("qex" == text)
+        *extractor = Extractor::Qex;
+    else if ("trace" == text)
+        *extractor = Extractor::Trace;
+    else
+        return false;
+    return true;
+}
+
 RemeshResult remeshWithPreview(const RemeshRequest& request,
     const RemeshCallbacks& callbacks,
     RemeshPreview* preview)
@@ -407,6 +425,7 @@ RemeshResult remeshWithPreview(const RemeshRequest& request,
     engine.setAnisotropy(parameters.anisotropy);
     engine.setSharpEdgeDegrees(parameters.sharpEdgeDegrees);
     engine.setSmoothNormalDegrees(parameters.smoothNormalDegrees);
+    engine.setUseQex(Extractor::Qex == parameters.extractor);
     engine.setRepairInputFolds(parameters.repairFolds);
     engine.setTrianglesPerQuad(MeshResolution::Fast == parameters.resolution
             ? ::AutoRemesher::FastTrianglesPerQuad
@@ -515,6 +534,7 @@ std::string toJson(const RemeshResult& result)
         << ", \"smooth_normal_degrees\": " << jsonNumber(parameters.smoothNormalDegrees)
         << ", \"resolution\": " << jsonString(toString(parameters.resolution))
         << ", \"repair_folds\": " << (parameters.repairFolds ? "true" : "false")
+        << ", \"extractor\": " << jsonString(toString(parameters.extractor))
         << "},\n";
     out << "  \"input\": {"
         << "\"vertices\": " << jsonCount(report.inputVertexCount)

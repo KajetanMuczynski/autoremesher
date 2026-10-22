@@ -36,7 +36,7 @@
 namespace AutoRemesher {
 
 const int InterfaceVersionMajor = 1;
-const int InterfaceVersionMinor = 5;
+const int InterfaceVersionMinor = 6;
 
 // Since 1.3.  Peak memory grows linearly with the target, by about this much
 // per quad at Quality resolution (21 KB measured on spot at 25k-100k quads;
@@ -53,6 +53,14 @@ constexpr uint32_t MaximumTargetQuadCount = 2000000;
 enum class MeshResolution {
     Fast,
     Quality
+};
+
+// Which code turns the integer-grid map into faces.  Qex: libQEx (Ebke et al.
+// 2013) with the fork's guards; an island it can't take falls back to Trace,
+// our own graph tracing (TODO 6.1b).  Trace alone is for comparisons.
+enum class Extractor {
+    Qex,
+    Trace
 };
 
 // Defaults are those of the command line.
@@ -78,6 +86,8 @@ struct RemeshParameters {
     // before remeshing; moves input vertices only, along the input surface.
     // Off: the folds are only counted (diagnostics input_fold_*).
     bool repairFolds = false;
+    // Since 1.6.
+    Extractor extractor = Extractor::Qex;
 };
 
 struct RemeshRequest {
@@ -201,6 +211,10 @@ const char* toString(RemeshStatus status);
 // "fast" and "quality", as in the JSON report and on the command line.
 const char* toString(MeshResolution resolution);
 bool parseMeshResolution(const std::string& text, MeshResolution* resolution);
+
+// "qex" and "trace".
+const char* toString(Extractor extractor);
+bool parseExtractor(const std::string& text, Extractor* extractor);
 
 }
 

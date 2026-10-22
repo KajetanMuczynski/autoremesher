@@ -60,6 +60,8 @@ const char* const usage = "Usage: autoremesher-cli -i input.obj -o output.obj [o
                           "  --resolution fast|quality   triangle mesh the quads are solved on: quality\n"
                           "                              gives cleaner quads, fast takes about 2/3 of\n"
                           "                              the time; same quad count (default quality)\n"
+                          "  --extractor qex|trace       qex: libQEx, falling back to our own tracing per\n"
+                          "                              island; trace: only our own (default qex)\n"
                           "  --fold-repair on|off        untangle folded-over input triangles (brush\n"
                           "                              leftovers) before remeshing (default off)\n"
                           "  --stdin-control             cancel when stdin receives the line \"cancel\"\n"
@@ -163,7 +165,12 @@ int parseArguments(const std::vector<std::string>& arguments, Options* options)
             valid = parseDouble(value, &parameters.sharpEdgeDegrees);
         else if ("--smooth-normal" == name)
             valid = parseDouble(value, &parameters.smoothNormalDegrees);
-        else if ("--resolution" == name) {
+        else if ("--extractor" == name) {
+            if (!parseExtractor(value, &parameters.extractor)) {
+                std::fprintf(stderr, "Error: --extractor must be qex or trace, not %s\n", value.c_str());
+                return 1;
+            }
+        } else if ("--resolution" == name) {
             if (!parseMeshResolution(value, &parameters.resolution)) {
                 std::fprintf(stderr, "Error: --resolution must be fast or quality, not %s\n", value.c_str());
                 return 1;
