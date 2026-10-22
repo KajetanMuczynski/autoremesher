@@ -27,8 +27,24 @@ named *_rel_edge, which are relative to the output mean edge length):
   degenerate  faces with a repeated vertex, near-zero area or near-zero edge
   flipped     output faces whose normal opposes the input normal at the closest
               input point (minority orientation, so a globally reversed output
-              counts as reversed, not as all-flipped)
-  normal_deviation_deg  angle between output face and input normal at the closest point (D3)
+              counts as reversed, not as all-flipped). The input is first
+              oriented the way the core's orientInput does (each manifold-
+              connected piece follows most of its area), so a patch exported
+              with the other winding is not counted; faces_vs_raw_input keeps
+              the old count against the file's own normals
+  validity    per input island (vertex-connected part), matched to output
+              islands by nearest input triangle: dropped, split, merged,
+              Euler characteristic / boundary loops changed, holes added or
+              closed, handles lost or added (genus per island; a handle moved
+              between islands shows here, not in same_as_input), non-manifold
+              vertices, folded faces of any size (the CLI's folded_faces),
+              input area farther than one output edge from the output
+              (area_uncovered) or that near but under an output face facing the
+              other way (area_wrong_side: thin parts collapsed into one sheet,
+              pleats), islands_same_as_input. Input islands that are not
+              manifold themselves have no right topology: they are counted in
+              islands_input_non_manifold and left out of the topology counts
+  normal_deviation_deg  angle between output face and (oriented) input normal at the closest point (D3)
   distance    one-sided mean / max and two-sided Hausdorff on area samples
   symmetry    (with --sym-axis) input reflection error, output geometric
               reflection error, and output *topological* symmetry: distance from
@@ -71,15 +87,18 @@ def triangulate(faces):
     return np.asarray(tris, dtype=np.int64).reshape(-1, 3)
 
 
-def sample_surface(V, F, n, rng):
+def sample_surface(V, F, n, rng, with_faces=False):
+    """n area-uniform points on the triangles F; with_faces also returns each point's triangle (None
+    when the mesh has no area and the vertices are returned instead)."""
     a, b, c = V[F[:, 0]], V[F[:, 1]], V[F[:, 2]]
     area = 0.5 * np.linalg.norm(np.cross(b - a, c - a), axis=1)
     if area.sum() <= 0:
-        return V.copy()
+        return (V.copy(), None) if with_faces else V.copy()
     idx = rng.choice(len(F), size=n, p=area / area.sum())
     r1, r2 = rng.random(n), rng.random(n)
     s = np.sqrt(r1)
-    return (1 - s)[:, None] * a[idx] + (s * (1 - r2))[:, None] * b[idx] + (s * r2)[:, None] * c[idx]
+    P = (1 - s)[:, None] * a[idx] + (s * (1 - r2))[:, None] * b[idx] + (s * r2)[:, None] * c[idx]
+    return (P, idx) if with_faces else P
 
 
 def stats(x, prefix=""):
@@ -121,6 +140,219 @@ def loops(n, edges):
     if not len(edges):
         return 0
     return int(len(np.unique(comps(n, edges)[np.unique(edges)])))
+
+
+def flat(faces):
+    if isinstance(faces, np.ndarray):  # all faces of one size, e.g. triangles
+        n = np.full(len(faces), faces.shape[1])
+        return n, faces.ravel(), np.repeat(np.arange(len(faces)), n)
+    n = np.array([len(f) for f in faces])
+    return n, np.concatenate([np.asarray(f) for f in faces]), np.repeat(np.arange(len(faces)), n)
+
+
+def corners(faces):
+    """Per corner: face, vertex, next vertex, previous vertex."""
+    n, idx, fid = flat(faces)
+    start = np.repeat(np.cumsum(n) - n, n)
+    pos = np.arange(len(idx)) - start
+    nxt = idx[start + (pos + 1) % np.repeat(n, n)]
+    prv = idx[start + (pos - 1) % np.repeat(n, n)]
+    return fid, idx, nxt, prv
+
+
+def nonmanifold_vertices(faces, nv):
+    """Vertices whose incident faces do not form one edge-connected fan."""
+    return int(nonmanifold_vertex_mask(faces, nv).sum())
+
+
+def nonmanifold_vertex_mask(faces, nv):
+    """nonmanifold_vertices() as a mask over the nv vertices."""
+    fid, v, nx, pv = corners(faces)
+    c = np.arange(len(v))
+    # corners (v, f1) and (v, f2) are linked when f1 and f2 share an edge at v
+    keys = np.concatenate([np.stack([v, np.minimum(v, nx), np.maximum(v, nx)], 1),
+                           np.stack([v, np.minimum(v, pv), np.maximum(v, pv)], 1)])
+    cs = np.concatenate([c, c])
+    uniq, inv = np.unique(keys, axis=0, return_inverse=True)
+    inv = inv.ravel()
+    order = np.argsort(inv, kind="stable")
+    inv, cs = inv[order], cs[order]
+    same = inv[1:] == inv[:-1]
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+
+    A = coo_matrix((np.ones(same.sum()), (cs[:-1][same], cs[1:][same])), shape=(len(v), len(v)))
+    _, lab = connected_components(A, directed=False)
+    fans = np.zeros(nv, int)
+    pairs = np.unique(np.stack([v, lab], 1), axis=0)
+    np.add.at(fans, pairs[:, 0], 1)
+    return fans > 1
+
+
+
+def orient_like_core(Vin, Fin):
+    """Input triangles turned the way the core's orientInput turns them (TODO 2.7, PR #51).
+
+    Each piece connected through manifold edges takes the orientation of most of its area; ties keep
+    the piece's first triangle; non-orientable pieces stay as they are. cleanInput's merge of edges
+    shorter than 4 float32 ulps is not mirrored: it changes only which triangles are adjacent across a
+    zero-length edge, and a consistently oriented input is returned unchanged either way.
+    Returns the oriented triangles, the number turned and the non-orientable pieces.
+    """
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+
+    n = len(Fin)
+    a = Fin.ravel()
+    b = Fin[:, [1, 2, 0]].ravel()
+    tri = np.repeat(np.arange(n), 3)
+    keep = a != b
+    a, b, tri = a[keep], b[keep], tri[keep]
+    key = np.minimum(a, b) * (int(Fin.max()) + 1 if n else 1) + np.maximum(a, b)
+    order = np.lexsort((tri, key))
+    key, tri, fwd = key[order], tri[order], (a < b)[order]
+    _, start, cnt = np.unique(key, return_index=True, return_counts=True)
+    man = cnt == 2
+    s = start[man]
+    t1, t2 = tri[s], tri[s + 1]
+    ok = t1 != t2
+    t1, t2, mismatch = t1[ok], t2[ok], (fwd[s] == fwd[s + 1])[ok]
+    if not mismatch.any():
+        return Fin, 0, 0
+    # Pieces, and a doubled graph (t, t + n = t turned) whose components give each triangle's side.
+    _, piece = connected_components(coo_matrix((np.ones(len(t1)), (t1, t2)), shape=(n, n)), directed=False)
+    same = ~mismatch
+    rows = np.concatenate([t1[same], t1[same] + n, t1[mismatch], t1[mismatch] + n])
+    cols = np.concatenate([t2[same], t2[same] + n, t2[mismatch] + n, t2[mismatch]])
+    _, side = connected_components(coo_matrix((np.ones(len(rows)), (rows, cols)), shape=(2 * n, 2 * n)),
+                                   directed=False)
+    orientable = np.ones(piece.max() + 1, bool)
+    np.logical_and.at(orientable, piece, side[:n] != side[n:])
+    seed = np.full(piece.max() + 1, n)
+    np.minimum.at(seed, piece, np.arange(n))
+    flip = side[:n] != side[seed[piece]]
+    area = 0.5 * np.linalg.norm(np.cross(Vin[Fin[:, 1]] - Vin[Fin[:, 0]], Vin[Fin[:, 2]] - Vin[Fin[:, 0]]), axis=1)
+    a0 = np.bincount(piece, weights=area * ~flip, minlength=len(seed))
+    a1 = np.bincount(piece, weights=area * flip, minlength=len(seed))
+    turned_side = np.where(a1 > a0, 0, 1)
+    turn = orientable[piece] & (flip.astype(int) == turned_side[piece])
+    out = Fin.copy()
+    out[turn] = out[turn][:, [0, 2, 1]]
+    return out, int(turn.sum()), int((~orientable).sum())
+
+
+def island_topology(nv, first_vertex, E, bnd, used, vlab, nlab):
+    """Per island (vertex label vlab, 0..nlab-1): Euler characteristic and boundary loops.
+
+    first_vertex is one vertex per face, E the unique edges, bnd the boundary edges, used the vertices
+    in a face. A pinched boundary loop counts once, as in loops().
+    """
+    chi = (np.bincount(vlab[used], minlength=nlab) - np.bincount(vlab[E[:, 0]], minlength=nlab)
+           + np.bincount(vlab[first_vertex], minlength=nlab))
+    nb = np.zeros(nlab, np.int64)
+    if len(bnd):
+        pairs = np.unique(np.stack([vlab[bnd[:, 0]], comps(nv, bnd)[bnd[:, 0]]], 1), axis=0)
+        np.add.at(nb, pairs[:, 0], 1)
+    return chi.astype(np.int64), nb
+
+
+def folded_faces(V, faces, sizes):
+    """Faces with a corner turning against the face's area vector (scaled Jacobian <= 0), degenerate
+    faces left out: the core's `folded_faces` (measureMesh in remesh.cpp), for every face size, so
+    a pleated pentagon counts too (V2 tests quads only)."""
+    fid, v, nx, pv = corners(faces)
+    N = np.zeros((len(faces), 3))
+    np.add.at(N, fid, np.cross(V[v], V[nx]))  # twice the area vector
+    e1, e2 = V[nx] - V[v], V[pv] - V[v]
+    longest = np.zeros(len(faces))
+    np.maximum.at(longest, fid, np.sum(e1 * e1, 1))
+    repeated = np.array([len(set(f)) != len(f) for f in faces])
+    degenerate = repeated | (0.5 * np.linalg.norm(N, axis=1) <= 1e-12 * longest)
+    bad = np.zeros(len(faces), bool)
+    np.logical_or.at(bad, fid, np.einsum("ij,ij->i", np.cross(e1, e2), N[fid]) <= 0)
+    return int(np.sum(bad & ~degenerate))
+
+
+def validity(inp, V, faces, sizes, normals, E, bnd, used, vertex_comp, cf, reversed_out, h, in_tri, d, out_face, Ftri):
+    """Validity per input island (TARGETS H2, H4, H5, V6 and the thin-part part of V3).
+
+    Output islands are matched to input islands by the input triangle nearest to each output face's
+    centroid (majority). Coverage: an area sample of the input is covered when the output is within
+    h (output mean edge) of it, and on the wrong side when it is that near but the nearest output
+    face faces the other way (a thin part collapsed into one sheet, or a pleat). Islands with fewer
+    than 200 area samples are measured on up to 2000 of their triangles' centroids instead.
+    """
+    from scipy.sparse import coo_matrix
+
+    Vin, Fin, Fo = inp["Vin"], inp["Fin"], inp["Fin_oriented"]
+    tri_island, in_chi, in_loops = inp["tri_island"], inp["island_euler"], inp["island_loops"]
+    nin = len(in_chi)
+    _, inv = np.unique(vertex_comp[used], return_inverse=True)
+    olab = np.zeros(len(V), np.int64)
+    olab[used] = inv.ravel()
+    nout = int(olab[used].max()) + 1
+    first = np.array([f[0] for f in faces])
+    out_chi, out_loops = island_topology(len(V), first, E, bnd, used, olab, nout)
+    # Faces of each output island over each input island.
+    C = coo_matrix((np.ones(len(faces)), (olab[first], tri_island[cf])), shape=(nout, nin)).tocsr()
+    C.sum_duplicates()
+    major = np.asarray(C.argmax(1)).ravel()
+    total = np.asarray(C.sum(1)).ravel()
+    Cc = C.tocoo()
+    big = Cc.data >= np.maximum(0.1 * total[Cc.row], 2)
+    merged = int(np.sum(np.bincount(Cc.row[big], minlength=nout) > 1))
+    k = np.bincount(major, minlength=nin)
+    chi_sum = np.bincount(major, weights=out_chi, minlength=nin).astype(np.int64)
+    loops_sum = np.bincount(major, weights=out_loops, minlength=nin).astype(np.int64)
+
+    # Coverage per input island.
+    nin_o = np.cross(Vin[Fo[:, 1]] - Vin[Fo[:, 0]], Vin[Fo[:, 2]] - Vin[Fo[:, 0]])
+    sign = -1.0 if reversed_out else 1.0
+    if in_tri is None:  # input without area
+        cov = np.ones(nin)
+        uncovered = wrong = 0.0
+    else:
+        near = d <= h
+        opposite = sign * np.einsum("ij,ij->i", nin_o[in_tri], normals[out_face]) < 0
+        uncovered = float(np.mean(~near))
+        wrong = float(np.mean(near & opposite))
+        isl = tri_island[in_tri]
+        n_s = np.bincount(isl, minlength=nin)
+        cov = np.bincount(isl, weights=near, minlength=nin) / np.maximum(n_s, 1)
+        rng = np.random.default_rng(1)
+        area = 0.5 * np.linalg.norm(nin_o, axis=1)
+        for i in np.nonzero(n_s < 200)[0]:
+            tris = np.nonzero(tri_island == i)[0]
+            if len(tris) > 2000:
+                tris = rng.choice(tris, 2000, replace=False)
+            dd, _ = point_to_mesh(Vin[Fin[tris]].mean(1), V, Ftri)
+            w = area[tris]
+            cov[i] = float(np.sum(w * (dd <= h)) / w.sum()) if w.sum() > 0 else float(np.mean(dd <= h))
+    dropped = (k == 0) | (cov < 0.5)
+    manifold_in = ~inp["island_non_manifold"]
+    kept = (k > 0) & manifold_in
+    changed = ~((k == 1) & (chi_sum == in_chi) & (loops_sum == in_loops)) & manifold_in
+    # Twice the genus: 2 * components - chi - boundary loops (odd only for a non-orientable surface).
+    g2_in = 2 - in_chi - in_loops
+    g2_out = 2 * k - chi_sum - loops_sum
+    res = {"non_manifold_vertices": nonmanifold_vertices(faces, len(V)),
+           "folded_faces": folded_faces(V, faces, sizes),
+           "islands_input": int(nin), "islands_input_non_manifold": int((~manifold_in).sum()),
+           "islands_output": int(nout), "islands_dropped": int(dropped.sum()),
+           "islands_split": int(np.sum(k > 1)), "islands_merged": merged,
+           "islands_topology_changed": int(changed.sum()),
+           "holes_added": int(np.sum(np.maximum(loops_sum - in_loops, 0)[kept])),
+           "holes_closed": int(np.sum(np.maximum(in_loops - loops_sum, 0)[kept])),
+           "handles_lost": float(np.sum(np.maximum(g2_in - g2_out, 0)[kept & (k == 1)]) / 2),
+           "handles_added": float(np.sum(np.maximum(g2_out - g2_in, 0)[kept & (k == 1)]) / 2),
+           "area_uncovered": uncovered, "area_wrong_side": wrong,
+           "island_coverage_min": float(cov.min()) if nin else None}
+    if nin <= 32:
+        res["per_island"] = [{"area_share": float(inp["island_area"][i] / max(inp["island_area"].sum(), 1e-300)),
+                              "euler": [int(in_chi[i]), int(chi_sum[i])], "loops": [int(in_loops[i]), int(loops_sum[i])],
+                              "output_islands": int(k[i]), "coverage": float(cov[i]),
+                              "input_non_manifold": bool(not manifold_in[i])} for i in range(nin)]
+    return res
 
 
 def sha256_file(path):
@@ -197,12 +429,31 @@ def input_side(input_path, cache_dir=None):
     ein = np.unique(np.sort(np.concatenate([Fin[:, [0, 1]], Fin[:, [1, 2]], Fin[:, [2, 0]]]), axis=1), axis=0)
     ein_all = np.sort(np.concatenate([Fin[:, [0, 1]], Fin[:, [1, 2]], Fin[:, [2, 0]]]), axis=1)
     ein_u, ein_c = np.unique(ein_all, axis=0, return_counts=True)
+    # Islands (vertex-connected parts) with their own Euler characteristic, boundary loops and area.
+    lab = comps(len(Vin), ein)
+    _, island_of_used = np.unique(lab[used_in], return_inverse=True)
+    vlab = np.zeros(len(Vin), np.int64)
+    vlab[used_in] = island_of_used.ravel()
+    nisl = int(vlab[used_in].max()) + 1 if len(used_in) else 0
+    island_euler, island_loops = island_topology(len(Vin), Fin[:, 0], ein, ein_u[ein_c == 1], used_in, vlab, nisl)
+    tri_area = 0.5 * np.linalg.norm(np.cross(Vin[Fin[:, 1]] - Vin[Fin[:, 0]], Vin[Fin[:, 2]] - Vin[Fin[:, 0]]), axis=1)
+    Fin_oriented, reoriented, nonorientable = orient_like_core(Vin, Fin)
+    # Islands that are not a 2-manifold in the input (an edge of 3+ triangles, a pinched vertex): their
+    # topology has no right answer to compare against (sword blade with a glued-on fin).
+    bad_v = nonmanifold_vertex_mask(Fin, len(Vin))
+    bad_v[ein_u[ein_c > 2].ravel()] = True
+    island_nm = np.zeros(nisl, bool)
+    island_nm[vlab[bad_v]] = True
     d = {"Vin": Vin, "Fin": Fin, "used_in": used_in,
          "diag": np.float64(np.linalg.norm(Vin[used_in].max(0) - Vin[used_in].min(0))),
          "euler_input": np.int64(len(used_in) - len(ein) + len(Fin)),
          "components_input": np.int64(len(np.unique(comps(len(Vin), ein)[used_in]))),
          "boundary_loops_input": np.int64(loops(len(Vin), ein_u[ein_c == 1])),
-         "sharp_edges": sharp_edges(Vin, Fin)}
+         "sharp_edges": sharp_edges(Vin, Fin),
+         "tri_island": vlab[Fin[:, 0]], "island_euler": island_euler, "island_loops": island_loops,
+         "island_non_manifold": island_nm, "island_area": np.bincount(vlab[Fin[:, 0]], weights=tri_area, minlength=nisl),
+         "Fin_oriented": Fin_oriented, "input_reoriented": np.int64(reoriented),
+         "input_nonorientable_pieces": np.int64(nonorientable)}
     if path:
         os.makedirs(cache_dir, exist_ok=True)
         tmp = f"{path}.{os.getpid()}.tmp"
@@ -319,29 +570,49 @@ def compute(input_path, output_path, target_quads=None, sym_axis=None, sym_cente
 
     out["creases"] = crease_coverage(Vin, inp["sharp_edges"], V, E, mean_edge)
 
-    # Flips against the input surface and distances.
+    # Flips against the input surface and distances. The input normals are those of the input as the
+    # core sees it, oriented like its orientInput (TODO 1.4): an export with a turned patch would
+    # otherwise count every output face over that patch as flipped (sword blade 241 -> 1861 after #51).
     Ftri = triangulate(faces)
+    tri_face = np.repeat(np.arange(len(faces)), sizes - 2)
     cent = np.array([V[f].mean(0) for f in faces])
     _, cf = point_to_mesh(cent, Vin, Fin)
-    nin = np.cross(Vin[Fin[cf, 1]] - Vin[Fin[cf, 0]], Vin[Fin[cf, 2]] - Vin[Fin[cf, 0]])
-    dots = np.sum(nin * normals, axis=1)
-    neg = int(np.sum(dots < 0))
-    out["flipped"] = {"faces_vs_input": min(neg, len(faces) - neg),
-                      "output_reversed": bool(neg > len(faces) - neg)}
+    Fo = inp["Fin_oriented"]
+
+    def flips_against(Fref):
+        nin = np.cross(Vin[Fref[cf, 1]] - Vin[Fref[cf, 0]], Vin[Fref[cf, 2]] - Vin[Fref[cf, 0]])
+        dots = np.sum(nin * normals, axis=1)
+        return nin, dots, int(np.sum(dots < 0))
+
+    nin, dots, neg = flips_against(Fo)
+    raw_neg = neg if Fo is Fin or int(inp["input_reoriented"]) == 0 else flips_against(Fin)[2]
+    reversed_out = neg > len(faces) - neg
+    out["flipped"] = {"faces_vs_input": min(neg, len(faces) - neg), "output_reversed": bool(reversed_out),
+                      "faces_vs_raw_input": min(raw_neg, len(faces) - raw_neg),
+                      "input_reoriented_triangles": int(inp["input_reoriented"]),
+                      "input_nonorientable_pieces": int(inp["input_nonorientable_pieces"])}
     # Normal deviation (TARGETS D3): angle between each output face and the input face closest to its
     # centroid, after the global orientation fix above, so flipped faces count as > 90 degrees.
-    cos_in = (-dots if neg > len(faces) - neg else dots) / np.maximum(np.linalg.norm(nin, axis=1) * np.linalg.norm(normals, axis=1), 1e-300)
+    cos_in = (-dots if reversed_out else dots) / np.maximum(np.linalg.norm(nin, axis=1) * np.linalg.norm(normals, axis=1), 1e-300)
     out["normal_deviation_deg"] = stats(np.degrees(np.arccos(np.clip(cos_in, -1, 1))))
     Pout = np.concatenate([sample_surface(V, Ftri, samples, rng), V[used]])
     d_out, _ = point_to_mesh(Pout, Vin, Fin)
-    Pin = np.concatenate([sample_surface(Vin, Fin, samples, rng), Vin[rng.choice(used_in, min(len(used_in), samples))]])
-    d_in, _ = point_to_mesh(Pin, V, Ftri)
+    Pin_area, in_tri = sample_surface(Vin, Fin, samples, rng, with_faces=True)
+    Pin = np.concatenate([Pin_area, Vin[rng.choice(used_in, min(len(used_in), samples))]])
+    d_in, out_tri = point_to_mesh(Pin, V, Ftri)
     out["distance"] = {"out_to_in_mean": float(d_out.mean() / diag), "out_to_in_max": float(d_out.max() / diag),
                        "in_to_out_mean": float(d_in.mean() / diag), "in_to_out_max": float(d_in.max() / diag),
                        "hausdorff": float(max(d_out.max(), d_in.max()) / diag),
                        "in_to_out_p99": float(np.percentile(d_in, 99) / diag),
                        # Output vertices (the tail of Pout): zero once they are projected onto the input.
                        "vertex_to_in_median": float(np.median(d_out[-len(used):]) / diag)}
+    out["validity"] = validity(inp, V, faces, sizes, normals, E, bnd, used, lab, cf, reversed_out, mean_edge,
+                               in_tri, d_in[:len(Pin_area)], tri_face[out_tri[:len(Pin_area)]], Ftri)
+    # same_as_input per island: no island changed its Euler characteristic or boundary loops, split
+    # or merged with another, and the output is manifold at edges and vertices.
+    vd = out["validity"]
+    vd["islands_same_as_input"] = bool(vd["islands_topology_changed"] == 0 and vd["islands_merged"] == 0
+                                       and vd["non_manifold_vertices"] == 0 and t["non_manifold_edges"] == 0)
 
     if sym_axis:
         a = "xyz".index(sym_axis)
