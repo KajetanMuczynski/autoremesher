@@ -187,6 +187,16 @@ void QuadExtractor::finishMesh()
     splitHighValenceTriangleFans();
     report(0.99f, "Collapsing three valence edge pairs");
     collapseThreeValenceEdgePairs();
+    // The passes since the first sweep can pinch a thin part down to a closed
+    // crumb of a few faces (3 on a capsule attached by a thin neck), so the
+    // crumbs are swept once more.  The sweep reorders the faces, so a mesh in
+    // one piece is left alone.
+    {
+        std::vector<std::vector<std::vector<size_t>>> pieces;
+        MeshSeparator::splitToIslands(m_remeshedPolygons, pieces);
+        if (pieces.size() > 1)
+            removeIsolatedFaces();
+    }
     report(1.0f, "");
 
 #if AUTO_REMESHER_DEV
