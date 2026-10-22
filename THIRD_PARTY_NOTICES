@@ -20,6 +20,12 @@ meshoptimizer        1.2              MIT                  thirdparty/meshoptimi
   (Arseny Kapoulkine)                                      LICENSE.md
 tinyobjloader        2.0.0 (latest    MIT                  src/tiny_obj_loader.h          OK
   (Syoyo Fujita et al.) changelog entry)                   (header comment)
+libQEx               517dcaa          GPL-3.0-or-later     thirdparty/libQEx/LICENSE,     OK
+  (H.-C. Ebke et al.,  (2026-05-27),                       COPYING, README.md; changes
+  RWTH Aachen)         patched                             in PATCHES.md and file headers
+OpenMesh (Core)      9.1.0            BSD-3-Clause         thirdparty/OpenMesh/LICENSE    OK
+  (RWTH Aachen)        unmodified,
+                       used by libQEx
 Eigen                5.0.1            MPL-2.0, with parts  thirdparty/eigen/COPYING.*,     OK, see [1]
                                       under BSD-3-Clause,  LICENSE
                                       Apache-2.0, MINPACK
@@ -71,9 +77,10 @@ zlib, OpenGL. The Blender add-on zips for Windows and macOS link oneTBB statical
 LICENSE.txt and third-party-programs.txt go into the zip's licenses/ (CMakeLists.txt).
 
 Note: ACKNOWLEDGEMENTS.html (shown in the app's About box) is inherited from upstream and
-lists libraries that are not in this tree (CoMISo, libQEx, libigl, OpenMesh, CGAL, Geogram,
-OpenVDB, OpenEXR, c-blosc, clapack, quad_cover and others). It does not describe what this
-fork ships; this file does.
+lists libraries that are not in this tree (CoMISo, libigl, CGAL, Geogram, OpenVDB, OpenEXR,
+c-blosc, clapack, quad_cover and others). libQEx and OpenMesh, also listed there, have been in
+this tree since 2026-10-21 (rows above). It does not describe what this fork ships; this file
+does.
 
 Development tools in tools/bench/ are this project's own (GPL-3.0-or-later). They download
 test meshes and Python packages at run time; none are bundled. Mesh licenses are listed in

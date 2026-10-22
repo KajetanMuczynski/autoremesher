@@ -8,7 +8,7 @@ Copyright (C) 2026 Quadami contributors
 For people who sculpt or model in Blender and want a clean quad mesh, and who are not programmers.
 Written for **Blender 4.5 LTS**; Blender 4.2 and newer work the same way.
 
-What the add-on does is checked against its code (`addon/quadami/`, master of 2026-10-21). Blender's
+What the add-on does is checked against its code (`addon/quadami/`, master of 2026-10-22). Blender's
 own menus are described from memory where marked *(from memory, check)*: if a menu looks different on
 your screen, trust your screen and tell us.
 
@@ -45,21 +45,40 @@ Contents: [1 Words used here](#1-words-used-here) · [2 Install and update](#2-i
 
 ## 2. Install and update
 
+The add-on is one `.zip` file with the remesher program inside. Do **not** unpack it; Blender installs
+the zip itself. You need **Blender 4.2 or newer**. Marks used below: *(CI)* checked by the project's
+automatic tests, *(from memory, check)* not checked on a real screen.
+
 ### Get the zip
 
-The add-on is one `.zip` file with the remesher program inside. Do **not** unpack it; Blender installs
-the zip itself.
+There is **no release download yet**: every zip is a test build. What exists today:
 
-- **Linux:** we build it for you and hand it over (a file named `quadami-<version>-linux-x64-<commit>.zip`).
-  It needs Ubuntu 24.04 or newer. To build it yourself, see [addon/BEGINNERS.md](../addon/BEGINNERS.md).
-- **Windows / macOS (Apple silicon):** GitHub, **Actions > ci**, the latest green run, **Artifacts**,
-  `addon-windows-x64` or `addon-macos-arm64`. GitHub wraps it in a zip of its own: unpack that one once;
-  the `quadami-...zip` inside is the one to install. macOS has not been tried on a real Mac yet: if it
-  refuses to start the remesher, see [§9](#9-troubleshooting).
+| System | Where to get it | Tested on a real computer? |
+|---|---|---|
+| **Linux** (64-bit Intel/AMD, Ubuntu 24.04 or newer) | Build it yourself with one command ([addon/BEGINNERS.md](../addon/BEGINNERS.md)), or ask the maintainer for a test build (`quadami-<version>-linux-x64-<commit>.zip`). CI builds a Linux zip for its own tests but does not publish it. | Yes (Ubuntu, Blender 4.5 snap) |
+| **Windows** 10 or 11 (64-bit) | GitHub, see below: artifact `addon-windows-x64` | No, only in CI (Blender 5.2, no window) |
+| **macOS**, Apple silicon (M1 or newer), macOS 11.2 or newer | GitHub, see below: artifact `addon-macos-arm64` | No, only in CI |
+| macOS on Intel, Linux on ARM, Windows on ARM | Not built. Intel Macs: build it yourself ([BUILDING.md](BUILDING.md)). | No |
+
+**Windows and macOS zips from GitHub:**
+1. Sign in to GitHub (downloads of these files need an account).
+2. Open <https://github.com/KajetanMuczynski/quadami/actions/workflows/ci.yml?query=branch%3Amaster>
+   and click the newest run where the job for your system (**addon (windows-x64)** or
+   **addon (macos-arm64)**) has a green tick. The run as a whole may be red only because the macOS job
+   never got a computer; the Windows zip is still there *(CI)*.
+3. Scroll to **Artifacts** at the bottom and click `addon-windows-x64` or `addon-macos-arm64`.
+4. GitHub wraps the add-on in a zip of its own. Unpack that outer zip once (Windows: right-click >
+   **Extract All...**; macOS: double-click). The `quadami-0.1.0-windows-x64.zip` or
+   `quadami-0.1.0-macos-arm64.zip` inside is the add-on: keep it zipped.
+
+These files are deleted by GitHub after its retention period (90 days unless the repository says
+otherwise *(from memory, check)*), so download a newer one if the link is gone.
 
 ### Install (first time and every update)
 
-1. Open Blender. **Edit > Preferences**.
+The same on every system:
+
+1. Open Blender. **Edit > Preferences** (macOS: **Blender > Settings** *(from memory, check)*).
 2. Left column: **Get Extensions**.
 3. Top right of that window: the small **down arrow (⌄)**, then **Install from Disk...**, pick the zip.
    Dragging the zip from your file manager onto the Blender window does the same.
@@ -67,11 +86,50 @@ the zip itself.
    update.
 5. Check: **Edit > Preferences > Add-ons**, find **Quadami**, make sure it is ticked, and click the arrow
    left of its name. Under **Remesher executable** (leave that field empty) it must say
-   **Using: .../bin/autoremesher-cli** with a tick. "not found" means the zip has no remesher inside:
-   get the right zip.
+   **Using: .../bin/autoremesher-cli** with a tick (Windows: `autoremesher-cli.exe`). "not found" means
+   the zip has no remesher inside, or one for another system: get the right zip.
 
-Installing a newer zip replaces the old copy (same add-on id). Every Blender version keeps its own
-add-ons, so if you have two Blenders, install in the one you use.
+Installing a newer zip replaces the old copy (same add-on id, `quadami`). Every Blender version keeps its
+own add-ons, so if you have two Blenders, install in the one you use.
+
+### Where Blender keeps it
+
+| System | Folder (replace `4.5` with your Blender version) |
+|---|---|
+| Linux, blender.org `.tar.xz` | `~/.config/blender/4.5/extensions/user_default/quadami` |
+| Linux, snap (`/snap/bin/blender`) | Usually the same folder, since the Blender snap may read your home folder (classic confinement); not checked on a real snap. The install script below asks Blender and prints the folder it really uses. |
+| Linux, Flatpak | Not supported: its sandbox cannot start the remesher. Use the `.tar.xz` or the snap. |
+| Windows | `%APPDATA%\Blender Foundation\Blender\4.5\extensions\user_default\quadami` *(CI, with 5.2)* |
+| macOS | `~/Library/Application Support/Blender/4.5/extensions/user_default/quadami` *(from memory, check)* |
+
+The remesher program is in its `bin` folder.
+
+### Remove it
+
+**Edit > Preferences > Add-ons**, expand **Quadami**, open the **⌄** or **...** menu next to it >
+**Uninstall** *(from memory, check)*. Or quit Blender and delete the `quadami` folder from the table
+above. Results you already made stay in your files; they are ordinary mesh objects.
+
+### Install scripts (optional, they also clean up)
+
+- **Windows:** [windows-test/quadami-update.ps1](windows-test/quadami-update.ps1), described in the
+  [Windows test sheet](windows-test/README.md) §4. Quit Blender, then in PowerShell:
+  `powershell -ExecutionPolicy Bypass -File .\quadami-update.ps1 .\quadami-0.1.0-windows-x64.zip "C:\Program Files\Blender Foundation\Blender 4.5\blender.exe"`.
+  It only lists what it would do; add `-Apply` to do it. Tried only against a stand-in Blender, not
+  on real Windows.
+- **Linux:** `quadami-update.sh`, the same for Linux, comes with the maintainer's test builds (it is not
+  in this repository yet). Give it the zip and the Blender you start, for the snap
+  `/snap/bin/blender`: `sh quadami-update.sh --apply <zip> /snap/bin/blender`.
+- Both install with Blender's own command, which also works without the scripts:
+  `blender --command extension install-file -r user_default -e <zip>` *(CI)*.
+
+### macOS: if the remesher is blocked
+
+The program inside the macOS zip is not signed by a registered Apple developer ("notarized"). Nobody has
+tried it on a real Mac yet, so we do not know whether macOS blocks it. If a remesh fails at once or macOS
+says the program "cannot be opened", quit Blender and in the Terminal run
+`xattr -dr com.apple.quarantine "<the quadami folder from the table above>"`, then start Blender again.
+Please report what happened either way.
 
 ### Which version do I have? (the build line)
 
