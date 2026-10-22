@@ -110,8 +110,9 @@ class NotesTest(unittest.TestCase):
         if not os.path.isfile(notes):
             with self.assertRaises(release.ReleaseError):
                 release.version_notes(release.manifest_version(), False)
-        # A pre-release goes out with whatever is there.
-        self.assertIn("## What changed", release.version_notes(release.manifest_version(), True))
+        # A pre-release goes out with whatever is there, from the first section on.
+        text = release.version_notes(release.manifest_version(), True)
+        self.assertTrue(text.startswith("## What changed"), text[:80])
 
 
 class LinuxLibsTest(unittest.TestCase):

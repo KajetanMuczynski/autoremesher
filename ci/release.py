@@ -80,8 +80,9 @@ def version_notes(version, prerelease):
             raise ReleaseError("%s lacks the sections %s" % (os.path.relpath(path, REPO), ", ".join(missing)))
         if re.search(r"\bTBD\b", text):
             raise ReleaseError("%s still says TBD" % os.path.relpath(path, REPO))
-    # The file's own title line is replaced by the release's.
-    return re.sub(r"\A# .*\n+", "", text).rstrip() + "\n"
+    # Everything above the first section (the file's title and its note to maintainers) stays out.
+    first = re.search(r"^## ", text, re.M)
+    return (text[first.start():] if first else text).rstrip() + "\n"
 
 
 def zip_name(version, platform):
