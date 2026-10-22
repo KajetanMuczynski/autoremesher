@@ -31,6 +31,8 @@ class GallerySet(unittest.TestCase):
         corpus = json.load(open(os.path.join(BENCH, "corpus.json")))
         with open(os.path.join(BENCH, "meshes.tsv")) as fp:
             licensed = {line.split("\t")[0] for line in list(fp)[1:] if line.strip()}
+        with open(os.path.join(BENCH, "external.json")) as fp:
+            external = {m["id"] for m in json.load(fp)["meshes"] if m["public"]}
         gallery = [m for m in corpus["meshes"] if m.get("set") == "gallery"]
         self.assertTrue(gallery)
         for m in gallery:
@@ -41,6 +43,8 @@ class GallerySet(unittest.TestCase):
                 name = f[len("downloads/"):]
                 self.assertIn(name, licensed, f"{m['id']}: not in meshes.tsv")
                 self.assertNotIn(name, UNCLEAR, f"{m['id']}: license unclear for public use")
+            elif f.startswith("external/"):
+                self.assertIn(f[len("external/"):-len(".obj")], external, f"{m['id']}: not in external.json")
             else:
                 self.assertTrue(f.startswith(PROCEDURAL), f"{m['id']}: {f} is neither licensed nor procedural")
             for key in ("target", "title"):
