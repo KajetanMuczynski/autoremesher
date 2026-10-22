@@ -30,6 +30,13 @@ STATUS_TEXT = {
 }
 
 
+def offers_fold_repair(report):
+    """Whether the run found folded input and did not repair it."""
+    return (report.get("status") == "ok"
+            and int(report.get("diagnostics", {}).get("input_fold_clusters", 0)) > 0
+            and not report.get("parameters", {}).get("repair_folds"))
+
+
 def summary_rows(report):
     """(label, value, is_problem) rows for a report dict from --report-json."""
     rows = []
@@ -68,6 +75,13 @@ def summary_rows(report):
             fixes.append("%d triangles turned" % flipped)
         if fixes:
             rows.append(("Input cleanup", ", ".join(fixes), False))
+        # Folded input: spots where a brush folded the surface over itself.
+        spots = int(diagnostics.get("input_fold_clusters", 0))
+        if spots and report.get("parameters", {}).get("repair_folds"):
+            left = int(diagnostics.get("input_fold_clusters_after", 0))
+            rows.append(("Folds repaired", "%d of %d spots" % (spots - left, spots), False))
+            if left:
+                rows.append(("Folds left", "%d spots" % left, True))
     islands = report.get("islands", {})
     empty = islands.get("without_output", 0)
     rows.append(("Empty islands", "%d of %d" % (empty, islands.get("input", 0)), empty > 0))
@@ -92,4 +106,22 @@ def warning_lines(report, width=WARNING_WIDTH):
         add("Another Target Quads value may close them. To see the holes: Tab into "
             "Edit Mode, press 1 for vertex select, then Select > Select All by Trait "
             "> Non Manifold.", False)
+    if offers_fold_repair(report):
+        diagnostics = report.get("diagnostics", {})
+        add("Folded input: %d faces in %d spots. A sculpt brush folded the surface "
+            "over itself there, so the quads there may come out messy or with holes."
+            % (int(diagnostics.get("input_folded_triangles", 0)),
+               int(diagnostics.get("input_fold_clusters", 0))), True)
+    elif report.get("status") == "ok" and report.get("parameters", {}).get("repair_folds"):
+        left = int(report.get("diagnostics", {}).get("input_fold_clusters_after", 0))
+        if left:
+            add("%d folded spots could not be repaired safely and were left as they were."
+                % left, False)
     return lines
+
+
+def fold_offer_lines(width=WARNING_WIDTH):
+    """The hint above the Repair Folds and Re-run button, wrapped."""
+    return textwrap.wrap("Repair Folds and Re-run smooths out only those spots, in the copy "
+                         "the remesher works on, and remeshes again. Your original object "
+                         "is not changed.", width)

@@ -122,6 +122,12 @@ public:
         m_smoothNormalDegrees = degrees;
     }
 
+    // Untangle folded-over input triangles before remeshing (FoldRepair).
+    void setRepairInputFolds(bool repair)
+    {
+        m_repairInputFolds = repair;
+    }
+
     // Asked at every progress point and at island and stage boundaries; once it
     // returns true the run stops and remesh() returns false with cancelled()
     // set.  Called from the island worker threads, so it must be thread-safe.
@@ -374,6 +380,7 @@ private:
     double m_anisotropy = 1.0;
     double m_sharpEdgeDegrees = m_defaultSharpEdgeDegrees;
     double m_smoothNormalDegrees = 0.0;
+    bool m_repairInputFolds = false;
     ModelType m_modelType = ModelType::Organic;
     AutoRemesherProgressHandler m_progressHandler = nullptr;
     void* m_tag = nullptr;

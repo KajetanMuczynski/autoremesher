@@ -26,13 +26,15 @@ import json
 
 import bpy
 import numpy as np
-from bpy.props import EnumProperty, FloatProperty, IntProperty, PointerProperty, StringProperty
+from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, PointerProperty, StringProperty
 
 from . import report as report_rows
 from . import worker
 from .names import ID, NAME
 
 REPORT_PROPERTY = ID + "_report"
+# Name of the object a result was made from, for "Repair Folds and Re-run".
+SOURCE_PROPERTY = ID + "_source"
 
 # The one running job and the last result, shared by the operator and the panel.
 _job = None
@@ -179,6 +181,7 @@ def _build_object(context, source_name, matrix, collection_names, outcome):
     if changed:
         report.setdefault("warnings", []).append("Blender's mesh validation changed the result")
     obj[REPORT_PROPERTY] = json.dumps(report)
+    obj[SOURCE_PROPERTY] = source_name
     return obj, report
 
 
@@ -196,6 +199,12 @@ class OBJECT_OT_remesh_quads(bpy.types.Operator):
     bl_idname = "object." + ID + "_remesh"
     bl_label = "Remesh"
     bl_options = {"REGISTER", "UNDO"}
+
+    # Set by the "Repair Folds and Re-run" button: remesh this object (the
+    # one the shown result was made from) instead of the active one, with
+    # the fold repair on, and hide the old result.
+    source: StringProperty(default="", options={"HIDDEN", "SKIP_SAVE"})
+    repair_folds: BoolProperty(default=False, options={"HIDDEN", "SKIP_SAVE"})
 
     @classmethod
     def poll(cls, context):
@@ -222,11 +231,22 @@ class OBJECT_OT_remesh_quads(bpy.types.Operator):
             self.report({"ERROR"}, "Remesher executable not found; set it in the %s preferences" % NAME)
             return {"CANCELLED"}
         obj = context.active_object
+        self._replaced = None
+        if self.source:
+            self._replaced = obj.name
+            obj = bpy.data.objects.get(self.source)
+            if obj is None or obj.type != "MESH":
+                self.report({"ERROR"}, "The original object \"%s\" is gone; select it and remesh again" % self.source)
+                return {"CANCELLED"}
+        # A hidden object (the source of a shown result) still evaluates.
         positions, triangles = _mesh_arrays(context, obj)
         if len(triangles) == 0:
             self.report({"ERROR"}, "The mesh has no faces")
             return {"CANCELLED"}
-        job = worker.RemeshJob(executable, positions, triangles, _settings(context).parameters())
+        parameters = _settings(context).parameters()
+        if self.repair_folds:
+            parameters["repair_folds"] = True
+        job = worker.RemeshJob(executable, positions, triangles, parameters)
         try:
             job.start()
         except (OSError, ValueError) as error:
@@ -284,8 +304,9 @@ class OBJECT_OT_remesh_quads(bpy.types.Operator):
         source = bpy.data.objects.get(self._source_name)
         for selected in list(context.view_layer.objects.selected):
             selected.select_set(False)
-        if source is not None and source.name in context.view_layer.objects:
-            source.hide_set(True)
+        for hidden in (source, bpy.data.objects.get(self._replaced) if self._replaced else None):
+            if hidden is not None and hidden.name in context.view_layer.objects:
+                hidden.hide_set(True)
         new_obj.select_set(True)
         context.view_layer.objects.active = new_obj
         output = outcome.report.get("output", {})
@@ -322,6 +343,15 @@ class OBJECT_OT_remesh_quads_cancel(bpy.types.Operator):
         global _cancel_from_panel
         _cancel_from_panel = True
         return {"FINISHED"}
+
+
+def _draw_fold_offer(box, source_name):
+    column = box.column(align=True)
+    for line in report_rows.fold_offer_lines():
+        column.label(text=line)
+    operator = box.operator(OBJECT_OT_remesh_quads.bl_idname, text="Repair Folds and Re-run", icon="MOD_SMOOTH")
+    operator.source = source_name
+    operator.repair_folds = True
 
 
 class VIEW3D_PT_remesh_quads(bpy.types.Panel):
@@ -381,6 +411,9 @@ class VIEW3D_PT_remesh_quads(bpy.types.Panel):
                     row.alert = problem
                     icon = ("ERROR" if problem else "INFO") if first else "BLANK1"
                     row.label(text=text, icon=icon)
+                source_name = obj.get(SOURCE_PROPERTY, "") if obj is not None else ""
+                if report_rows.offers_fold_repair(report) and source_name:
+                    _draw_fold_offer(box, source_name)
 
         preferences = _preferences(context)
         _draw_build(layout, worker.find_executable(bpy.path.abspath(preferences.executable) if preferences else ""))
