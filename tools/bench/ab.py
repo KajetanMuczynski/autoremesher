@@ -557,7 +557,7 @@ def cmd_compare(a):
             print("\nFallback replicate-runs: " + ", ".join(f"{k[0]} {k[1]} {k[2]} u{u}" for k, u in sorted(fb)))
 
     if a.per_run:
-        cols = ["flips", "non_quads", "sj_le_0", "hausdorff"]
+        cols = ["flips", "non_quads", "sj_le_0", "hausdorff", "area_uncovered"]
         print("\n| mesh | res | target | " + " | ".join(f"{c} A → B" for c in cols) + " | topology A → B |")
         print("|---|---|---|" + "---|" * (len(cols) + 1))
         for k in keys:

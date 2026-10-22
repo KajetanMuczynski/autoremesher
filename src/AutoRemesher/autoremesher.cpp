@@ -1232,6 +1232,7 @@ bool AutoRemesher::remeshIslands()
                 record.set("qex_faces", (double)qex.faces);
                 record.set("qex_non_quads", (double)qex.nonQuads);
                 record.set("qex_dropped_faces", (double)qex.droppedFaces);
+                record.set("qex_cut_vertices", (double)qex.cutVertices);
                 run.diagnostics.push_back(std::move(record));
             }
             if (extracted) {
