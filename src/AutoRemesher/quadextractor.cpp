@@ -28,6 +28,7 @@
 #include <axisalignedboundingbox.h>
 #include <axisalignedboundingboxtree.h>
 #include <iostream>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <set>
@@ -1743,9 +1744,22 @@ bool QuadExtractor::removeIsolatedFaces()
     MeshSeparator::splitToIslands(m_remeshedPolygons, quadsIslands);
     if (quadsIslands.empty())
         return false;
-    m_remeshedPolygons = *std::max_element(quadsIslands.begin(), quadsIslands.end(), [&](const std::vector<std::vector<size_t>>& first, const std::vector<std::vector<size_t>>& second) {
+    // Only crumbs go: a folded map leaves pieces of 1-7 faces (measured on the
+    // corpus and sculpt sets), while a thin part the extraction cut off its
+    // island is a real piece of the model (sword vines at 2k: pieces of 40-623
+    // faces were dropped when only the largest piece was kept).  The largest
+    // piece always stays.
+    const size_t minimumKeptFaces = 16;
+    const auto largest = std::max_element(quadsIslands.begin(), quadsIslands.end(), [&](const std::vector<std::vector<size_t>>& first, const std::vector<std::vector<size_t>>& second) {
         return first.size() < second.size();
     });
+    std::vector<std::vector<size_t>> kept;
+    for (auto it = quadsIslands.begin(); it != quadsIslands.end(); ++it) {
+        if (it != largest && it->size() < minimumKeptFaces)
+            continue;
+        kept.insert(kept.end(), std::make_move_iterator(it->begin()), std::make_move_iterator(it->end()));
+    }
+    m_remeshedPolygons = std::move(kept);
     return true;
 }
 
@@ -3710,6 +3724,7 @@ void QuadExtractor::collapseThreeValenceEdgePairs()
     const size_t hexagonSize = 6;
     const size_t patchFaceNum = 4;
     const size_t patchBuriedEdgeNum = 5;
+    const double maximumSagittaRatio = 0.4;
 
     size_t collapseCount = 0;
     std::unordered_set<size_t> collapsedVertices;
@@ -3907,6 +3922,23 @@ void QuadExtractor::collapseThreeValenceEdgePairs()
             }
             if (bestQuads.empty())
                 continue;
+            // The two quads span the hexagon through its middle, where the
+            // collapsed pair sat.  On a flat or gently curved patch that
+            // middle is near the new diagonal's midpoint; on a strip or tube
+            // about two quads wide the hexagon wraps round it, the diagonal
+            // cuts through the inside, and repeated collapses ate thin vines
+            // (8-10 % of their faces at 3k-6k) and capsules (70 -> 6 faces).
+            // Offset of that middle over the diagonal, measured: >= 0.45 on most
+            // sword-vine collapses, < 0.25 on demosthenes; 0.4 kept the vines
+            // with fewer extra valence-3 pairs than 0.25.
+            {
+                const auto& diagonal = bestQuads[0];
+                const Vector3 middle = (m_remeshedVertices[diagonal[0]] + m_remeshedVertices[diagonal[3]]) * 0.5;
+                const Vector3 pair = (m_remeshedVertices[first] + m_remeshedVertices[second]) * 0.5;
+                const double span = (m_remeshedVertices[diagonal[3]] - m_remeshedVertices[diagonal[0]]).length();
+                if ((middle - pair).length() > maximumSagittaRatio * span)
+                    continue;
+            }
 
             for (const auto& faceIndex : patchFaces) {
                 removedFaces.insert(faceIndex);
