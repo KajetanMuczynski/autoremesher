@@ -1,11 +1,12 @@
 {
- "_comment": "Mesh sets for run_corpus.py (set corpus) and ab.py (any set). 'file' is relative to the meshes folder: downloads/ from fetch_meshes.sh, synthetic/ from make_synthetic.py, suzanne/ from make_suzanne.py, sculpt/ from make_sculpt.py. 'set' defaults to corpus. sym = mirror plane for symmetry metrics (axis, center); 'auto' center = input bbox centre on that axis. sets: default targets and resolutions per set for ab.py.",
+ "_comment": "Mesh sets for run_corpus.py (set corpus) and ab.py (any set). 'file' is relative to the meshes folder: downloads/ from fetch_meshes.sh, synthetic/ from make_synthetic.py, suzanne/ from make_suzanne.py, sculpt/ from make_sculpt.py. 'set' defaults to corpus. sym = mirror plane for symmetry metrics (axis, center); 'auto' center = input bbox centre on that axis. sets: default targets and resolutions per set for ab.py. The gallery set (tools/gallery/gallery.py, docs/gallery/) holds public-license or procedural meshes only; its entries carry their own target, cli_args, up (file up axis, default Y), view (camera direction, Blender axes) and title, and the empty set default makes ab.py need --targets.",
  "sets": {
   "corpus": {"targets": [2000, 10000], "resolutions": ["fast", "quality"]},
   "closed": {"targets": [150, 500, 2000], "resolutions": ["fast", "quality"]},
   "suzanne": {"targets": [2000, 5000, 10000], "resolutions": ["quality"]},
   "sculpt": {"targets": [2000, 5000, 15000], "resolutions": ["fast", "quality"]},
-  "brush": {"targets": [2000, 5000], "resolutions": ["quality"]}
+  "brush": {"targets": [2000, 5000], "resolutions": ["quality"]},
+  "gallery": {"targets": [], "resolutions": ["quality"]}
  },
  "meshes": [
   {"id": "spot", "file": "downloads/spot.obj", "category": "organic, clean, genus 0"},
@@ -60,6 +61,16 @@
   {"id": "brush_twist", "file": "brush/brush_twist.obj", "category": "brush: Rotate/twist 1/4-3 turns, swirl with folded rings (434 tris)", "set": "brush"},
   {"id": "brush_grab", "file": "brush/brush_grab.obj", "category": "brush: Grab drags without dyntopo, long slivers, one sheared", "set": "brush"},
   {"id": "brush_dyntopo_strokes", "file": "brush/brush_dyntopo_strokes.obj", "category": "brush: dyntopo strokes, 10:1 edge lengths, detail on strokes only", "set": "brush"},
-  {"id": "brush_box_relief", "file": "brush/brush_box_relief.obj", "category": "brush: hard-surface box, pinched relief groove, crumpled edge, one-vertex spike (70 folded tris)", "set": "brush"}
+  {"id": "brush_box_relief", "file": "brush/brush_box_relief.obj", "category": "brush: hard-surface box, pinched relief groove, crumpled edge, one-vertex spike (70 folded tris)", "set": "brush"},
+  {"id": "spot", "file": "downloads/spot.obj", "category": "organic, clean, genus 0", "set": "gallery", "target": 2000, "view": [1, 1, 0.5], "title": "Spot (clean organic)"},
+  {"id": "koala", "file": "downloads/koala.obj", "category": "organic sculpt", "set": "gallery", "target": 3000, "view": [1, -1, 0.5], "title": "Koala (organic sculpt)"},
+  {"id": "wingnut", "file": "downloads/wingnut.obj", "category": "hard surface", "set": "gallery", "target": 2000, "view": [1, -1, 0.5], "title": "Wing nut (hard surface)"},
+  {"id": "boat", "file": "downloads/boat.obj", "category": "hard surface, developable panels", "set": "gallery", "target": 3000, "view": [0.5, -1, 1.2], "title": "Boat (panels and sharp rims)"},
+  {"id": "demosthenes", "file": "downloads/demosthenes.obj", "category": "noisy scan (photogrammetry), boundary", "set": "gallery", "target": 5000, "view": [1, -1, 0.5], "title": "Demosthenes (photoscan, open base)"},
+  {"id": "sculpt_dyntopo", "file": "sculpt/sculpt_dyntopo.obj", "category": "sculpt, dyntopo (0.57M tris, 5:1 sizes, detail on head only)", "set": "gallery", "target": 5000, "up": "Z", "view": [1, -1, 0.5], "title": "Dyntopo sculpt (procedural)"},
+  {"id": "brush_box_relief", "file": "brush/brush_box_relief.obj", "category": "brush: hard-surface box, pinched relief groove, crumpled edge, one-vertex spike (70 folded tris)", "set": "gallery", "target": 2000, "up": "Z", "view": [1, -1, 0.5], "title": "Sculpted box with folded input"},
+  {"id": "brush_box_relief_repair", "file": "brush/brush_box_relief.obj", "category": "brush_box_relief with --fold-repair on", "set": "gallery", "target": 2000, "cli_args": ["--fold-repair=on"], "up": "Z", "view": [1, -1, 0.5], "title": "Same box, Repair Folds on"},
+  {"id": "sword", "file": "downloads/sword.obj", "category": "thin shell, closed (blade), scan", "set": "gallery", "target": 1000, "view": [1, -1, 0.5], "title": "Arming sword at 1,000 quads (thin parts)"},
+  {"id": "sword_3k", "file": "downloads/sword.obj", "category": "thin shell, closed (blade), scan", "set": "gallery", "target": 3000, "view": [1, -1, 0.5], "title": "Same sword at 3,000 quads"}
  ]
 }
