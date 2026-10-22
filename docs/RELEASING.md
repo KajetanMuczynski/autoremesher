@@ -21,6 +21,11 @@ is made by CI from a tag and always starts as a **draft**: nothing is public unt
   id naming the tag (`v0.1.0 abc1234 2026-11-02`, shown in the panel's build line), and writes the
   notes from [releases/TEMPLATE.md](releases/TEMPLATE.md) and `releases/<version>.md`. Then it
   creates the draft release, or updates the draft of a re-run. A published release is never touched.
+- Before that it attests the three zips (`actions/attest-build-provenance`, signed with Sigstore and
+  stored by GitHub under the repository's **Attestations**): `gh attestation verify <zip> -R
+  KajetanMuczynski/quadami` proves a download was built by this workflow from the tagged commit. The
+  release notes tell users how. A checksum only proves the file matches the notes; the attestation
+  also proves who built it.
 - A suffix (`v0.1.0-rc.1`, `v0.1.0-test.1`) makes a **pre-release**; its notes file may be missing
   or unfinished. A plain `v0.1.0` needs `releases/0.1.0.md` with the sections *What changed*,
   *Warnings in the panel* and *Known limits* and no "TBD".
@@ -72,7 +77,8 @@ Copy into the release PR's description and tick each line there.
 5. **Tag**: `git tag -a v<version> -m "Quadami <version>" <merge commit>` and
    `git push origin v<version>`. Wait for the run's **release (draft)** job.
 6. **Review the draft** on GitHub > Releases: three zips plus `SHA256SUMS.txt`, notes read well, the
-   build line names the tag. Install one zip from the draft.
+   build line names the tag. Install one zip from the draft, and check it with
+   `gh attestation verify <zip> -R KajetanMuczynski/quadami` (exits 0 and names `ci.yml` and the tag).
 7. **Publish** (Kajetan only). A mistake found later: publish a new patch version; never replace
    the assets of a published release.
 
@@ -81,11 +87,27 @@ Copy into the release PR's description and tick each line there.
 - **No corpus release check in CI.** TARGETS §2.5 asks for the corpus × 6 on all three platforms
   (about 3 CPU hours each); only Linux can run it today, by hand in the cloud. A manual workflow
   for it is a follow-up.
-- **No build attestations** (supply-chain audit finding 15): `actions/attest-build-provenance` needs
-  a pinned commit of a new action, added in its own PR.
-- **No tag ruleset** (TODO.md parked table): anyone with write access can push a `v*` tag. Only
-  Kajetan has write access today, and the job makes drafts only. Before other people get write
-  access, add a tag ruleset for `v*` (Settings > Rules > Rulesets > New tag ruleset).
+- **Tag ruleset for `v*`** (Kajetan's setting; approved 2026-10-22, see below): until it exists,
+  anyone with write access, and any workflow token with `contents: write`, can create or move a
+  `v*` tag.
+
+## Tag ruleset for `v*` (set up by hand)
+
+Only repository admins may create, move or delete release tags; GitHub Actions' token and future
+collaborators with write access may not. Click path *(from memory, check)*:
+
+1. Repository **Settings** > **Rules** > **Rulesets** > **New ruleset** > **New tag ruleset**.
+2. **Ruleset name**: `release tags`. **Enforcement status**: **Active**.
+3. **Bypass list** > **Add bypass** > **Repository admin** (that is Kajetan, so his own tag pushes,
+   including test tags and deleting them afterwards, keep working).
+4. **Target tags** > **Add target** > **Include by pattern** > `v*`.
+5. **Rules**: tick **Restrict creations**, **Restrict updates**, **Restrict deletions** and
+   **Block force pushes**. Leave the rest.
+6. **Create**. Check: Settings > Rules > Rulesets lists `release tags` as Active, targeting `v*`.
+
+Only Kajetan has write access today, so this mostly guards against a compromised workflow or token
+(the release job holds `contents: write`) and against future collaborators. It does not stop an
+admin's own mistakes; the draft-only release job is what does that.
 - **Unsigned programs**: no Apple notarization or Windows code signing (both need paid
   certificates). The notes say so.
 - No "update available" check in the add-on (not planned for 0.x).

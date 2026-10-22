@@ -226,7 +226,7 @@ Everything we know about and deliberately left undone, with the reason and what 
 | Standalone Qt app packages (AppImage, Windows zip, DMG) | Only the add-on ships; the app is still built and smoke-tested on Linux | He wants the app shipped again | K | 2026-10-15 |
 | Composite quality score | Pareto comparisons per metric family until SQ-M1 is answered (0.7) | SQ-M1 answered | K | 2026-10-14 |
 | Third-party Claude plugins (devil-advocate, token-usage, Headroom) | Audited, install none (`research/plugin-audit-2026-10-19.md` in project files) | A new plugin, after its own audit | K | 2026-10-19 |
-| Tag ruleset (`v*`) | Since 2026-10-22 a `v*` tag makes a draft release (RELEASING.md), but only a draft, and only Kajetan has write access; the other security settings were switched on 2026-10-19 | Anyone else getting write access, or a release step that publishes without a person | K | 2026-10-22 |
+| Tag ruleset (`v*`) | **Approved by Kajetan 2026-10-22**, to be set up by him (his setting): click path in RELEASING.md "Tag ruleset". Since 2026-10-22 a `v*` tag makes a draft release, but only a draft, and only Kajetan has write access | Done once the ruleset is active | K | 2026-10-22 |
 | CodeQL default setup | Left off by choice when the security settings were switched on | A reason to scan (e.g. a public release) | K | 2026-10-19 |
 | "Require branches up to date before merging" on the master ruleset | Left off by choice: every merge would force an update and a new CI run on every other open PR | Two PRs that pass alone break master together | K | 2026-10-19 |
 | **G1** nanobind binding of the core for the add-on | The subprocess worker is what ships: a crash can't take Blender down, and there is no rebuild per Blender Python version | The OBJ round trip proves slow on large meshes (P4, P6; measure with G8) | K | 2026-10-19 |
@@ -243,7 +243,7 @@ Everything we know about and deliberately left undone, with the reason and what 
 | Corpus lacks his sculpts, 1M+ inputs and pathology meshes | Cloud network policy blocked the large sources | 1.5, 1.12 | K, C | 2026-10-14 |
 | CI pip installs unpinned and unhashed (`numpy`, `pefile`, `pip`; clang-format pinned without a hash) | No secrets in CI today (audit finding 7) | Hashed requirements files | C | 2026-10-15 |
 | Vendored TBB 2017 still in `thirdparty/tbb` | Was used only for the Windows Qt zip, which no longer ships | Delete it once the Qt app builds against oneTBB on Windows (audit finding 14) | C | 2026-10-15 |
-| No signing or build attestations on the zips | Not needed before a public release; signing needs paid Apple/Windows certificates | Attestations on tag builds before the first public release (audit finding 15): `actions/attest-build-provenance` in the release job, a new action pin in its own PR | K, C | 2026-10-15 |
+| No code signing of the zips (attestations: done 2026-10-22, the release job attests every zip, RELEASING.md) | Signing needs paid Apple/Windows certificates; macOS ships as experimental, untested in 0.1 (Kajetan, 2026-10-22) | Users blocked by Gatekeeper or SmartScreen in numbers | K, C | 2026-10-15 |
 | A queued macOS job dropped after ~15 min turns **CI passed** red | GitHub runner capacity, not our code | "Re-run failed jobs" on the PR run; fewer macOS jobs (CI capacity PR) | C | 2026-10-19 |
 
 ---

@@ -44,7 +44,7 @@ There is no release download yet. What is available today:
 |---|---|---|
 | **Linux** (x64, any distribution with glibc 2.28 or newer, e.g. Ubuntu 20.04+, Debian 10+, Fedora 29+, RHEL 8+) | GitHub: **Actions > ci**, a green run on `master`, **Artifacts > `addon-linux-x64`** (built in AlmaLinux 8, so it does not need a new distribution). Works with Blender from blender.org and the snap (`/snap/bin/blender`). Or build it yourself ([addon/BEGINNERS.md](addon/BEGINNERS.md)). | CI (Ubuntu 24.04, Blender 4.2, headless) and the maintainer's laptop (Ubuntu, Blender 4.5 snap) |
 | **Windows** 10/11 (x64) | GitHub: **Actions > ci**, a green run on `master`, **Artifacts > `addon-windows-x64`** (you must be signed in to GitHub). | In CI only (Blender 5.2, headless); not yet on a real Windows desktop |
-| **macOS** (Apple silicon, macOS 11.2+) | GitHub: **Actions > ci**, a green run on `master`, **Artifacts > `addon-macos-arm64`**. | In CI only; **never tried on a real Mac**, and the program is not notarized, so Gatekeeper may block it |
+| **macOS** (Apple silicon, macOS 11.2+): **experimental, untested** | GitHub: **Actions > ci**, a green run on `master`, **Artifacts > `addon-macos-arm64`**. | In CI only; **never tried on a real Mac**, and the program is not notarized, so Gatekeeper may block it |
 | macOS on Intel | Build it yourself ([docs/BUILDING.md](docs/BUILDING.md)). | No |
 
 GitHub wraps each artifact in a zip of its own: unpack that one once; the `quadami-...zip` inside

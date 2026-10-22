@@ -57,7 +57,7 @@ There is **no release download yet**: every zip is a test build. What exists tod
 |---|---|---|
 | **Linux** (64-bit Intel/AMD, any distribution with glibc 2.28 or newer: Ubuntu 20.04+, Debian 10+, Fedora 29+, RHEL 8+) | GitHub, see below: artifact `addon-linux-x64`. Blender from blender.org or the snap (`/snap/bin/blender`). Or build it yourself ([addon/BEGINNERS.md](../addon/BEGINNERS.md)). | Yes (Ubuntu, Blender 4.5 snap) |
 | **Windows** 10 or 11 (64-bit) | GitHub, see below: artifact `addon-windows-x64` | No, only in CI (Blender 5.2, no window) |
-| **macOS**, Apple silicon (M1 or newer), macOS 11.2 or newer | GitHub, see below: artifact `addon-macos-arm64` | No, only in CI |
+| **macOS**, Apple silicon (M1 or newer), macOS 11.2 or newer: **experimental, untested** | GitHub, see below: artifact `addon-macos-arm64` | No, only in CI |
 | macOS on Intel, Linux on ARM, Windows on ARM | Not built. Intel Macs: build it yourself ([BUILDING.md](BUILDING.md)). | No |
 
 **Zips from GitHub (Linux, Windows, macOS):**
