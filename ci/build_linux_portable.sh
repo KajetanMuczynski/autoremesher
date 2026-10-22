@@ -34,7 +34,10 @@ docker run -d --name "$container" --network host -v "$PWD:$PWD" -w "$PWD" ${DOCK
 trap 'docker rm -f "$container" > /dev/null' EXIT
 docker exec "$container" dnf install -y -q gcc-toolset-13-gcc-c++ cmake git make
 docker exec -u "$(id -u):$(id -g)" -e HOME=/tmp -e BUILD_ID="$BUILD_ID" -e JOBS="$JOBS" "$container" \
-    scl enable gcc-toolset-13 -- sh -euc '
+    sh -ec '
+        # Not "scl enable gcc-toolset-13 -- sh -c ...": it ran only part of this script.
+        . /opt/rh/gcc-toolset-13/enable
+        set -u
         git config --global --add safe.directory "$PWD"
         g++ --version | head -n 1; cmake --version | head -n 1; ldd --version | head -n 1
         cmake -S . -B build/cli -DCMAKE_BUILD_TYPE=Release -DAUTOREMESHER_BUILD_TESTS=ON \
