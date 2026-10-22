@@ -1,138 +1,155 @@
 # Quadami
 
-Quadami is an automatic quad remesher for Blender: it converts high-polygon meshes into clean quad-based topology. The Blender add-on is in [`addon/`](addon/README.md); it runs the Qt-free remeshing core as a separate program (`autoremesher-cli`).
+Quadami is an automatic quad remesher for Blender. Select a mesh (a sculpt, a scan, a dense
+triangle model), set how many quads you want, press **Remesh**, and you get a new object made of
+quads that follows the shape and has edge loops that run along it.
 
-This repository is a fork of [AutoRemesher](https://github.com/huxingyi/autoremesher) by Jeremy Hu (huxingyi). The fork works on remeshing quality, speed and Blender integration, and is a work in progress. The original project and its releases live at [huxingyi/autoremesher](https://github.com/huxingyi/autoremesher).
+It is made for people who sculpt or model in Blender and need clean, even topology afterwards
+(to animate, UV-unwrap, keep sculpting at a lower resolution, or hand over). You do not need to be
+a programmer to use it: the [user guide](docs/USER-GUIDE.md) is written for Blender beginners.
 
-It is built on [Eigen](https://eigen.tuxfamily.org/), [TBB](https://github.com/oneapi-src/oneTBB), [isotropicremesher](https://github.com/huxingyi/isotropicremesher), [meshoptimizer](https://github.com/zeux/meshoptimizer) and [others](ACKNOWLEDGEMENTS.html).
+> **Status: early test builds, version 0.1.0, no release yet.** It works on the sculpts we test
+> with, but expect rough edges. Read [Limits and warnings](#limits-and-warnings) before you rely
+> on it, and send the panel's build line with every bug report.
 
-<img width="3644" height="2202" alt="autoremesher-1 0-screenshot" src="https://github.com/user-attachments/assets/47851f1e-127c-49af-81b7-0c8ac06fb3ad" />
+![Koala sculpt: input left, Quadami output right](docs/gallery/img/koala.webp)
 
-## Getting Started
+More before/after examples, with their numbers and limits: [docs/gallery](docs/gallery/README.md).
 
-These instructions build the original AutoRemesher Qt app (still built and tested here, not shipped) and get it running on your local machine for development.
+## What it does
 
-### Prerequisites
+- **Runs outside Blender.** The remesher is a separate program that the add-on starts in the
+  background. Blender stays usable while it works, **Esc** cancels it, and a crash in the remesher
+  cannot take Blender down.
+- **Remeshes what you see.** Modifiers (Subdivision Surface, Solidify, Mirror ...) are used at their
+  viewport level; you do not need to apply them. Your original object is hidden, never changed.
+- **Tells you how good the result is.** After every run the panel shows quads against the target,
+  non-quads, holes, non-manifold edges and vertices, flipped and folded faces, empty pieces and the
+  time, with problems in red and a warning that says what to do.
+- **Finds folded sculpt input.** Twist, Rotate and Pinch brushes can fold a sculpt's surface over
+  itself where you cannot see it; that is where most defects come from. Quadami detects these spots
+  and offers **Repair Folds and Re-run**, which smooths only those spots in the remesher's copy.
+  The warning can also appear on CAD or scanned models whose result is clean (its text still
+  blames a sculpt brush); if the result looks fine, ignore it.
+- **Builds quads with libQEx**, a robust quad extractor from RWTH Aachen, with our own extractor as
+  a per-piece fallback.
+- **Asks before a huge job.** Above 200,000 quads it shows the memory it needs (about 2 GB per
+  100,000 quads) and waits for you to confirm.
 
-- C++ compiler with C++14 support (GCC, Clang, or MSVC)
-- Qt 5.15.2
-- TBB (Intel Threading Building Blocks)
-- CMake 3.12 or later (only needed on Windows to build TBB from source)
+## Install
 
-### Building
+There is no release download yet. What is available today:
 
-#### Linux (Ubuntu/Debian)
+| System | Where the zip comes from | Tested |
+|---|---|---|
+| **Linux** (x64, Ubuntu 24.04 or newer, glibc 2.38+) | Build it yourself ([addon/BEGINNERS.md](addon/BEGINNERS.md), one command), or get a test build from the maintainer. CI builds a Linux zip only for its own tests and does not publish it. | CI (Ubuntu 24.04, Blender 4.2, headless) and the maintainer's laptop (Ubuntu, Blender 4.5 snap) |
+| **Windows** 10/11 (x64) | GitHub: **Actions > ci**, a green run on `master`, **Artifacts > `addon-windows-x64`** (you must be signed in to GitHub). | In CI only (Blender 5.2, headless); not yet on a real Windows desktop |
+| **macOS** (Apple silicon, macOS 11.2+) | GitHub: **Actions > ci**, a green run on `master`, **Artifacts > `addon-macos-arm64`**. | In CI only; **never tried on a real Mac**, and the program is not notarized, so Gatekeeper may block it |
+| macOS on Intel | Build it yourself ([docs/BUILDING.md](docs/BUILDING.md)). | No |
 
-```bash
-# Install Qt and build tools
-sudo apt install build-essential qt5-qmake qtbase5-dev qttools5-dev-tools libqt5svg5-dev
+GitHub wraps each artifact in a zip of its own: unpack that one once; the `quadami-...zip` inside
+is the add-on. Do not unpack the add-on zip itself.
 
-# Install TBB and OpenGL
-sudo apt install libtbb-dev libgl1-mesa-dev
+Then, in **Blender 4.2 or newer**: **Edit > Preferences > Get Extensions**, the small **⌄** arrow
+at the top right, **Install from Disk...**, pick the zip, and restart Blender. The panel is in the
+3D Viewport sidebar (**N**), tab **Quadami**.
 
-# Clone and build
+Step by step for every system, including where Blender keeps the add-on, updating, removing it,
+the install scripts and the snap version of Blender on Linux: [user guide §2](docs/USER-GUIDE.md#2-install-and-update).
+
+## Limits and warnings
+
+- **Thin parts** (leaves, vines, cloth, blade edges) thinner than one quad fold or lose their shape,
+  and the result's handles and holes can come out wrong there. **The panel does not warn about this
+  yet.** Raise Target Quads, or give flat sheets a Solidify modifier.
+- **Folded sculpt input** causes nearly all folds, non-quads and holes on our test sculpts. Use
+  **Repair Folds and Re-run**, or smooth those spots by hand; folds wider than about 1 % of the
+  model are not detected.
+- **Holes** can still appear in closed sculpts at higher quad counts; the **Holes** row shows them.
+- **Hard-surface models**: sharp edges are kept above 90°, but lower angles make more triangles and
+  other non-quads. Mirror symmetry, guide curves and density painting are not available yet.
+- **Large inputs** are slow to hand over (the mesh goes through a text file both ways).
+- Very small or very large models (under about 1 cm or over 10 km) are untested.
+
+The full list, with what helps: [user guide §7](docs/USER-GUIDE.md#7-sculpts-what-works-and-what-struggles).
+What we test and promise: [docs/TARGETS.md](docs/TARGETS.md) (quality targets) and
+[docs/ENVELOPE.md](docs/ENVELOPE.md) (which inputs those targets apply to).
+
+## How it differs from AutoRemesher
+
+Quadami started as a fork of Jeremy Hu's AutoRemesher 1.2 (see [Origin and credits](#origin-and-credits))
+and keeps its overall method: a cross field guides a quad parameterization, which is rounded to
+whole numbers and turned into quads. Since then most stages have changed:
+
+- a Blender add-on that runs the remesher in its own process, instead of a standalone app;
+- quad extraction by libQEx, with closed inputs kept closed and small pieces kept present;
+- a reworked rounding and untangling of the parameterization, a validity check of the map before
+  extraction, and an output projected onto and relaxed along the input surface;
+- input cleanup (broken triangles, inconsistent winding) and detection and optional repair of
+  folded sculpt input;
+- a quality report with every run, and a test harness that measures every change on the same
+  meshes before it is merged.
+
+The standalone AutoRemesher desktop app is still in this repository for development and is built
+and tested by CI, but it is no longer packaged or supported as a product.
+
+## Documentation
+
+- [docs/USER-GUIDE.md](docs/USER-GUIDE.md): install, settings, result rows, warnings, troubleshooting.
+- [docs/gallery/README.md](docs/gallery/README.md): before/after examples on public meshes, and the limits they show.
+- [docs/windows-test/README.md](docs/windows-test/README.md): testing on Windows, with an install script.
+- [docs/BUILDING.md](docs/BUILDING.md): building the add-on and the remesher from source on Linux,
+  Windows and macOS.
+- [docs/README.md](docs/README.md): index of everything else (plan, targets, technical reference).
+- [CLAUDE.md](CLAUDE.md) and [addon/README.md](addon/README.md): notes for contributors (build, CI,
+  pull request rules, how the add-on talks to the remesher).
+- [CHANGELOGS.md](CHANGELOGS.md): what changed.
+
+## Build from source
+
+Short version for Linux (Ubuntu 24.04, needs CMake, a C++17 compiler and `libtbb-dev`; no Qt):
+
+```
 git clone https://github.com/KajetanMuczynski/quadami.git
 cd quadami
-qmake
-make -j$(nproc)
+sh addon/package.sh        # builds the remesher and prints the path of the add-on zip
 ```
 
-> **Fedora:** `sudo dnf install gcc-c++ qt5-qtbase-devel qt5-qttools-devel tbb-devel mesa-libGL-devel`
-
-#### Windows (Visual Studio 2022)
-
-1. Install [Visual Studio 2022](https://visualstudio.microsoft.com/) with **Desktop development with C++** workload.
-2. Install [CMake](https://cmake.org/download/) (required to build TBB from source).
-3. Install Qt 5.15.2 with the [online installer](https://www.qt.io/download-open-source) — select the `msvc2019_64` archive.
-4. Open a **x64 Native Tools Command Prompt for VS 2022** and run:
-
-```cmd
-:: Build TBB from the bundled third-party source
-cd thirdparty\tbb
-cmake -B build2 ^
-    -DTBB_BUILD_SHARED=ON ^
-    -DTBB_BUILD_STATIC=OFF ^
-    -DTBB_BUILD_TBBMALLOC=OFF ^
-    -DTBB_BUILD_TBBMALLOC_PROXY=OFF ^
-    -DTBB_BUILD_TESTS=OFF
-cmake --build build2 --config Release
-cd ..\..
-
-:: Build AutoRemesher
-qmake -spec win32-msvc
-set CL=/MP
-nmake -f Makefile.Release
-```
-
-The release binary will be at `release\autoremesher.exe`.
-
-#### Windows (MSYS2 / MinGW-w64)
-
-An alternative to the MSVC toolchain that builds against Qt 6 from MSYS2.
-
-1. Install [MSYS2](https://www.msys2.org/).
-2. From the **MSYS2 MINGW64** shell, install the toolchain and dependencies:
-
-```bash
-pacman -S --needed \
-    mingw-w64-x86_64-gcc \
-    mingw-w64-x86_64-qt6-base \
-    mingw-w64-x86_64-tbb \
-    make
-```
-
-3. Build from the same shell:
-
-```bash
-cd /c/path/to/quadami
-qmake
-make -j$(nproc)
-```
-
-The binary will be at `release/autoremesher.exe`. Run it from the MINGW64 shell so the Qt 6 and oneTBB DLLs on `/mingw64/bin` are found, or bundle the dependencies next to the binary with `windeployqt-qt6 release/autoremesher.exe`.
-
-#### macOS
-
-```bash
-# Install Xcode Command Line Tools
-xcode-select --install
-
-# Install dependencies via Homebrew
-brew install qt@5 tbb cmake
-
-# Build
-export PATH="/usr/local/opt/qt@5/bin:$PATH"
-git clone https://github.com/KajetanMuczynski/quadami.git
-cd quadami
-qmake CONFIG+=sdk_no_version_check
-make -j$(sysctl -n hw.logicalcpu)
-```
-
-### Running a quick test
-
-AutoRemesher has a CLI mode for headless processing. Try it with one of the [common-3d-test-models](https://github.com/alecjacobson/common-3d-test-models):
-
-```bash
-./autoremesher \
-    --input armadillo.obj \
-    --output remeshed.obj \
-    --report remeshed_report.txt \
-    --target-quads 50000 \
-    --edge-scaling 1.0 \
-    --sharp-edge 90.0 \
-    --smooth-normal 0.0 \
-    --adaptivity 1.0 \
-    --anisotropy 1.0
-```
-
-### Prebuilt binaries
-
-This fork has no releases yet, so build it from source as above. Prebuilt binaries of the original AutoRemesher are on the [upstream releases page](https://github.com/huxingyi/autoremesher/releases).
+Windows, macOS, the Qt app and the tests: [docs/BUILDING.md](docs/BUILDING.md).
 
 ## License
 
-GPL-3.0-or-later, see [LICENSE](LICENSE). Portions derived from AutoRemesher by Jeremy Hu (huxingyi), MIT, see [LICENSE-MIT-upstream](LICENSE-MIT-upstream). Libraries under `thirdparty/` keep their own licenses.
+Quadami is licensed under the **GNU General Public License, version 3 or later**
+(GPL-3.0-or-later), see [LICENSE](LICENSE).
 
-## Acknowledgements
+It contains code derived from AutoRemesher, which is under the **MIT License**. That license
+requires its copyright and permission notice to stay with the code, so it is kept in
+[LICENSE-MIT-upstream](LICENSE-MIT-upstream) and in the headers of the files that came from
+AutoRemesher. The bundled libraries keep their own licenses, listed in
+[THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES); the add-on zip carries all of them in its `licenses/`
+folder.
 
-AutoRemesher was created by Jeremy Hu; see [AUTHORS](AUTHORS) and [CONTRIBUTORS](CONTRIBUTORS) for everyone who worked on the original. See [ACKNOWLEDGEMENTS](ACKNOWLEDGEMENTS.html) for the libraries and resources it uses.
+## Origin and credits
+
+Quadami is derived from **[AutoRemesher](https://github.com/huxingyi/autoremesher)** by
+**Jeremy Hu** (version 1.2.0, commit `4a49f82`), MIT License. The field-guided method, the first
+versions of most of the core and the desktop app are his work, together with the people listed in
+[AUTHORS](AUTHORS) and [CONTRIBUTORS](CONTRIBUTORS). AutoRemesher's own releases and history are in
+its repository; its changelog is kept in [CHANGELOGS.md](CHANGELOGS.md). Quadami is a separate
+project: please report Quadami problems here, not upstream.
+
+Quadami also builds on:
+
+- [libQEx](https://github.com/hcebke/libQEx) (Hans-Christian Ebke et al., RWTH Aachen; GPL-3.0-or-later),
+  the implementation of *QEx: Robust Quad Mesh Extraction* (Ebke, Bommes, Campen, Kobbelt, SIGGRAPH Asia
+  2013). Our changes are listed in `thirdparty/libQEx/PATCHES.md`.
+- [OpenMesh](https://www.graphics.rwth-aachen.de/software/openmesh/) (RWTH Aachen; BSD-3-Clause), used by libQEx.
+- [isotropicremesher](https://github.com/huxingyi/isotropicremesher) (Jeremy Hu; MIT).
+- [Eigen](https://eigen.tuxfamily.org/) (MPL-2.0), [oneTBB](https://github.com/uxlfoundation/oneTBB) (Apache-2.0),
+  [meshoptimizer](https://github.com/zeux/meshoptimizer) (Arseny Kapoulkine; MIT),
+  [tinyobjloader](https://github.com/tinyobjloader/tinyobjloader) (MIT).
+- The desktop app also uses Qt, QtAwesome and QtWaitingSpinner.
+
+[ACKNOWLEDGEMENTS.html](ACKNOWLEDGEMENTS.html) is AutoRemesher's list for its desktop app, kept
+as it was; it names libraries that are not in this repository. [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES)
+is the list of what Quadami actually contains.

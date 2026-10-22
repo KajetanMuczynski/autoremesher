@@ -28,6 +28,94 @@ namespace AutoRemesher {
 
 namespace {
 
+    // OpenMesh takes only manifold, consistently oriented triangles: a sculpt's
+    // vine ribbons glued along an edge (three faces on it) or a fold that
+    // meets itself at a vertex made it reject the whole island, which then
+    // fell back to our tracing.  Each vertex gets one copy per fan of its
+    // triangles, a fan being triangles joined at it through edges that exactly
+    // two triangles use in opposite directions.  On a manifold, oriented
+    // island every vertex is one fan, so nothing changes.  The cut edges
+    // become boundary edges for QEx; the triangles keep their uvs.  Returns
+    // how many copies were added.
+    size_t cutAtNonManifoldVertices(const std::vector<Vector3>& vertices,
+        const std::vector<std::vector<size_t>>& triangles,
+        std::vector<Vector3>* cutVertices,
+        std::vector<std::vector<size_t>>* cutTriangles)
+    {
+        std::map<std::pair<size_t, size_t>, std::vector<size_t>> edgeTriangles;
+        std::vector<std::vector<size_t>> vertexTriangles(vertices.size());
+        for (size_t t = 0; t < triangles.size(); ++t) {
+            for (size_t i = 0; i < 3; ++i) {
+                const size_t a = triangles[t][i], b = triangles[t][(i + 1) % 3];
+                edgeTriangles[std::make_pair(std::min(a, b), std::max(a, b))].push_back(t);
+                vertexTriangles[a].push_back(t);
+            }
+        }
+        const auto joinedAt = [&](size_t a, size_t b) {
+            const auto& users = edgeTriangles[std::make_pair(std::min(a, b), std::max(a, b))];
+            if (2 != users.size())
+                return false;
+            // Opposite directions: one of the two triangles has b followed by a.
+            const auto& other = triangles[users[1]];
+            for (size_t i = 0; i < 3; ++i) {
+                if (other[i] == b && other[(i + 1) % 3] == a)
+                    return true;
+            }
+            const auto& first = triangles[users[0]];
+            for (size_t i = 0; i < 3; ++i) {
+                if (first[i] == b && first[(i + 1) % 3] == a)
+                    return true;
+            }
+            return false;
+        };
+        *cutVertices = vertices;
+        *cutTriangles = triangles;
+        size_t copies = 0;
+        std::map<size_t, size_t> parent;
+        const auto find = [&parent](size_t x) {
+            while (parent[x] != x)
+                x = parent[x] = parent[parent[x]];
+            return x;
+        };
+        for (size_t v = 0; v < vertices.size(); ++v) {
+            const auto& around = vertexTriangles[v];
+            if (around.size() < 2)
+                continue;
+            parent.clear();
+            for (size_t t : around)
+                parent[t] = t;
+            for (size_t t : around) {
+                for (size_t i = 0; i < 3; ++i) {
+                    const size_t a = triangles[t][i], b = triangles[t][(i + 1) % 3];
+                    if ((a != v && b != v) || !joinedAt(a, b))
+                        continue;
+                    const auto& users = edgeTriangles[std::make_pair(std::min(a, b), std::max(a, b))];
+                    parent[find(users[0])] = find(users[1]);
+                }
+            }
+            std::map<size_t, size_t> fanVertex;
+            for (size_t t : around) {
+                const size_t fan = find(t);
+                auto it = fanVertex.find(fan);
+                if (it == fanVertex.end()) {
+                    // The first fan keeps the vertex, later ones get copies.
+                    size_t index = v;
+                    if (!fanVertex.empty()) {
+                        index = cutVertices->size();
+                        cutVertices->push_back(vertices[v]);
+                        ++copies;
+                    }
+                    it = fanVertex.emplace(fan, index).first;
+                }
+                for (auto& corner : (*cutTriangles)[t]) {
+                    if (corner == v)
+                        corner = it->second;
+                }
+            }
+        }
+        return copies;
+    }
+
     // Faces on an edge more than two faces use, or on a directed edge another
     // face uses too (sheets of a fold touching along an edge): QuadExtractor's
     // repair keys faces by directed edge and misses both, so they are dropped
@@ -76,15 +164,24 @@ bool extractWithQex(const std::vector<Vector3>& vertices,
         outcome->reason = "uv count differs from triangle count";
         return false;
     }
+    std::vector<Vector3> cutVertices;
+    std::vector<std::vector<size_t>> cutTriangles;
+    for (const auto& tri : triangles) {
+        if (tri.size() != 3) {
+            outcome->reason = "a face is not a triangle";
+            return false;
+        }
+    }
+    outcome->cutVertices = cutAtNonManifoldVertices(vertices, triangles, &cutVertices, &cutTriangles);
     QEx::TriMesh mesh;
-    mesh.reserve(vertices.size(), vertices.size() + triangles.size(), triangles.size());
-    for (const auto& v : vertices)
+    mesh.reserve(cutVertices.size(), cutVertices.size() + cutTriangles.size(), cutTriangles.size());
+    for (const auto& v : cutVertices)
         mesh.add_vertex(QEx::TriMesh::Point(v.x(), v.y(), v.z()));
     std::vector<QEx::TriMesh::FaceHandle> faces;
     faces.reserve(triangles.size());
-    for (size_t t = 0; t < triangles.size(); ++t) {
-        const auto& tri = triangles[t];
-        if (tri.size() != 3 || triangleUvs[t].size() != 3) {
+    for (size_t t = 0; t < cutTriangles.size(); ++t) {
+        const auto& tri = cutTriangles[t];
+        if (triangleUvs[t].size() != 3) {
             outcome->reason = "a face is not a triangle";
             return false;
         }
@@ -102,7 +199,7 @@ bool extractWithQex(const std::vector<Vector3>& vertices,
         for (auto h = mesh.fh_iter(faces[t]); h.is_valid(); ++h) {
             const size_t to = (size_t)mesh.to_vertex_handle(*h).idx();
             for (size_t k = 0; k < 3; ++k) {
-                if (triangles[t][k] == to)
+                if (cutTriangles[t][k] == to)
                     uvs[h->idx()] = OpenMesh::Vec2d(triangleUvs[t][k].x(), triangleUvs[t][k].y());
             }
         }
