@@ -167,6 +167,12 @@ public:
         size_t vertexCount = 0;
         size_t faceCount = 0;
         bool closedInput = false;
+        // Twice the handle count (twiceHandleCount()) of the island's input
+        // and of its output; -1 where it is not measured: an input with a
+        // non-manifold edge has no genus to keep, an island without output
+        // has nothing to compare.
+        long long inputTwiceHandles = -1;
+        long long outputTwiceHandles = -1;
     };
 
     const std::vector<RemeshedIsland>& remeshedIslands() const

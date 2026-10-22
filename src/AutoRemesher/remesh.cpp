@@ -268,6 +268,16 @@ void measureClosedIslands(const RemeshMesh& mesh,
         size_t cornerCount = 0;
         for (size_t face = faceBegin; face < faceBegin + island.faceCount; ++face)
             cornerCount += mesh.faceSizes[face];
+        if (island.inputTwiceHandles >= 0 && island.outputTwiceHandles >= 0
+            && island.inputTwiceHandles != island.outputTwiceHandles) {
+            // Rounded up: an odd difference (a one-sided piece) still changed.
+            const long long change = island.outputTwiceHandles - island.inputTwiceHandles;
+            if (change > 0)
+                report->handlesAdded += (size_t)((change + 1) / 2);
+            else
+                report->handlesLost += (size_t)((1 - change) / 2);
+            ++report->handlesChangedIslandCount;
+        }
         if (island.closedInput) {
             ++report->closedInputIslandCount;
             if (island.faceCount > 0) {
@@ -506,6 +516,19 @@ RemeshResult remeshWithPreview(const RemeshRequest& request,
             + (1 == report.closedIslandHoleCount ? " hole" : " holes") + " where the input was closed ("
             + std::to_string(report.closedIslandHoleEdgeCount) + " open edges)");
     }
+    if (report.handlesLost > 0) {
+        report.warnings.push_back("Output has " + std::to_string(report.handlesLost)
+            + (1 == report.handlesLost ? " handle" : " handles")
+            + " fewer than the input (tunnels or loops closed up, on "
+            + std::to_string(report.handlesChangedIslandCount)
+            + (1 == report.handlesChangedIslandCount ? " island" : " islands")
+            + "): handles only a few quads around close up. A higher Target Quads keeps more of them");
+    }
+    if (report.handlesAdded > 0) {
+        report.warnings.push_back("Output has " + std::to_string(report.handlesAdded)
+            + (1 == report.handlesAdded ? " handle" : " handles")
+            + " more than the input (surfaces joined across a thin gap)");
+    }
     return finish(RemeshStatus::Ok, std::string());
 }
 
@@ -562,6 +585,9 @@ std::string toJson(const RemeshResult& result)
         << ", \"opened\": " << jsonCount(report.openedClosedIslandCount)
         << ",\n              \"holes\": " << jsonCount(report.closedIslandHoleCount)
         << ", \"hole_edges\": " << jsonCount(report.closedIslandHoleEdgeCount)
+        << ",\n              \"handles_lost\": " << jsonCount(report.handlesLost)
+        << ", \"handles_added\": " << jsonCount(report.handlesAdded)
+        << ", \"handles_changed\": " << jsonCount(report.handlesChangedIslandCount)
         << "},\n";
     out << "  \"time\": {\"total_seconds\": " << jsonNumber(report.seconds) << ", \"steps\": [";
     for (size_t i = 0; i < report.stepSeconds.size(); ++i) {

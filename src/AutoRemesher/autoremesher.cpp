@@ -20,6 +20,7 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
+#include "qexextraction.h"
 #include <AutoRemesher/AutoRemesher>
 #include <AutoRemesher/FoldRepair>
 #include <AutoRemesher/IsotropicRemesher>
@@ -1007,6 +1008,7 @@ bool AutoRemesher::remeshIslands()
         // Taken before resampling replaces vertices and triangles.
         QuadExtractor::Boundary inputBoundary;
         SurfaceTopology inputTopology;
+        long long inputTwiceHandles = -1;
         double voxelSize;
         double area;
         double targetQuadCount;
@@ -1038,6 +1040,9 @@ bool AutoRemesher::remeshIslands()
         }
         context.area = calculateMeshArea(context.vertices, context.triangles);
         context.inputTopology = surfaceTopology(context.triangles, context.vertices.size());
+        context.inputTwiceHandles = 0 == context.inputTopology.nonManifoldEdges
+            ? twiceHandleCount(context.vertices.size(), context.triangles)
+            : -1;
         context.inputBoundary = QuadExtractor::findBoundary(context.vertices, context.triangles);
 
         context.scaling = m_scaling;
@@ -1436,6 +1441,9 @@ bool AutoRemesher::remeshIslands()
         if (!run.remeshedQuads.empty()) {
             island.vertexCount = run.remeshedVertices.size();
             island.faceCount = run.remeshedQuads.size();
+            island.inputTwiceHandles = islandContexes[i].inputTwiceHandles;
+            if (island.inputTwiceHandles >= 0)
+                island.outputTwiceHandles = twiceHandleCount(run.remeshedVertices.size(), run.remeshedQuads);
         }
         m_remeshedIslands.push_back(island);
     }

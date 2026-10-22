@@ -148,6 +148,22 @@ class ReportTest(unittest.TestCase):
         self.assertIn(("Holes", "0", False), report.summary_rows(closed))
         self.assertEqual(report.warning_lines(closed), [])
 
+    def test_handles_row(self):
+        # demosthenes Quality 10k (2026-10-22): two of its three tunnels close up.
+        lost = {"status": "ok", "parameters": {"target_quads": 10000}, "output": {"quads": 9940},
+                "islands": {"input": 1, "handles_lost": 2, "handles_added": 0, "handles_changed": 1},
+                "warnings": ["Output has 2 handles fewer than the input (tunnels or loops closed up, on 1 island): "
+                             "handles only a few quads around close up. A higher Target Quads keeps more of them"]}
+        self.assertIn(("Handles", "2 lost", True), report.summary_rows(lost))
+        self.assertTrue(all(len(text) <= report.WARNING_WIDTH for text, _, _ in report.warning_lines(lost)))
+        both = dict(lost, islands={"input": 2, "handles_lost": 1, "handles_added": 3, "handles_changed": 2})
+        self.assertIn(("Handles", "1 lost, 3 added", True), report.summary_rows(both))
+        same = dict(lost, islands={"input": 1, "handles_lost": 0, "handles_added": 0, "handles_changed": 0},
+                    warnings=[])
+        self.assertIn(("Handles", "as input", False), report.summary_rows(same))
+        older = dict(lost, islands={"input": 1}, warnings=[])
+        self.assertFalse(any(label == "Handles" for label, _, _ in report.summary_rows(older)))
+
     def test_input_cleanup_row(self):
         rows = report.summary_rows({
             "status": "ok", "parameters": {"target_quads": 5000},
