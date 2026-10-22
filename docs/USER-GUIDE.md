@@ -55,21 +55,22 @@ There is **no release download yet**: every zip is a test build. What exists tod
 
 | System | Where to get it | Tested on a real computer? |
 |---|---|---|
-| **Linux** (64-bit Intel/AMD, Ubuntu 24.04 or newer) | Build it yourself with one command ([addon/BEGINNERS.md](../addon/BEGINNERS.md)), or ask the maintainer for a test build (`quadami-<version>-linux-x64-<commit>.zip`). CI builds a Linux zip for its own tests but does not publish it. | Yes (Ubuntu, Blender 4.5 snap) |
+| **Linux** (64-bit Intel/AMD, any distribution with glibc 2.28 or newer: Ubuntu 20.04+, Debian 10+, Fedora 29+, RHEL 8+) | GitHub, see below: artifact `addon-linux-x64`. Blender from blender.org or the snap (`/snap/bin/blender`). Or build it yourself ([addon/BEGINNERS.md](../addon/BEGINNERS.md)). | Yes (Ubuntu, Blender 4.5 snap) |
 | **Windows** 10 or 11 (64-bit) | GitHub, see below: artifact `addon-windows-x64` | No, only in CI (Blender 5.2, no window) |
 | **macOS**, Apple silicon (M1 or newer), macOS 11.2 or newer | GitHub, see below: artifact `addon-macos-arm64` | No, only in CI |
 | macOS on Intel, Linux on ARM, Windows on ARM | Not built. Intel Macs: build it yourself ([BUILDING.md](BUILDING.md)). | No |
 
-**Windows and macOS zips from GitHub:**
+**Zips from GitHub (Linux, Windows, macOS):**
 1. Sign in to GitHub (downloads of these files need an account).
 2. Open <https://github.com/KajetanMuczynski/quadami/actions/workflows/ci.yml?query=branch%3Amaster>
-   and click the newest run where the job for your system (**addon (windows-x64)** or
-   **addon (macos-arm64)**) has a green tick. The run as a whole may be red only because the macOS job
-   never got a computer; the Windows zip is still there *(CI)*.
-3. Scroll to **Artifacts** at the bottom and click `addon-windows-x64` or `addon-macos-arm64`.
-4. GitHub wraps the add-on in a zip of its own. Unpack that outer zip once (Windows: right-click >
-   **Extract All...**; macOS: double-click). The `quadami-0.1.0-windows-x64.zip` or
-   `quadami-0.1.0-macos-arm64.zip` inside is the add-on: keep it zipped.
+   and click the newest run where the job for your system (**addon (linux-x64)**,
+   **addon (windows-x64)** or **addon (macos-arm64)**) has a green tick. The run as a whole may be red
+   only because the macOS job never got a computer; the Linux and Windows zips are still there *(CI)*.
+3. Scroll to **Artifacts** at the bottom and click `addon-linux-x64`, `addon-windows-x64` or
+   `addon-macos-arm64`.
+4. GitHub wraps the add-on in a zip of its own. Unpack that outer zip once (Linux: `unzip`;
+   Windows: right-click > **Extract All...**; macOS: double-click). The `quadami-0.1.0-<system>.zip`
+   inside is the add-on: keep it zipped.
 
 These files are deleted by GitHub after its retention period (90 days unless the repository says
 otherwise *(from memory, check)*), so download a newer one if the link is gone.
@@ -97,7 +98,7 @@ own add-ons, so if you have two Blenders, install in the one you use.
 | System | Folder (replace `4.5` with your Blender version) |
 |---|---|
 | Linux, blender.org `.tar.xz` | `~/.config/blender/4.5/extensions/user_default/quadami` |
-| Linux, snap (`/snap/bin/blender`) | Usually the same folder, since the Blender snap may read your home folder (classic confinement); not checked on a real snap. The install script below asks Blender and prints the folder it really uses. |
+| Linux, snap (`/snap/bin/blender`) | Usually the same folder, since the Blender snap may read your home folder (classic confinement). Installing with `/snap/bin/blender` worked on the maintainer's laptop (2026-10-22); which folder it used was not recorded. The install script below asks Blender and prints the folder it really uses. |
 | Linux, Flatpak | Not supported: its sandbox cannot start the remesher. Use the `.tar.xz` or the snap. |
 | Windows | `%APPDATA%\Blender Foundation\Blender\4.5\extensions\user_default\quadami` *(CI, with 5.2)* |
 | macOS | `~/Library/Application Support/Blender/4.5/extensions/user_default/quadami` *(from memory, check)* |
@@ -121,7 +122,8 @@ above. Results you already made stay in your files; they are ordinary mesh objec
   in this repository yet). Give it the zip and the Blender you start, for the snap
   `/snap/bin/blender`: `sh quadami-update.sh --apply <zip> /snap/bin/blender`.
 - Both install with Blender's own command, which also works without the scripts:
-  `blender --command extension install-file -r user_default -e <zip>` *(CI)*.
+  `blender --command extension install-file -r user_default -e <zip>` *(CI)*. With the snap, write
+  `/snap/bin/blender` instead of `blender` if your shell does not find `blender`.
 
 ### macOS: if the remesher is blocked
 

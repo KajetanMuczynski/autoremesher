@@ -29,8 +29,10 @@ The remesher must be built for the same operating system and CPU as the Blender 
 
 ## Linux
 
-Checked on Ubuntu 24.04 (GCC 13.3, oneTBB 2021.11). The zip links the system oneTBB unless you ask for
-the bundled one, and needs glibc 2.38 or newer (Ubuntu 24.04+) on the machine that runs it.
+Checked on Ubuntu 24.04 (GCC 13.3, oneTBB 2021.11). A zip built this way links the system oneTBB unless
+you ask for the bundled one, and needs the glibc of the machine it was built on (Ubuntu 24.04: 2.38) on
+the machine that runs it. The zip CI ships (`addon-linux-x64`) is built for any Linux with glibc 2.28 or
+newer; to build that one yourself, see "Portable build" below.
 
 ```
 sudo apt install build-essential cmake git python3 libtbb-dev
@@ -56,6 +58,12 @@ python3 addon/package.py --cli-prefix build/cli-install
 To link oneTBB statically (so the zip does not need `libtbb.so.12` on the target machine), add
 `-DAUTOREMESHER_BUNDLED_TBB=ON` to the first command; it downloads oneTBB from GitHub at a pinned
 commit. That still does not make a zip portable to older distributions: glibc stays a dependency.
+
+**Portable build** (what CI ships): with Docker installed, `sh ci/build_linux_portable.sh` builds
+`build/cli` and `build/cli-install` inside AlmaLinux 8 (glibc 2.28, GCC 13 from gcc-toolset, static
+oneTBB); then `python3 addon/package.py --cli-prefix build/cli-install`. `python3
+ci/check_linux_libs.py build/cli-install/bin/autoremesher-cli` confirms it needs nothing newer than
+glibc 2.28. It uses 4 build jobs; `JOBS=2 sh ci/build_linux_portable.sh` keeps a laptop cooler.
 
 Blender on Linux: any 4.2 or newer from blender.org (`.tar.xz`) or the snap. **Not the Flatpak**: its
 sandbox cannot start a program from your home folder.
