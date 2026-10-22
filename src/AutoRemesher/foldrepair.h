@@ -63,7 +63,11 @@ public:
         double radius = 0.0;
         double radiusFraction = 0.01;
         size_t maximumRings = 8;
-        size_t passes = 3;
+        // At most this many passes; the repair stops once a pass moves
+        // nothing.  A patch that overlaps one applied in the same pass, or a
+        // spot a patch only made smaller, waits for a later pass: folds in
+        // a twist pleat can take 7.
+        size_t passes = 10;
         // An edge whose triangles' normals differ by more than creaseDegrees
         // and less than foldDegrees, neither triangle flagged, is a crease:
         // its vertices stay fixed.  Beyond foldDegrees one triangle is
