@@ -76,12 +76,16 @@ def summary_rows(report):
         if fixes:
             rows.append(("Input cleanup", ", ".join(fixes), False))
         # Folded input: spots where a brush folded the surface over itself.
+        # Counted in faces: a repair can split one spot into several smaller
+        # ones, so spots before minus spots after says little.
         spots = int(diagnostics.get("input_fold_clusters", 0))
         if spots and report.get("parameters", {}).get("repair_folds"):
+            faces = int(diagnostics.get("input_folded_triangles", 0))
+            faces_left = int(diagnostics.get("input_folded_triangles_after", 0))
             left = int(diagnostics.get("input_fold_clusters_after", 0))
-            rows.append(("Folds repaired", "%d of %d spots" % (spots - left, spots), False))
-            if left:
-                rows.append(("Folds left", "%d spots" % left, True))
+            rows.append(("Folds repaired", "%d of %d faces" % (max(faces - faces_left, 0), faces), False))
+            if faces_left:
+                rows.append(("Folds left", "%d faces in %d spots" % (faces_left, left), True))
     islands = report.get("islands", {})
     empty = islands.get("without_output", 0)
     rows.append(("Empty islands", "%d of %d" % (empty, islands.get("input", 0)), empty > 0))
@@ -108,15 +112,16 @@ def warning_lines(report, width=WARNING_WIDTH):
             "> Non Manifold.", False)
     if offers_fold_repair(report):
         diagnostics = report.get("diagnostics", {})
-        add("Folded input: %d faces in %d spots. A sculpt brush folded the surface "
-            "over itself there, so the quads there may come out messy or with holes."
+        add("Folded input: %d faces in %d spots, where the surface folds over "
+            "itself. The quads there may come out messy or with holes."
             % (int(diagnostics.get("input_folded_triangles", 0)),
                int(diagnostics.get("input_fold_clusters", 0))), True)
     elif report.get("status") == "ok" and report.get("parameters", {}).get("repair_folds"):
-        left = int(report.get("diagnostics", {}).get("input_fold_clusters_after", 0))
-        if left:
-            add("%d folded spots could not be repaired safely and were left as they were."
-                % left, False)
+        diagnostics = report.get("diagnostics", {})
+        faces_left = int(diagnostics.get("input_folded_triangles_after", 0))
+        if faces_left:
+            add("%d folded faces in %d spots could not be repaired safely and were left "
+                "as they were." % (faces_left, int(diagnostics.get("input_fold_clusters_after", 0))), False)
     return lines
 
 

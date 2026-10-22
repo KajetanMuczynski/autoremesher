@@ -237,8 +237,8 @@ Warnings appear under the rows, with a red icon when they are a problem.
 |---|---|---|
 | Dialog **"Remesh to 200,000+ quads?"** with a memory estimate | The **Target Quads guard**: a big target can use all your memory (about 2 GB per 100,000 quads) and take long. Often a typo (an extra zero). | Press Cancel unless you meant it and have the memory. |
 | **"Output has N holes where the input was closed (E open edges)"**, plus a hint, and a red **Holes** row | The remesh tore the surface open. On sculpts this happens almost only at folded input ([§7](#7-sculpts-what-works-and-what-struggles)). | Try another Target Quads (a few hundred up or down often closes it). Find the holes with the hint (Non Manifold). If they sit at swirls or pinched creases, smooth those in Sculpt Mode and run again. |
-| **"Folded input: N faces in K spots. …"** and a **Repair Folds and Re-run** button | Your model's surface is folded over itself in K places, usually left by a sculpt brush. The quads there may come out messy or with holes. | Press **Repair Folds and Re-run** ([§8](#8-folded-input-and-repair-folds)). |
-| **"N folded spots could not be repaired safely and were left as they were"** | After a repair: these spots were too steep, too thin or too tangled to fix without changing your shape. | Smooth those spots in Sculpt Mode and run again ([§7](#7-sculpts-what-works-and-what-struggles)). |
+| **"Folded input: N faces in K spots. …"** and a **Repair Folds and Re-run** button | Your model's surface is folded over itself in K places, on sculpts usually left by a brush. The quads there may come out messy or with holes. | Press **Repair Folds and Re-run** ([§8](#8-folded-input-and-repair-folds)). |
+| **"N folded faces in K spots could not be repaired safely and were left as they were"** | After a repair: these spots were too steep, too thin or too tangled to fix without changing your shape. | Smooth those spots in Sculpt Mode and run again ([§7](#7-sculpts-what-works-and-what-struggles)). |
 | Red **Non-manifold vertices** or **edges** | Points or edges that are not a clean surface. | Same as holes: another Target Quads, or clean the input at that spot. Report it with the build line if it stays. |
 | **"N of M islands produced no faces"**, red **Empty islands** | A small separate piece (an eyeball, a tiny flower) got nothing. | Raise Target Quads, or remesh that piece on its own: Edit Mode, select it, **P > Selection** to make it its own object *(from memory, check)*, and remesh both. |
 | **"Blender's mesh validation changed the result"** | Blender had to repair the remesher's result when building the object. Should not happen. | Report it with the build line and the settings. |
@@ -299,7 +299,8 @@ faces in K spots"** and, below it, a **Repair Folds and Re-run** button.
 2. Press **Repair Folds and Re-run**. The remesher runs again, the same settings, from your original
    object, and this time first smooths out only the folded spots.
 3. The new result replaces the old one (the old one is hidden). The rows show **Folds repaired: X of
-   K spots**; if some could not be fixed, a red **Folds left** row and a line saying so.
+   N faces** (counted in faces, because a repair can split one spot into several smaller ones); if some
+   could not be fixed, a red **Folds left: F faces in S spots** row and a line saying so.
 
 What it does and does not do:
 - **Your original object is never changed.** The repair works on the copy the remesher gets.
