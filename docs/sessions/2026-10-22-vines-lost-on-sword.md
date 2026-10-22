@@ -34,4 +34,10 @@
   equal; separate capsules lost > 10 % in 41 → 33 of 56 stress_thin runs. Cost: SJ ≤ 0 ×1.02-1.10 on the public
   sets and ×1.24 on the sword, irregular vertices +0.4-5 %. Threshold 0.25 instead of 0.4: same coverage gain, SJ ≤ 0
   corpus ×1.035 instead of ×1.017.
+- Replicates (×6, 1-ulp inputs) on the runs whose topology changed: 2 of them were 3-face closed crumbs the later
+  passes pinched off a thin neck (attached r0.016 at 2k, 5 of 6 replicates); a second crumb sweep after the last pass
+  removes them and changes nothing else on any set (only 2 stress_attached runs and 1 sword replicate differ). Every
+  remaining change is an extra closed component: a thin part master deleted and the branch keeps, detached at its
+  neck (attached r0.008 at 8k 6/6, Hausdorff 0.10 → 0.007-0.009; r0.004 at 32k 3/6, 0.11-0.14 → 0.054-0.058;
+  corpus sword at 2k 1/6, 0.12 → 0.021).
 - Next: the "Lost parts" warning; a do-no-harm guard per cleanup pass once the core measures coverage.
