@@ -352,6 +352,7 @@ def value(r, k):
     if k == "hausdorff": return (m.get("distance") or {}).get("hausdorff")
     if k == "in_out_mean": return (m.get("distance") or {}).get("in_to_out_mean")
     if k == "in_out_p99": return (m.get("distance") or {}).get("in_to_out_p99")
+    if k == "uncovered": return (m.get("distance") or {}).get("uncovered_area")
     if k == "vertex_dist": return (m.get("distance") or {}).get("vertex_to_in_median")
     if k == "normal_dev": return (m.get("normal_deviation_deg") or {}).get("mean")
     if k == "sj_p1": return (m.get("quads") or {}).get("sj_p1")
@@ -374,7 +375,7 @@ def value(r, k):
 
 COUNTS = ["flips_cont", "flips_round", "flips", "degenerate", "non_quads", "sj_le_0", "flipped_vs_input",
           "t_non_manifold", "t_opened", "qex_fallbacks"]
-MEANS = ["irregular_1k", "in_out_p99", "hausdorff", "in_out_mean", "normal_dev", "vertex_dist", "sj_p1",
+MEANS = ["irregular_1k", "in_out_p99", "uncovered", "hausdorff", "in_out_mean", "normal_dev", "vertex_dist", "sj_p1",
          "skew_p95", "crease_cov", "count_err", "energy_ratio", "time", "peak_rss_mb"]
 # Rows where a higher value is the better one (for "runs B better / worse").
 HIGHER_IS_BETTER = {"sj_p1", "crease_cov"}
@@ -531,7 +532,7 @@ def cmd_compare(a):
             print("\nFallback replicate-runs: " + ", ".join(f"{k[0]} {k[1]} {k[2]} u{u}" for k, u in sorted(fb)))
 
     if a.per_run:
-        cols = ["flips", "non_quads", "sj_le_0", "hausdorff"]
+        cols = ["flips", "non_quads", "sj_le_0", "hausdorff", "uncovered"]
         print("\n| mesh | res | target | " + " | ".join(f"{c} A → B" for c in cols) + " | topology A → B |")
         print("|---|---|---|" + "---|" * (len(cols) + 1))
         for k in keys:

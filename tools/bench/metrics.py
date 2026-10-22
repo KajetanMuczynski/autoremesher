@@ -29,7 +29,9 @@ named *_rel_edge, which are relative to the output mean edge length):
               input point (minority orientation, so a globally reversed output
               counts as reversed, not as all-flipped)
   normal_deviation_deg  angle between output face and input normal at the closest point (D3)
-  distance    one-sided mean / max and two-sided Hausdorff on area samples
+  distance    one-sided mean / max and two-sided Hausdorff on area samples; with --target-quads
+              uncovered_area, the share of the input's area farther than one target quad edge
+              (sqrt(input area / target)) from the output, i.e. parts the output dropped
   symmetry    (with --sym-axis) input reflection error, output geometric
               reflection error, and output *topological* symmetry: distance from
               each reflected output vertex to the nearest output vertex, in mean
@@ -342,6 +344,13 @@ def compute(input_path, output_path, target_quads=None, sym_axis=None, sym_cente
                        "in_to_out_p99": float(np.percentile(d_in, 99) / diag),
                        # Output vertices (the tail of Pout): zero once they are projected onto the input.
                        "vertex_to_in_median": float(np.median(d_out[-len(used):]) / diag)}
+    if target_quads:
+        # Share of the input's area farther than one target quad edge from the output: parts the
+        # output dropped (thin vines eaten by extraction or cleanup), which the panel does not show.
+        # The first `samples` points of Pin are area-uniform.
+        ain = 0.5 * np.linalg.norm(np.cross(Vin[Fin[:, 1]] - Vin[Fin[:, 0]], Vin[Fin[:, 2]] - Vin[Fin[:, 0]]), axis=1).sum()
+        h = np.sqrt(ain / float(target_quads))
+        out["distance"]["uncovered_area"] = float(np.mean(d_in[:samples] > h))
 
     if sym_axis:
         a = "xyz".index(sym_axis)
