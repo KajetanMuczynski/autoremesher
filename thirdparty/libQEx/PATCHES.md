@@ -17,3 +17,28 @@ replicates on #60's build and confirmed with gdb or ASan.
 | 6 | No face of more than 4 grid vertices that all lie on the input boundary | `MeshExtractorT.cc` | QEx closes each open boundary with one n-gon |
 | 7 | `std::cout`/`std::cerr` → `QEX_LOG` (compiled out) | all sources | Millions of diagnostic lines on folded maps: minutes of I/O, logs filling the disk |
 | 8 | `extractQuadMeshOMLimited` (C++ linkage) | `interfaces/c/qex.h/.cc` | Entry point with the limits; returns the steps used |
+
+## Reproducing patch 10 (no fixture in the repo)
+
+The only input known to reach patch 10's site is a test-only scan: the Stanford Happy Buddha, under research-use
+terms, so neither it nor anything derived from it may be committed. Searches that found no other trigger:
+- the corpus, closed, sculpt and brush sets (1,296 replicate-runs);
+- 20 public external models (240 runs);
+- 300,000 small folded flat maps;
+- 6,000 bumpy, twisted and folded spheres through the whole pipeline.
+
+Crops of the failing island's map (179 to 47,745 triangles) don't reach it either, because the state depends on the
+order in which the whole island is traced. To rerun it on a private copy (`tools/bench/fetch_external.py` with
+the test-only manifest):
+
+    cmake -S . -B build/asan -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+        "-DCMAKE_CXX_FLAGS=-fsanitize=address -fno-omit-frame-pointer" "-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address"
+    cmake --build build/asan --target autoremesher-cli
+    # 1-ulp replicate 1 of the scan, as ab.py makes it (tools/bench/ab.py perturbed(src, 1, work))
+    ASAN_OPTIONS=detect_leaks=0 build/asan/autoremesher-cli -i <work>/inputs/<hash>-u1.obj -o out.obj \
+        --target-quads 10000 --resolution quality
+
+Without the patch, ASan reports a heap-buffer-overflow WRITE in `OpenMesh::ArrayKernel::set_next_halfedge_handle`
+from `add_face` (and a plain build aborts with `free(): invalid size`). With it, the island falls back with
+"previous edge around a vertex has no halfedge". `ab.py run <ref> --set external_testonly --only ext_happy
+--replicates 5` with `AR_CORPUS` set to the test-only corpus covers it.
