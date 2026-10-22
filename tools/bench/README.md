@@ -21,7 +21,7 @@ directory you choose.
 | `fold_repair.py` | Offline prototype of a local repair of folded input (TODO 2.19 candidate, not in the core): per fold cluster from `input_folds`, untangles the folded faces and a few rings in a planar chart (Tutte, then pulled back as close to the original as the faces stay positive), puts moved vertices back on the original surface, keeps every face. `fold_repair.py in.obj out.obj --json report.json`; the report has folds before and after, skipped clusters and why, and the largest move. |
 | `corpus.json` | Mesh sets with their default targets and resolutions: `corpus` (the 18-mesh baseline corpus, 72 runs), `closed` (13 thin ellipsoids and tori, 78 runs; genus regressions show here first), `suzanne` (Suzanne + Subdivision 1–3, 9 runs; open, the add-on's first bug report), `sculpt` (7 sculpt stand-ins from `make_sculpt.py` at 2k/5k/15k, 42 runs), `brush` (12 brush stand-ins from `make_sculpt.py --set brush` at 2k/5k quality, 24 runs; about 1 h with `--replicates 5 --jobs 4` on 4 cores). Categories and symmetry planes per mesh. |
 | `run_corpus.py` | Runs `ar_bench` (+ metrics) per mesh and target over the `corpus` set; writes `record.json` per run and `summary.json`. For time and memory; quality A/B goes through `ab.py`. |
-| `metrics.py` | Output quality: face/valence statistics, corner angles, scaled Jacobian, degenerate and flipped faces, non-manifold edges, topology against the input (Euler characteristic, components, boundary loops), two-sided Hausdorff, geometric and topological mirror symmetry. |
+| `metrics.py` | Output quality: face/valence statistics, corner angles, scaled Jacobian, degenerate and flipped faces (against the input oriented like the core does), non-manifold edges and vertices, topology against the input (Euler characteristic, components, boundary loops; globally and per input island: dropped, merged, holes, handles), input area lost or collapsed (thin parts), two-sided Hausdorff, geometric and topological mirror symmetry. |
 | `summarize.py` | Markdown tables + CSV from `summary.json`. |
 | `claims.py` | Aggregates per REFERENCE claim (stage shares, M1/M2 counts, P3 correlations and scaling slopes, thread/ladder/allocator/adaptivity comparisons). |
 | `experiments.sh` | Thread sweep (P1), input-size ladder (P4/P6), allocator swap (P5), adaptivity off (M7), perf profiles. |
@@ -96,7 +96,16 @@ $P tools/bench/ab.py run HEAD --set closed   # genus check; also --set suzanne
   core's run record: non-manifold edges after isotropic remeshing, and closed input islands that T
   left open or non-manifold (blank for cores before 2026-10-20). `qex_fallbacks` counts islands where
   libQEx gave up and our own tracing extracted the faces (blank for cores before TODO 6.1b; compare
-  `--cli-arg=--extractor=trace` against the default to see what libQEx itself does). When B has libQEx
+  `--cli-arg=--extractor=trace` against the default to see what libQEx itself does). Validity rows
+  (2026-10-22, `metrics.json` → `validity`): `folded_faces` (any face size, the CLI's definition),
+  `nm_vertices`, and per input island, matched to output islands by nearest input triangle:
+  `holes_added` / `holes_closed`, `handles_lost` / `handles_added`, `islands_dropped` (no output or under
+  half its area within one output edge), `islands_merged`, `islands_changed` (Euler characteristic or
+  loops differ, or split), `area_uncovered` and `area_wrong_side` (input area within one output edge
+  but under a face facing the other way: thin parts collapsed into one sheet, pleats), and a per-island
+  topology line under the global one. `flipped_vs_input` measures against the input oriented as the
+  core orients it (`flipped_vs_raw` is the old count against the file's own normals); runs measured
+  before 2026-10-22 need `--remeasure`, which `compare` points out. When B has libQEx
   records, a **libQEx fallbacks** section lists the replicate-runs with a fallback, the reasons, and folds,
   non-quads and topology on exactly those runs for both sides. `--per-run` adds one row per run.
 - **Re-measuring.** After a change to `metrics.py`, `run <ref> --remeasure` recomputes `metrics.json` of the
