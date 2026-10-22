@@ -339,6 +339,10 @@ def topology_ok(r):
     return t.get("same_as_input")
 
 
+def island_ok(r):
+    return ((r.get("metrics") or {}).get("validity") or {}).get("islands_same_as_input")
+
+
 def value(r, k):
     d, o, m = r.get("diagnostics") or {}, r.get("output") or {}, r.get("metrics") or {}
     if k == "flips_cont": return d.get("uv_flipped_triangles_continuous")
@@ -348,11 +352,16 @@ def value(r, k):
     if k == "non_quads": return o.get("non_quads")
     if k == "sj_le_0": return (m.get("quads") or {}).get("sj_le_0")
     if k == "flipped_vs_input": return (m.get("flipped") or {}).get("faces_vs_input")
+    if k == "flipped_vs_raw": return (m.get("flipped") or {}).get("faces_vs_raw_input")
+    if k in ("folded_faces", "holes_added", "holes_closed", "handles_lost", "handles_added", "islands_dropped",
+             "islands_merged", "area_uncovered", "area_wrong_side"):
+        return (m.get("validity") or {}).get(k)
+    if k == "nm_vertices": return (m.get("validity") or {}).get("non_manifold_vertices")
+    if k == "islands_changed": return (m.get("validity") or {}).get("islands_topology_changed")
     if k == "irregular_1k": return (m.get("valence") or {}).get("irregular_per_1k_quads")
     if k == "hausdorff": return (m.get("distance") or {}).get("hausdorff")
     if k == "in_out_mean": return (m.get("distance") or {}).get("in_to_out_mean")
     if k == "in_out_p99": return (m.get("distance") or {}).get("in_to_out_p99")
-    if k == "uncovered": return (m.get("distance") or {}).get("uncovered_area")
     if k == "vertex_dist": return (m.get("distance") or {}).get("vertex_to_in_median")
     if k == "normal_dev": return (m.get("normal_deviation_deg") or {}).get("mean")
     if k == "sj_p1": return (m.get("quads") or {}).get("sj_p1")
@@ -374,8 +383,11 @@ def value(r, k):
 
 
 COUNTS = ["flips_cont", "flips_round", "flips", "degenerate", "non_quads", "sj_le_0", "flipped_vs_input",
-          "t_non_manifold", "t_opened", "qex_fallbacks"]
-MEANS = ["irregular_1k", "in_out_p99", "uncovered", "hausdorff", "in_out_mean", "normal_dev", "vertex_dist", "sj_p1",
+          "t_non_manifold", "t_opened", "qex_fallbacks",
+          # Validity from metrics.py (2026-10-22): per input island, matched to the output's islands.
+          "folded_faces", "nm_vertices", "holes_added", "holes_closed", "handles_lost", "handles_added",
+          "islands_dropped", "islands_merged", "islands_changed", "flipped_vs_raw"]
+MEANS = ["area_uncovered", "area_wrong_side", "irregular_1k", "in_out_p99", "hausdorff", "in_out_mean", "normal_dev", "vertex_dist", "sj_p1",
          "skew_p95", "crease_cov", "count_err", "energy_ratio", "time", "peak_rss_mb"]
 # Rows where a higher value is the better one (for "runs B better / worse").
 HIGHER_IS_BETTER = {"sj_p1", "crease_cov"}
@@ -413,6 +425,13 @@ def cmd_compare(a):
               + ", ".join(f"{side} {k[0]} {k[1]} {k[2]}" for k, side in failed) + "\n")
     bad = {k for k, _ in failed}
     keys = [k for k in keys if k not in bad]
+    # metrics.py before 2026-10-22 measured flipped_vs_input against the raw input's normals and had no
+    # validity block; a side measured that way is not comparable on those rows.
+    for side, D, p in (("A", A, pa), ("B", B, pb)):
+        old = sum(1 for k in keys for u in reps if D[k][u].get("metrics") and "validity" not in D[k][u]["metrics"])
+        if old:
+            print(f"**{side} has {old} replicate-runs measured by an older metrics.py** (flipped_vs_input against the "
+                  f"raw input, no validity rows): `ab.py run <ref> --remeasure` with the same flags updates {p}.\n")
 
     def mean_over(D, k, metric):
         xs = [value(D[k][u], metric) for u in reps]
@@ -501,6 +520,12 @@ def cmd_compare(a):
         if noisy:
             print("- replicates disagree (noise, count neither way): "
                   + ", ".join(f"{name(k)} (A {sum(ta[k])}/{n}, B {sum(tb[k])}/{n})" for k in noisy))
+        # Per island (validity.islands_same_as_input): also catches a handle or hole moved between
+        # islands and non-manifold vertices, which the global check above cannot see.
+        ia = [island_ok(A[k][u]) for k in keys for u in reps]
+        ib = [island_ok(B[k][u]) for k in keys for u in reps]
+        if None not in ia + ib:
+            print(f"Topology same as input per island: A {sum(ia) / n:.1f}, B {sum(ib) / n:.1f} of {len(keys)} runs")
 
     # libQEx fallbacks (TODO 6.1b): how often B's islands went to our tracing, why, and what those
     # replicate-runs look like on both sides.
@@ -532,7 +557,7 @@ def cmd_compare(a):
             print("\nFallback replicate-runs: " + ", ".join(f"{k[0]} {k[1]} {k[2]} u{u}" for k, u in sorted(fb)))
 
     if a.per_run:
-        cols = ["flips", "non_quads", "sj_le_0", "hausdorff", "uncovered"]
+        cols = ["flips", "non_quads", "sj_le_0", "hausdorff", "area_uncovered"]
         print("\n| mesh | res | target | " + " | ".join(f"{c} A → B" for c in cols) + " | topology A → B |")
         print("|---|---|---|" + "---|" * (len(cols) + 1))
         for k in keys:
