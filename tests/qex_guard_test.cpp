@@ -157,6 +157,50 @@ int main(int argc, char* argv[])
     }
 
     {
+        // Three 4 x 4 cell sheets on one edge (vine ribbons glued along an
+        // edge): OpenMesh takes no edge with three triangles, so the island
+        // is cut there and each sheet gives its own 2 x 2 quads.
+        const size_t n = 4;
+        Map fin;
+        const Vector3 away[] = { Vector3(1.0, 0.0, 0.0), Vector3(-1.0, 0.0, 0.0), Vector3(0.0, 0.0, 1.0) };
+        std::vector<size_t> spine;
+        for (size_t j = 0; j <= n; ++j) {
+            spine.push_back(fin.vertices.size());
+            fin.vertices.emplace_back(0.0, (double)j, 0.0);
+        }
+        for (const Vector3& direction : away) {
+            std::vector<size_t> index(spine);
+            index.resize((n + 1) * (n + 1));
+            for (size_t i = 1; i <= n; ++i) {
+                for (size_t j = 0; j <= n; ++j) {
+                    index[i * (n + 1) + j] = fin.vertices.size();
+                    fin.vertices.push_back(direction * (double)i + Vector3(0.0, (double)j, 0.0));
+                }
+            }
+            const auto at = [&](size_t i, size_t j) { return index[i * (n + 1) + j]; };
+            const auto uv = [](size_t i, size_t j) { return Vector2(i * 0.5, j * 0.5); };
+            for (size_t i = 0; i < n; ++i) {
+                for (size_t j = 0; j < n; ++j) {
+                    fin.triangles.push_back({ at(i, j), at(i + 1, j), at(i + 1, j + 1) });
+                    fin.uvs.push_back({ uv(i, j), uv(i + 1, j), uv(i + 1, j + 1) });
+                    fin.triangles.push_back({ at(i, j), at(i + 1, j + 1), at(i, j + 1) });
+                    fin.uvs.push_back({ uv(i, j), uv(i + 1, j + 1), uv(i, j + 1) });
+                }
+            }
+        }
+        const bool used = AutoRemesher::extractWithQex(fin.vertices, fin.triangles, fin.uvs,
+            limitsFor(fin, 12), &vertices, &polygons, &outcome);
+        expect(used, "three sheets on one edge are extracted");
+        expect(12 == polygons.size(), "three sheets on one edge give their 12 quads");
+        expect(2 * (n + 1) == outcome.cutVertices, "the shared edge is cut into three");
+
+        const Map square = makeSquare(8, 0.5);
+        AutoRemesher::extractWithQex(square.vertices, square.triangles, square.uvs,
+            limitsFor(square, 16), &vertices, &polygons, &outcome);
+        expect(0 == outcome.cutVertices, "a manifold square is not cut");
+    }
+
+    {
         // Handle count: a quad torus has one handle, a disk none, and two disks
         // pinched at a vertex or touching along an edge used three times none.
         const size_t n = 6;
