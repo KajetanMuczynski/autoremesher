@@ -54,17 +54,24 @@ struct QexOutcome {
     size_t droppedFaces = 0;
     // Vertex copies made to cut the island at non-manifold edges and vertices.
     size_t cutVertices = 0;
+    // Vertices passed with a valence other than 4, and vertices left to
+    // libQEx's own count (valence 0), when valences were given.
+    size_t conesGiven = 0;
+    size_t valencesUnknown = 0;
 };
 
 // The polygons libQEx (Ebke et al. 2013) extracts from the integer-grid map,
 // given per triangle corner as QuadExtractor takes it.  Faces QEx leaves as
-// n-gons are kept.  Returns false, with the reason in outcome->reason, when
+// n-gons are kept.  `vertexValences`, if given, is the valence libQEx should
+// find at each vertex, 0 where it should count the map's quarter turns itself.
+// Returns false, with the reason in outcome->reason, when
 // OpenMesh rejects the triangle mesh (a non-manifold edge or vertex), libQEx
 // hits a limit or one of its connectivity guards, or returns no face; the
 // caller then falls back to its own extraction.
 bool extractWithQex(const std::vector<Vector3>& vertices,
     const std::vector<std::vector<size_t>>& triangles,
     const std::vector<std::vector<Vector2>>& triangleUvs,
+    const std::vector<unsigned int>* vertexValences,
     const QexLimits& limits,
     std::vector<Vector3>* outVertices,
     std::vector<std::vector<size_t>>* outPolygons,

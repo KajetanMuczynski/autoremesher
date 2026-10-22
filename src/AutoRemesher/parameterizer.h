@@ -62,6 +62,12 @@ public:
         return m_singularVertexIndices;
     }
 
+    // QuadParameterizer::Result::vertexValences of the last solve.
+    const std::vector<unsigned int>& vertexValences() const
+    {
+        return m_vertexValences;
+    }
+
     // Multiplies the quad edge length; the quad count goes with 1 / scaling^2.
     void setScaling(double scaling)
     {
@@ -122,6 +128,7 @@ private:
     std::unique_ptr<std::vector<std::vector<Vector2>>> m_triangleUvs;
     std::vector<Vector3> m_singularVertexPositions;
     std::vector<size_t> m_singularVertexIndices;
+    std::vector<unsigned int> m_vertexValences;
     std::vector<std::vector<Vector2>> m_originalTriangleUvs;
     double m_scaling = 1.0;
     double m_targetQuadCount = 0.0;

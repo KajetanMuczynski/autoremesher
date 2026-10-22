@@ -16,3 +16,5 @@ replicates on #60's build and confirmed with gdb or ASan.
 | 6 | No face of more than 4 grid vertices that all lie on the input boundary | `MeshExtractorT.cc` | QEx closes each open boundary with one n-gon |
 | 7 | `std::cout`/`std::cerr` → `QEX_LOG` (compiled out) | all sources | Millions of diagnostic lines on folded maps: minutes of I/O, logs filling the disk |
 | 8 | `extractQuadMeshOMLimited` (C++ linkage) | `interfaces/c/qex.h/.cc` | Entry point with the limits; returns the steps used |
+| 10 | External valence 0 means unknown: QEx counts that vertex's quarter turns in the map, as without valences (TODO 6.1b) | `MeshExtractorT.cc` | The fork passes the cross field's valence only at closed interior fans; boundary vertices, open fans and fans #78 cut apart keep QEx's own count |
+| 11 | `MeshDecimator` merges the external valences of a collapsed edge by adding their indices (valence − 4); 0 at either end stays 0 | `MeshDecimatorT.hh` | Upstream added the negated indices, so collapsing a valence-3 cone onto a regular vertex asked for valence 5. Upstream never passes valences, so this only matters with 10 |

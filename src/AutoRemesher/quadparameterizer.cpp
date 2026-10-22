@@ -242,6 +242,40 @@ namespace {
     // cones at many hard-surface vertices and cost validity (corpus A/B).
     const int minimumConeQuarters = 2;
 
+    // The field's turn across the edge of corner c, from c's face to the
+    // opposite one, net of rotation[c]'s quarter turns: within pi / 4 of 0
+    // where the rotation is the nearest one.
+    double rotationResidual(const SurfaceMesh& mesh, const std::vector<Vector3>& field,
+        const std::vector<Vector3>& normals, const std::vector<int>& rotation, size_t c)
+    {
+        const auto edgeAngle = [&](size_t face, const Vector3& edge) {
+            const Vector3 u = field[face], v = Vector3::crossProduct(normals[face], u);
+            return std::atan2(Vector3::dotProduct(edge, v), Vector3::dotProduct(edge, u));
+        };
+        const Vector3 edge = mesh.edgeVector(c);
+        const double turn = edgeAngle(mesh.cornerFace(c), edge) - edgeAngle(mesh.cornerFace(mesh.oppositeCorner(c)), edge)
+            + .5 * M_PI * rotation[c];
+        return std::remainder(turn, 2.0 * M_PI);
+    }
+
+    // The valence the field asks for at each vertex with `rotation`: its cone
+    // angle in quarter turns (FrameField::coneQuarters), 3 or 5 at the usual
+    // cones and 4 elsewhere. It comes from the field alone, so a fold or a
+    // degenerate triangle of the map does not change it. 0 (unknown) at
+    // boundary and non-manifold vertices and where the angle is not positive.
+    std::vector<unsigned int> coneValences(const SurfaceMesh& mesh, const std::vector<Vector3>& field,
+        const std::vector<Vector3>& normals, const std::vector<int>& rotation)
+    {
+        const auto residual = [&](size_t c) { return rotationResidual(mesh, field, normals, rotation, c); };
+        std::vector<unsigned int> valences(mesh.vertexCount(), 0);
+        for (size_t vertex = 0; vertex < mesh.vertexCount(); ++vertex) {
+            int quarters = 0;
+            if (FrameField::coneQuarters(mesh, vertex, residual, &quarters) && quarters > 0)
+                valences[vertex] = (unsigned int)quarters;
+        }
+        return valences;
+    }
+
     // Rounding each edge's field turn to its nearest quarter turns can give
     // a vertex a cone angle below minimumConeQuarters: the needle tip of a
     // thin blade, where the field asks for a valence-0 or -1 cone. The cover
@@ -259,18 +293,7 @@ namespace {
         std::vector<int>* rotation, std::vector<char>* rerounded)
     {
         const double quarter = .5 * M_PI;
-        const auto edgeAngle = [&](size_t face, const Vector3& edge) {
-            const Vector3 u = field[face], v = Vector3::crossProduct(normals[face], u);
-            return std::atan2(Vector3::dotProduct(edge, v), Vector3::dotProduct(edge, u));
-        };
-        // The field's turn across the edge net of the rotation's quarter
-        // turns: within pi / 4 of 0 where the rotation is the nearest one.
-        const auto residual = [&](size_t c) {
-            const Vector3 edge = mesh.edgeVector(c);
-            double turn = edgeAngle(mesh.cornerFace(c), edge) - edgeAngle(mesh.cornerFace(mesh.oppositeCorner(c)), edge)
-                + quarter * (*rotation)[c];
-            return std::remainder(turn, 2.0 * M_PI);
-        };
+        const auto residual = [&](size_t c) { return rotationResidual(mesh, field, normals, *rotation, c); };
         rerounded->assign(mesh.cornerCount(), 0);
         size_t count = 0;
         for (size_t vertex = 0; vertex < mesh.vertexCount(); ++vertex) {
@@ -1511,6 +1534,7 @@ bool QuadParameterizer::parameterize(const std::vector<Vector3>& vertices,
 
     const CoverContext ctx { mesh, result->field, normals, rotation, seam, cornerConstraints,
         activeScalingU, activeScalingV, faceScaling, scale };
+    result->vertexValences = coneValences(mesh, result->field, normals, rotation);
 
     // The cover solve reports on its own 0..1, so remap it into the tail of this
     // function's range and keep the fractions monotonic end to end.

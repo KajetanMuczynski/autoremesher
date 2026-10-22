@@ -18,6 +18,7 @@
  * along with QEx.  If not, see <http://www.gnu.org/licenses/>.
  *
  * Modified by the Quadami fork, 2026-10-21 (TODO 6.1b): no log output.
+ * 2026-10-22 (TODO 6.1b): external valences merge by adding indices; 0 means unknown.
  * See thirdparty/libQEx/PATCHES.md.
  */
 
@@ -140,11 +141,18 @@ class MeshDecimator {
                             const int
                                 vidx0 = mesh.to_vertex_handle(he0).idx(),
                                 vidx1 = mesh.from_vertex_handle(he0).idx();
-                            const int idx_to = 4 - static_cast<int>(
-                                    external_valences[vidx0]);
-                            const int idx_from = 4 - static_cast<int>(
-                                    external_valences[vidx1]);
-                            external_valences[vidx0] = 4 + idx_from + idx_to;
+                            // Quadami fork: the collapsed vertex's index
+                            // (valence - 4) is the sum of the two; upstream
+                            // added their negatives (a 3 and a 4 made a 5).
+                            // 0 (unknown) at either end stays unknown.
+                            const int idx_to = static_cast<int>(
+                                    external_valences[vidx0]) - 4;
+                            const int idx_from = static_cast<int>(
+                                    external_valences[vidx1]) - 4;
+                            const int merged = 4 + idx_from + idx_to;
+                            external_valences[vidx0] =
+                                    external_valences[vidx0] == 0 || external_valences[vidx1] == 0 || merged <= 0
+                                    ? 0 : static_cast<unsigned int>(merged);
                         }
 
                         /*

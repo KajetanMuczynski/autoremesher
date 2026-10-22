@@ -141,7 +141,7 @@ int main(int argc, char* argv[])
     {
         // 8 x 8 cells, half a grid unit each: 4 x 4 quads.
         const Map square = makeSquare(8, 0.5);
-        const bool used = AutoRemesher::extractWithQex(square.vertices, square.triangles, square.uvs,
+        const bool used = AutoRemesher::extractWithQex(square.vertices, square.triangles, square.uvs, nullptr,
             limitsFor(square, 16), &vertices, &polygons, &outcome);
         expect(used, "a flat square is extracted");
         expect(16 == polygons.size(), "a flat square gives its 16 quads");
@@ -150,7 +150,7 @@ int main(int argc, char* argv[])
 
         QexLimits tight;
         tight.maxGridVertices = 4;
-        const bool capped = AutoRemesher::extractWithQex(square.vertices, square.triangles, square.uvs,
+        const bool capped = AutoRemesher::extractWithQex(square.vertices, square.triangles, square.uvs, nullptr,
             tight, &vertices, &polygons, &outcome);
         expect(!capped, "the grid-vertex cap stops the extraction");
         expect(std::string::npos != outcome.reason.find("grid vertex cap"), "the cap is named as the reason");
@@ -188,14 +188,14 @@ int main(int argc, char* argv[])
                 }
             }
         }
-        const bool used = AutoRemesher::extractWithQex(fin.vertices, fin.triangles, fin.uvs,
+        const bool used = AutoRemesher::extractWithQex(fin.vertices, fin.triangles, fin.uvs, nullptr,
             limitsFor(fin, 12), &vertices, &polygons, &outcome);
         expect(used, "three sheets on one edge are extracted");
         expect(12 == polygons.size(), "three sheets on one edge give their 12 quads");
         expect(2 * (n + 1) == outcome.cutVertices, "the shared edge is cut into three");
 
         const Map square = makeSquare(8, 0.5);
-        AutoRemesher::extractWithQex(square.vertices, square.triangles, square.uvs,
+        AutoRemesher::extractWithQex(square.vertices, square.triangles, square.uvs, nullptr,
             limitsFor(square, 16), &vertices, &polygons, &outcome);
         expect(0 == outcome.cutVertices, "a manifold square is not cut");
     }
@@ -235,7 +235,7 @@ int main(int argc, char* argv[])
             ++failures;
             continue;
         }
-        const bool used = AutoRemesher::extractWithQex(map.vertices, map.triangles, map.uvs,
+        const bool used = AutoRemesher::extractWithQex(map.vertices, map.triangles, map.uvs, nullptr,
             limitsFor(map, fixture.targetQuads), &vertices, &polygons, &outcome);
         if (used || std::string::npos == outcome.reason.find(fixture.reason)) {
             std::printf("FAIL: %s: expected a fallback for \"%s\", got %s \"%s\"\n", fixture.path,

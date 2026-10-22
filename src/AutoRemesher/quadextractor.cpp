@@ -215,7 +215,7 @@ bool QuadExtractor::extractWithQexFrontEnd()
     if (m_targetQuadCount > 0)
         limits.maxGridVertices = QexGridVerticesPerQuad * m_targetQuadCount + 1000;
     m_qexOutcome.attempted = true;
-    m_qexOutcome.used = extractWithQex(*m_vertices, *m_triangles, *m_triangleUvs, limits,
+    m_qexOutcome.used = extractWithQex(*m_vertices, *m_triangles, *m_triangleUvs, m_vertexValences, limits,
         &m_remeshedVertices, &m_remeshedPolygons, &m_qexOutcome);
     if (!m_qexOutcome.used) {
         std::cerr << "QEx: falling back to own extraction: " << m_qexOutcome.reason << std::endl;

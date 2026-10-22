@@ -1113,6 +1113,7 @@ bool AutoRemesher::remeshIslands()
         std::vector<uint8_t> capturedExtractedConnectionMoved;
         std::vector<Vector3> capturedSingularVertices;
         std::vector<size_t> capturedSingularVertexIndices;
+        std::vector<unsigned int> capturedVertexValences;
         std::vector<std::pair<Vector3, Vector3>> capturedExtractedConnections;
         std::vector<Vector3> remeshedVertices;
         std::vector<std::vector<size_t>> remeshedQuads;
@@ -1213,9 +1214,11 @@ bool AutoRemesher::remeshIslands()
             // Capture singular vertex positions for the [param] preview
             run.capturedSingularVertices = parameterizer.singularVertexPositions();
             run.capturedSingularVertexIndices = parameterizer.singularVertexIndices();
+            run.capturedVertexValences = parameterizer.vertexValences();
             QuadExtractor extractor(&vertices, &triangles, uvs.get());
             extractor.setOriginalTriangleUvs(&run.capturedOriginalUvs);
             extractor.setSingularVertices(&run.capturedSingularVertexIndices);
+            extractor.setVertexValences(&run.capturedVertexValences);
             extractor.setInputBoundary(&ctx.inputBoundary);
             extractor.setUseQex(m_useQex);
             extractor.setTargetQuadCount((size_t)std::max(0.0, ctx.targetQuadCount));
@@ -1233,6 +1236,8 @@ bool AutoRemesher::remeshIslands()
                 record.set("qex_non_quads", (double)qex.nonQuads);
                 record.set("qex_dropped_faces", (double)qex.droppedFaces);
                 record.set("qex_cut_vertices", (double)qex.cutVertices);
+                record.set("qex_cones_given", (double)qex.conesGiven);
+                record.set("qex_valences_unknown", (double)qex.valencesUnknown);
                 run.diagnostics.push_back(std::move(record));
             }
             if (extracted) {

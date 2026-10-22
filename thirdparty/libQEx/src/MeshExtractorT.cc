@@ -19,6 +19,7 @@
  * along with QEx.  If not, see <http://www.gnu.org/licenses/>.
  *
  * Modified by the Quadami fork, 2026-10-21 (TODO 6.1b): connectivity checks, step budget and grid-vertex cap (Guards.hh); getNextConnectedLeiWithHE returns null instead of an edge without a halfedge; add_face refuses local edges connected one way only; faces of more than 4 boundary grid vertices (boundary caps) are not added; no log output.
+ * 2026-10-22 (TODO 6.1b): an external valence of 0 means unknown.
  * See thirdparty/libQEx/PATCHES.md.
  */
 
@@ -1244,8 +1245,11 @@ construct_local_edge_information_vertex(GridVertex& _gv, const std::vector<doubl
      */
     // assert(_gv.is_boundary || fabs(ninetyJump - round(ninetyJump)) < 1e-6);
 
+    // Quadami fork: an external valence of 0 means unknown; QEx then counts
+    // the vertex's quarter turns in the map as it does without valences.
     const int expected_lei_count =
-            _external_valences ? (*_external_valences)[vh.idx()] : static_cast<unsigned int>(ROUND_QME(ninetyJump));
+            _external_valences && (*_external_valences)[vh.idx()] != 0
+            ? (*_external_valences)[vh.idx()] : static_cast<unsigned int>(ROUND_QME(ninetyJump));
     _gv.missing_leis = expected_lei_count - static_cast<int>(_gv.local_edges.size());
     /*
      * This heuristic doesn't work for boundary vertices (due to

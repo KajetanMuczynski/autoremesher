@@ -151,6 +151,7 @@ namespace {
 bool extractWithQex(const std::vector<Vector3>& vertices,
     const std::vector<std::vector<size_t>>& triangles,
     const std::vector<std::vector<Vector2>>& triangleUvs,
+    const std::vector<unsigned int>* vertexValences,
     const QexLimits& limits,
     std::vector<Vector3>* outVertices,
     std::vector<std::vector<size_t>>* outPolygons,
@@ -173,6 +174,27 @@ bool extractWithQex(const std::vector<Vector3>& vertices,
         }
     }
     outcome->cutVertices = cutAtNonManifoldVertices(vertices, triangles, &cutVertices, &cutTriangles);
+    // A vertex the cut split into fans has no one valence: all its copies are
+    // left to libQEx's own count.
+    std::vector<unsigned int> cutValences;
+    if (vertexValences) {
+        if (vertexValences->size() != vertices.size()) {
+            outcome->reason = "valence count differs from vertex count";
+            return false;
+        }
+        cutValences.assign(cutVertices.size(), 0);
+        std::copy(vertexValences->begin(), vertexValences->end(), cutValences.begin());
+        for (size_t t = 0; t < triangles.size(); ++t) {
+            for (size_t k = 0; k < 3; ++k) {
+                if (cutTriangles[t][k] != triangles[t][k])
+                    cutValences[triangles[t][k]] = 0;
+            }
+        }
+        for (const unsigned int valence : cutValences) {
+            outcome->conesGiven += valence != 0 && valence != 4;
+            outcome->valencesUnknown += valence == 0;
+        }
+    }
     QEx::TriMesh mesh;
     mesh.reserve(cutVertices.size(), cutVertices.size() + cutTriangles.size(), cutTriangles.size());
     for (const auto& v : cutVertices)
@@ -206,7 +228,7 @@ bool extractWithQex(const std::vector<Vector3>& vertices,
     }
     QEx::QuadMesh quadMesh;
     try {
-        outcome->steps = QEx::extractQuadMeshOMLimited(&mesh, &uvs, nullptr, &quadMesh,
+        outcome->steps = QEx::extractQuadMeshOMLimited(&mesh, &uvs, vertexValences ? &cutValences : nullptr, &quadMesh,
             (unsigned long)limits.maxSteps, (unsigned long)limits.maxGridVertices);
     } catch (const std::exception& e) {
         outcome->reason = e.what();

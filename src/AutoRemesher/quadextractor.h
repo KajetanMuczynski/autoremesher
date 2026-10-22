@@ -71,6 +71,14 @@ public:
         m_singularVertices = singularVertices;
     }
 
+    // The cross field's valence per vertex of T, 0 where unknown; passed to
+    // libQEx (TODO 6.1b). Without them libQEx counts each vertex's quarter
+    // turns in the map, which folds and degenerate triangles throw off.
+    void setVertexValences(const std::vector<unsigned int>* vertexValences)
+    {
+        m_vertexValences = vertexValences;
+    }
+
     void setProgressHandler(ProgressHandler progressHandler)
     {
         m_progressHandler = std::move(progressHandler);
@@ -158,6 +166,7 @@ private:
     std::vector<uint8_t> m_extractedConnectionMoved;
     const std::vector<std::vector<Vector2>>* m_originalTriangleUvs = nullptr;
     const std::vector<size_t>* m_singularVertices = nullptr;
+    const std::vector<unsigned int>* m_vertexValences = nullptr;
     const Boundary* m_inputBoundary = nullptr;
     ProgressHandler m_progressHandler;
     bool m_useQex = true;

@@ -24,7 +24,8 @@
 // follow such a field: the continuous cover folded over the whole island and
 // a few quads came out instead of the target (Kajetan's sword, 2026-10-21).
 // Checked here: cone angles are exact (they add up to Gauss-Bonnet), no
-// vertex is left without an angle, and the blade remeshes to its target.
+// vertex is left without an angle, the valences handed to libQEx agree, and
+// the blade remeshes to its target.
 
 #include <AutoRemesher/AutoRemesher>
 #include <AutoRemesher/FrameField>
@@ -198,6 +199,22 @@ int check(const char* name, const Mesh& input, double quadEdge)
                     flipped = item.second;
     std::printf("%s: cover charges add up to %d, smallest cone angle %d quarter turns, %.4f of the area flipped\n",
         name, coverCones.chargeSum, coverCones.smallestAngle, flipped);
+
+    // The valences handed to libQEx are the cover's cone angles: known at
+    // every vertex of a closed mesh, adding up to Gauss-Bonnet, and other
+    // than 4 exactly at the singular vertices.
+    int valenceCharge = 0;
+    size_t unknown = 0, notFour = 0;
+    for (const unsigned int valence : cover.vertexValences) {
+        unknown += 0 == valence;
+        notFour += 0 != valence && 4 != valence;
+        valenceCharge += 4 - (int)valence;
+    }
+    std::printf("%s: valences for libQEx add up to charge %d, %zu unknown, %zu not 4, %zu singular vertices\n",
+        name, valenceCharge, unknown, notFour, cover.singularVertices.size());
+    if (cover.vertexValences.size() != input.vertices.size() || 8 != valenceCharge || 0 != unknown
+        || notFour != cover.singularVertices.size())
+        ++failures;
     // Valence 2 is the smallest cone the cover is given.
     if (8 != coverCones.chargeSum || coverCones.smallestAngle < 2 || !(flipped >= 0.0 && flipped < 0.05))
         ++failures;
