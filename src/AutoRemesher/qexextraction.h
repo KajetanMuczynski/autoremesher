@@ -52,6 +52,8 @@ struct QexOutcome {
     size_t nonQuads = 0;
     // Faces dropped by dropUnrepairableFaces() (an edge used by more than two).
     size_t droppedFaces = 0;
+    // Vertex copies made to cut the island at non-manifold edges and vertices.
+    size_t cutVertices = 0;
 };
 
 // The polygons libQEx (Ebke et al. 2013) extracts from the integer-grid map,

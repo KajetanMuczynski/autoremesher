@@ -12,6 +12,10 @@ a programmer to use it: the [user guide](docs/USER-GUIDE.md) is written for Blen
 > with, but expect rough edges. Read [Limits and warnings](#limits-and-warnings) before you rely
 > on it, and send the panel's build line with every bug report.
 
+![Koala sculpt: input left, Quadami output right](docs/gallery/img/koala.webp)
+
+More before/after examples, with their numbers and limits: [docs/gallery](docs/gallery/README.md).
+
 ## What it does
 
 - **Runs outside Blender.** The remesher is a separate program that the add-on starts in the
@@ -92,6 +96,7 @@ and tested by CI, but it is no longer packaged or supported as a product.
 ## Documentation
 
 - [docs/USER-GUIDE.md](docs/USER-GUIDE.md): install, settings, result rows, warnings, troubleshooting.
+- [docs/gallery/README.md](docs/gallery/README.md): before/after examples on public meshes, and the limits they show.
 - [docs/windows-test/README.md](docs/windows-test/README.md): testing on Windows, with an install script.
 - [docs/BUILDING.md](docs/BUILDING.md): building the add-on and the remesher from source on Linux,
   Windows and macOS.
