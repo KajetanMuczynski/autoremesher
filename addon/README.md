@@ -1,11 +1,11 @@
-# Quadami for Blender (minimal add-on)
+# Quadami for Blender (add-on internals)
 
-Quad-remeshes the active mesh with the AutoRemesher core. The name Quadami
+Quad-remeshes the active mesh with Quadami's remeshing core. The name Quadami
 lives in `quadami/names.py` plus `id`/`name` in `blender_manifest.toml`
-(a test checks they agree). The core and its CLI keep the upstream name
-autoremesher (`autoremesher-cli`, namespace `AutoRemesher`). The remesher runs in
-its own process, never inside Blender, so a crash or a stuck solve cannot take
-Blender down.
+(a test checks they agree). The core and its CLI keep their upstream code names
+(`autoremesher-cli`, namespace `AutoRemesher`; why: [docs/BUILDING.md](../docs/BUILDING.md)).
+The remesher runs in its own process, never inside Blender, so a crash or a
+stuck solve cannot take Blender down.
 
 License: GPL-3.0-or-later, like the rest of the fork.
 
@@ -203,16 +203,18 @@ transform. Background mode has no window, so the modal operator, the panel,
 Esc and the progress display can only be checked by hand in the UI.
 
 CI (the `addon` jobs of `.github/workflows/ci.yml`) runs all of it on Ubuntu 24.04 (Blender
-4.2 LTS, the oldest supported) and Windows (MSVC, Blender 5.2): CMake build,
+4.2 LTS, the oldest supported), Windows (MSVC, Blender 5.2) and macOS on Apple
+silicon (Blender 5.2): CMake build,
 DLL check (Windows), CLI argument checks, the worker tests, packaging,
 `blender --command extension validate` and `install-file` on the zip, then
 `blender_smoke.py --installed`.
 
-## Status (2026-10-15)
+## Status (2026-10-22)
 
-- Tested here: `test_worker.py` on Ubuntu 24.04 (Python 3.13, numpy 2.5)
-  against `autoremesher-cli` with the system oneTBB, against it with the
-  static oneTBB build Windows uses, and against the Qt app's headless mode.
-- Windows and the `bpy` side: covered only by CI (see *Tests*). Not covered
-  anywhere: the panel, the modal operator, Esc and the progress display in a
-  real Blender window, and Windows on ARM. macOS is untested.
+- Tested here: `test_worker.py` on Ubuntu 24.04 against `autoremesher-cli`
+  with the system oneTBB and with the static oneTBB build Windows and macOS use.
+- CI (every PR; docs-only PRs skip macOS): the full add-on check on Linux (Blender 4.2), Windows and
+  macOS Apple silicon (Blender 5.2), headless.
+- In a real Blender window: only on Linux (the maintainer's laptop, Blender 4.5
+  snap). Not covered anywhere: a real Windows desktop, a real Mac (Gatekeeper),
+  Windows on ARM, Intel Macs.

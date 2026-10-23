@@ -3,7 +3,8 @@
 # stand for all of them in branch protection. It runs on every pull request (any base
 # branch), on pushes to master and tags, and by hand (Actions > ci > Run workflow) for a
 # branch without a PR. What ships is the Blender add-on: the job "addon" builds, tests and
-# uploads its zips (Windows and macOS; Linux users build their own, see addon/README.md).
+# uploads its zips (Linux, Windows, macOS). On a v* tag the job "release" then puts the zips of
+# that same run into a DRAFT GitHub release (docs/RELEASING.md); a person publishes it.
 #
 # GitHub starts no pull_request run while a PR has merge conflicts, so a conflicted PR
 # shows "CI passed" as missing, never as green.
@@ -151,9 +152,9 @@ jobs:
   # the add-on's worker tests against the CLI, package the extension zip with the CLI
   # bundled, install that zip into a real Blender and remesh a sphere through it in
   # background mode. One job per platform, so a PR needs one macOS runner, not two.
-  # The Windows and macOS zips are self-contained (static oneTBB, no DLLs or dylibs
-  # outside the OS) and uploaded as the artifacts addon-windows-x64 and addon-macos-arm64.
-  # The Linux one links the runner's libtbb and glibc, so it is tested, not shipped.
+  # Every zip is self-contained (static oneTBB, no DLLs or dylibs outside the OS) and
+  # uploaded as the artifact addon-<platform>. Linux builds in an AlmaLinux 8 container
+  # (ci/build_linux_portable.sh, glibc 2.28 like Blender 4.2) and tests on the Ubuntu host.
   addon:
     name: addon (${{ matrix.platform }})
     strategy:
@@ -167,7 +168,8 @@ jobs:
             blender: 4.2.23
             blender_file: blender-4.2.23-linux-x64.tar.xz
             blender_sha256: bea0eb3146be13eae6225409a117b215184f41b7f79e799f97cb3abb8f6dc404
-            cmake_args: ''  # as addon-macos, which sets it
+            cmake_args: ''  # as addon-macos, which sets it; ci/build_linux_portable.sh sets its own
+            ship: true
           - os: windows-latest
             platform: windows-x64
             blender: 5.2.2
@@ -199,26 +201,36 @@ jobs:
           python -m pip install numpy pefile
           if [ "$RUNNER_OS" = Linux ]; then
             sudo apt-get update
-            # libtbb-dev for the build; the X and GL libraries Blender links even in background mode.
-            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libtbb-dev \
+            # The X and GL libraries Blender links even in background mode. No libtbb: the
+            # program must not need it.
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
               libx11-6 libxi6 libxxf86vm1 libxfixes3 libxrender1 libxkbcommon0 libsm6 libgl1 libegl1
           fi
           cmake --version | head -n 1
 
       # Windows: oneTBB is built from source and linked statically, with the
       # static C++ runtime (/MT); see CMakeLists.txt. macOS: static oneTBB too
-      # (CMAKE_ARGS from the matrix).
+      # (CMAKE_ARGS from the matrix). Linux: in AlmaLinux 8 with static oneTBB
+      # (ci/build_linux_portable.sh); the binaries then run on this host.
       # Build id (cmake/BuildId.cmake): a PR run builds GitHub's merge commit, which
-      # is in no branch, so its zip names the PR and its head commit instead.
+      # is in no branch, so its zip names the PR and its head commit instead; a tag
+      # run puts the tag in front ("v0.1.0 abc1234 2026-11-02"), checked by "release".
       - name: Build the core, CLI and tests
         run: |
           build_id=""
           if [ -n "$PR_HEAD" ]; then build_id="pr$PR_NUMBER ${PR_HEAD:0:7}+master"; fi
-          # shellcheck disable=SC2086  # CMAKE_ARGS holds several arguments
-          cmake -S . -B build/cli -DCMAKE_BUILD_TYPE=Release -DAUTOREMESHER_BUILD_TESTS=ON $CMAKE_ARGS \
-            "-DAUTOREMESHER_BUILD_ID=$build_id"
-          cmake --build build/cli --config Release --parallel 4
-          cmake --install build/cli --config Release --prefix build/cli-install
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            build_id="$GITHUB_REF_NAME $(git log -1 --abbrev=7 --format='%h %cs')"
+          fi
+          if [ "$RUNNER_OS" = Linux ]; then
+            JOBS=4 ci/build_linux_portable.sh "$build_id"
+          else
+            # shellcheck disable=SC2086  # CMAKE_ARGS holds several arguments
+            cmake -S . -B build/cli -DCMAKE_BUILD_TYPE=Release -DAUTOREMESHER_BUILD_TESTS=ON $CMAKE_ARGS \
+              "-DAUTOREMESHER_BUILD_ID=$build_id"
+            cmake --build build/cli --config Release --parallel 4
+            cmake --install build/cli --config Release --prefix build/cli-install
+          fi
           ls -l build/cli-install/bin build/cli-install/licenses
           cli=build/cli-install/bin/autoremesher-cli
           if [ "$RUNNER_OS" = Windows ]; then cli="$cli.exe"; fi
@@ -245,6 +257,11 @@ jobs:
       - name: Check the DLLs it needs
         if: runner.os == 'Windows'
         run: python ci/check_dll_imports.py "$CLI"
+
+      # glibc 2.28 and GCC 8's libstdc++ at most, no other shared library.
+      - name: Check the Linux libraries it needs
+        if: runner.os == 'Linux'
+        run: python ci/check_linux_libs.py "$CLI"
 
       # Only macOS's own libraries, and the deployment target the matrix asks for.
       - name: Check the libraries it needs
@@ -389,3 +406,83 @@ jobs:
           for job, result in sorted(results.items()):
               print("%s: %s%s" % (job, result, "  <- not allowed" if job in bad else ""))
           sys.exit(1 if bad else 0)'
+
+  # A tag v<version>[-<suffix>] (docs/RELEASING.md): once every job above succeeded, put the
+  # three zips of this run, SHA256SUMS.txt and notes from docs/releases/ into a DRAFT release
+  # (a pre-release when the tag has a suffix). Kajetan reviews and publishes it by hand.
+  # A macOS job dropped without a runner turns "CI passed" red, so this is skipped; the
+  # re-run by rerun-dropped.yml re-runs the failed jobs and this one with them. A release
+  # that is already published is never touched; a draft is updated in place.
+  release:
+    name: release (draft)
+    needs: [ci-passed]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write      # create or update the draft release
+      actions: read        # this run's artifacts
+      id-token: write      # Sigstore signing certificate for the attestation
+      attestations: write  # store the attestation
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0  # the previous release tag, for the "changes since" link
+
+      - name: Check the tag and its notes
+        id: tag
+        run: python3 ci/release.py check-tag "$GITHUB_REF_NAME"
+
+      # The newest artifact of each name: a re-run attempt uploads its own.
+      - name: Download this run's zips
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p build/release-in build/release
+          gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" \
+            --jq '.artifacts[] | select(.name | startswith("addon-")) | select(.expired | not)
+                  | [.name, .id, .created_at] | @tsv' | sort -k1,1 -k3,3r | sort -s -u -k1,1 > artifacts.tsv
+          cat artifacts.tsv
+          while IFS="$(printf '\t')" read -r name id _; do
+            gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id/zip" > "build/$name.zip"
+            unzip -o -q "build/$name.zip" -d build/release-in
+          done < artifacts.tsv
+          ls -l build/release-in
+
+      - name: Verify the zips and write the notes
+        run: |
+          python3 ci/release.py verify "$GITHUB_REF_NAME" build/release-in
+          python3 ci/release.py notes "$GITHUB_REF_NAME" build/release-in "$GITHUB_SHA" build/release
+          cat build/release/SHA256SUMS.txt
+          cat build/release/notes.md >> "$GITHUB_STEP_SUMMARY"
+
+      # Signed build provenance (SLSA, Sigstore) for each zip, stored by GitHub: anyone can
+      # check that a download was built by this workflow from this commit with
+      # `gh attestation verify <zip> -R KajetanMuczynski/quadami`. One per digest, so a re-run
+      # of the same zips adds a second, identical statement and nothing breaks.
+      - name: Attest the zips
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-checksums: build/release/SHA256SUMS.txt
+
+      - name: Create or update the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ steps.tag.outputs.prerelease }}
+        run: |
+          files=(build/release-in/*.zip build/release/SHA256SUMS.txt)
+          title="Quadami $GITHUB_REF_NAME"
+          if draft=$(gh release view "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft); then
+            if [ "$draft" != true ]; then
+              echo "ERROR: release $GITHUB_REF_NAME is already published; not touching it"; exit 1
+            fi
+            gh release upload "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --clobber "${files[@]}"
+            gh release edit "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --title "$title" \
+              --notes-file build/release/notes.md --prerelease="$PRERELEASE"
+          else
+            gh release create "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --draft --verify-tag \
+              --title "$title" --notes-file build/release/notes.md --prerelease="$PRERELEASE" "${files[@]}"
+          fi
+          echo "Draft release: $(gh release view "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --json url --jq .url)" \
+            | tee -a "$GITHUB_STEP_SUMMARY"

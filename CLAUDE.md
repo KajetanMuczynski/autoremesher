@@ -74,13 +74,18 @@ CI (`.github/workflows/`):
   - `format`: `ci/lint.sh` (src/ and tests/) with clang-format pinned to 23.1.3 (pip); bump on purpose.
   - `qt-app (linux)`: qmake app and `ar_bench`, `ci/smoke_test.sh` on both (1,200-2,400 quads).
   - `addon (linux-x64|windows-x64|macos-arm64)`: one CMake Release build per platform, the shipped
-    configuration (static oneTBB on Windows and macOS), with the core tests: `ctest --no-tests=error`,
+    configuration (static oneTBB everywhere; Linux built in an AlmaLinux 8 container by
+    `ci/build_linux_portable.sh`, glibc 2.28 checked by `ci/check_linux_libs.py`), with the core tests: `ctest --no-tests=error`,
     `ci/output_gate.py` on the installed CLI (procedural sphere, torus, box, open tube, two islands, sphere centred at 1e5;
     fails on exit status, quads outside 0.6-1.5x target, >2 % non-quads, any non-manifold edge,
     report/OBJ mismatch; folded faces and empty islands are reported in the job summary, not gated
     yet), worker tests, zip installed into a real Blender (4.2 LTS on Linux, 5.2 on Windows and
-    macOS). The Windows and macOS zips (macOS 11.2+, Apple silicon) are uploaded as artifacts
+    macOS). All three zips (Linux glibc 2.28+, macOS 11.2+ Apple silicon) are uploaded as artifacts
     `addon-<platform>`. One macOS job per PR, since macOS runners are the scarce ones.
+  - `release (draft)`: only on a `v*` tag, after **CI passed**: `ci/release.py` checks the tag
+    against the manifest version and the zips, and makes a **draft** GitHub release with the three
+    zips, `SHA256SUMS.txt` and notes from `docs/releases/`. Publishing is Kajetan's click.
+    Procedure, version rule and release checklist: `docs/RELEASING.md`.
 - `rerun-dropped.yml` (when a ci run completes): GitHub drops a macOS arm64 job that waits ~15 min
   for a runner (cancelled, no runner, no steps), which turns **CI passed** red. `ci/rerun_dropped.py`
   then re-runs the failed jobs of that same run, only if every failed job never got a runner, the
@@ -90,8 +95,7 @@ CI (`.github/workflows/`):
   then click "Re-run failed jobs" later.
 - What ships is only the Blender add-on (Kajetan, 2026-10-15). The standalone Qt app (AppImage,
   Windows zip, DMG: upstream's `release.yml`) is no longer packaged; it is still built and
-  smoke-tested on Linux by `qt-app`. A portable Linux add-on zip doesn't exist yet (the CI one links
-  the runner's libtbb and glibc).
+  smoke-tested on Linux by `qt-app`.
 
 Running the binary with no args opens the GUI. The core needs `setTargetTriangleCount(n > 0)` or
 `remesh()` fails.

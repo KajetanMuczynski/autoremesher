@@ -37,7 +37,12 @@ namespace AutoRemesher {
 // triangles; the triangles sharing an edge with it always count).
 // Geodesic, so the far side of a thin part or another island nearby does
 // not count.  A fold wider than about the radius is not seen: its middle
-// agrees with its own neighbourhood.
+// agrees with its own neighbourhood.  A spot (flagged triangles sharing a
+// vertex) counts only if it turns over: one of its triangles faces away
+// from a neighbour across an edge by more than 90 degrees.  Smooth surface
+// that bends back within the radius (a vine or tube thinner than it, an
+// overhang) is not a fold.  Parts that share no vertex are tested each with
+// its own radius, so joining parts changes nothing on either.
 //
 // repair() untangles each cluster of flagged triangles in a local chart and
 // slides the moved vertices back onto the original surface.  Only vertex
@@ -59,11 +64,15 @@ class FoldRepair {
 public:
     struct Options {
         // Detector radius; <= 0 takes radiusFraction of the bounding box
-        // diagonal.
+        // diagonal of each part.
         double radius = 0.0;
         double radiusFraction = 0.01;
         size_t maximumRings = 8;
-        size_t passes = 3;
+        // At most this many passes; the repair stops once a pass moves
+        // nothing.  A patch that overlaps one applied in the same pass, or a
+        // spot a patch only made smaller, waits for a later pass: folds in
+        // a twist pleat can take 7.
+        size_t passes = 10;
         // An edge whose triangles' normals differ by more than creaseDegrees
         // and less than foldDegrees, neither triangle flagged, is a crease:
         // its vertices stay fixed.  Beyond foldDegrees one triangle is
@@ -82,6 +91,7 @@ public:
     };
 
     struct Stats {
+        // The largest radius over the parts.
         double radius = 0.0;
         // Before the repair: flagged triangles and their clusters (sharing
         // a vertex).
@@ -94,7 +104,7 @@ public:
         size_t clustersAfter = 0;
         size_t movedVertices = 0;
         // Largest distance of a moved vertex from the original surface, and
-        // largest move, in the input's units.
+        // largest move, as fractions of the radius of its part.
         double maximumOffset = 0.0;
         double maximumMove = 0.0;
         double seconds = 0.0;
@@ -102,10 +112,15 @@ public:
 
     static double defaultRadius(const std::vector<Vector3>& vertices, const Options& options);
 
-    // One flag per triangle.  Triangles must have three corners.
+    // One flag per triangle.  Triangles must have three corners.  This one
+    // tests every part with the given radius.
     static std::vector<char> detect(const std::vector<Vector3>& vertices,
         const std::vector<std::vector<size_t>>& triangles,
         double radius);
+    // Each part with its radius from the options, as survey() and repair().
+    static std::vector<char> detect(const std::vector<Vector3>& vertices,
+        const std::vector<std::vector<size_t>>& triangles,
+        const Options& options);
 
     // Detection only: the counts repair() would start from, nothing moved.
     static Stats survey(const std::vector<Vector3>& vertices,

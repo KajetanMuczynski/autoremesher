@@ -1,3 +1,37 @@
+# Changelog
+
+## Quadami (unreleased, add-on 0.1.0 test builds)
+
+Changes since the fork from AutoRemesher 1.2.0 (`4a49f82`), up to master `0e9bec8` (2026-10-22).
+Builds are told apart by the build line in the panel, not by the version number.
+
+Blender add-on
+- New Blender 4.2+ extension "Quadami": panel in the 3D Viewport sidebar, remesher in its own
+  process, Esc to cancel, result next to the hidden original, modifiers used as shown
+- Quality report after every run: quads against target, non-quads, holes, non-manifold edges and
+  vertices, winding flips, folded faces, empty islands, input cleanup, time, with warnings
+- Repair Folds and Re-run: detects folded sculpt input and, on request, repairs it before remeshing
+- Build line in the panel and preferences; red when add-on and remesher come from different builds
+- Confirmation above 200,000 target quads, with the memory estimate; Target Quads capped at 2,000,000
+- Zips with the remesher inside for Linux x64, Windows x64 and macOS Apple silicon (no release yet)
+
+Remeshing
+- libQEx is the default quad extractor, with a per-island fallback to the previous one
+- Closed inputs stay closed and small islands stay present; holes left in closed islands are reported
+- Input cleanup: zero-length edges and inconsistently wound patches are fixed before remeshing
+- Quad cover rounded greedily on one factorisation, then untangled with its integers held
+- Validity check of the map before extraction
+- Output projected onto the input surface and relaxed along it
+- Default adaptivity 0.5 with a chord-error size law; Fast/Quality resolution setting
+- Cones kept off needle tips; exact crossing keys far from the origin
+
+Project
+- License GPL-3.0-or-later (upstream MIT notices kept); renamed to Quadami
+- CI on every pull request for Linux, Windows and macOS, with an output quality gate
+- A/B benchmark harness (`tools/bench/ab.py`) that every quality claim must come from
+
+## AutoRemesher (upstream history, by Jeremy Hu and contributors)
+
 1.2.0
 - Reduce triangles and irregular vertices in quad extraction
 - Support touch pad pinch and scroll zooming

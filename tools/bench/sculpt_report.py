@@ -38,7 +38,7 @@ from scipy.spatial import cKDTree
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from metrics import read_obj  # noqa: E402
+from metrics import corners, flat, nonmanifold_vertices, read_obj  # noqa: E402,F401
 
 BANDS = ("smooth", "curved", "sharp")
 
@@ -47,21 +47,6 @@ def read_tris(path):
     V, faces = read_obj(path)
     F = np.array([[f[0], f[k], f[k + 1]] for f in faces for k in range(1, len(f) - 1)], np.int64)
     return V, F
-
-
-def flat(faces):
-    n = np.array([len(f) for f in faces])
-    return n, np.concatenate([np.asarray(f) for f in faces]), np.repeat(np.arange(len(faces)), n)
-
-
-def corners(faces):
-    """Per corner: face, vertex, next vertex, previous vertex."""
-    n, idx, fid = flat(faces)
-    start = np.repeat(np.cumsum(n) - n, n)
-    pos = np.arange(len(idx)) - start
-    nxt = idx[start + (pos + 1) % np.repeat(n, n)]
-    prv = idx[start + (pos - 1) % np.repeat(n, n)]
-    return fid, idx, nxt, prv
 
 
 def newell(V, faces):
@@ -101,27 +86,6 @@ def face_adjacency(faces):
     a, b = fid[:-1][same], fid[1:][same]
     m = len(faces)
     return coo_matrix((np.ones(len(a)), (a, b)), shape=(m, m)).tocsr()
-
-
-def nonmanifold_vertices(faces, nv):
-    """Vertices whose incident faces do not form one edge-connected fan."""
-    fid, v, nx, pv = corners(faces)
-    c = np.arange(len(v))
-    # corners (v, f1) and (v, f2) are linked when f1 and f2 share an edge at v
-    keys = np.concatenate([np.stack([v, np.minimum(v, nx), np.maximum(v, nx)], 1),
-                           np.stack([v, np.minimum(v, pv), np.maximum(v, pv)], 1)])
-    cs = np.concatenate([c, c])
-    uniq, inv = np.unique(keys, axis=0, return_inverse=True)
-    inv = inv.ravel()
-    order = np.argsort(inv, kind="stable")
-    inv, cs = inv[order], cs[order]
-    same = inv[1:] == inv[:-1]
-    A = coo_matrix((np.ones(same.sum()), (cs[:-1][same], cs[1:][same])), shape=(len(v), len(v)))
-    _, lab = connected_components(A, directed=False)
-    fans = np.zeros(nv, int)
-    pairs = np.unique(np.stack([v, lab], 1), axis=0)
-    np.add.at(fans, pairs[:, 0], 1)
-    return int((fans > 1).sum())
 
 
 def catmull_clark(V, faces):
