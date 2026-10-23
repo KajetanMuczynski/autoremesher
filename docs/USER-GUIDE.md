@@ -307,6 +307,15 @@ faces in K spots"** and, below it, a **Repair Folds and Re-run** button.
    N faces** (counted in faces, because a repair can split one spot into several smaller ones); if some
    could not be fixed, a red **Folds left: F faces in S spots** row and a line saying so.
 
+**Also Flatten Needle Spikes** (a checkbox above the button, off by default). Some folds sit on the
+flank of a needle: a single vertex pulled far out of the surface. The normal repair cannot fix those
+without moving the needle's tip, so it leaves them. With the box ticked, it lowers such a tip to the
+middle of its base when that clears the fold, which **changes your shape** at that spot. Only tips
+near a fold the normal repair left are lowered, never a spike on a clean surface. The result then
+shows a **Spikes flattened** row, for example "1, tip lowered by up to 0.6 quads" (how far the
+farthest tip moved, measured in quad edges at your Target Quads), and a line saying the shape
+changed. On our test sculpts it lowered 1 or 2 tips per model.
+
 What it does and does not do:
 - **Your original object is never changed.** The repair works on the copy the remesher gets.
 - It moves only the vertices in and right around each fold, sliding them along your surface. Spots

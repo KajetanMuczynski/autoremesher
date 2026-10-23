@@ -210,6 +210,21 @@ class ReportTest(unittest.TestCase):
         self.assertFalse(any("Folded input" in text for text, _, _ in report.warning_lines(clean)))
         self.assertFalse(report.offers_fold_repair(clean))
 
+    def test_spike_rows(self):
+        flattened = {"status": "ok", "parameters": {"target_quads": 3000, "repair_folds": True, "flatten_spikes": True},
+                     "output": {"quads": 2950},
+                     "diagnostics": {"input_fold_clusters": 20, "input_fold_clusters_after": 3,
+                                     "input_folded_triangles": 45, "input_folded_triangles_after": 7,
+                                     "input_fold_spikes": 1, "input_fold_spike_drop_quads": 0.6015}}
+        self.assertIn(("Spikes flattened", "1, tip lowered by up to 0.6 quads", False), report.summary_rows(flattened))
+        warning = " ".join(t for t, _, _ in report.warning_lines(flattened))
+        self.assertIn("changed the shape: 1 spike tips were lowered", warning)
+        none = dict(flattened, diagnostics=dict(flattened["diagnostics"], input_fold_spikes=0))
+        self.assertIn(("Spikes flattened", "0", False), report.summary_rows(none))
+        self.assertNotIn("changed the shape", " ".join(t for t, _, _ in report.warning_lines(none)))
+        plain = dict(flattened, parameters={"target_quads": 3000, "repair_folds": True})
+        self.assertFalse(any(label == "Spikes flattened" for label, _, _ in report.summary_rows(plain)))
+
 
 class EnvironmentTest(unittest.TestCase):
     def test_snap_library_paths_dropped(self):
@@ -318,6 +333,13 @@ class CliTest(unittest.TestCase):
         self.assertEqual(outcome.status, "ok", outcome.message + "\n" + outcome.log)
         self.assertIs(outcome.report["parameters"]["repair_folds"], True)
         self.assertEqual(outcome.report["diagnostics"]["input_fold_clusters"], 0)
+
+    def test_flatten_spikes_flag(self):
+        outcome = worker.remesh(EXECUTABLE, self.positions.astype(np.float32), self.triangles,
+                                {"target_quads": 500, "repair_folds": True, "flatten_spikes": True})
+        self.assertEqual(outcome.status, "ok", outcome.message + "\n" + outcome.log)
+        self.assertIs(outcome.report["parameters"]["flatten_spikes"], True)
+        self.assertEqual(outcome.report["diagnostics"]["input_fold_spikes"], 0)
 
     def test_target_above_maximum(self):
         positions, triangles = uv_sphere(16, 32)

@@ -88,6 +88,10 @@ struct RemeshParameters {
     bool repairFolds = false;
     // Since 1.6.
     Extractor extractor = Extractor::Qex;
+    // Since 1.7.  With repairFolds: where a fold cannot be untangled, also
+    // lower the tips of needle spikes near it (a shape change, so off by
+    // default; diagnostics input_fold_spikes and input_fold_spike_drop_quads).
+    bool flattenSpikes = false;
 };
 
 struct RemeshRequest {

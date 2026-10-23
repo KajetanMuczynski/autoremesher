@@ -971,9 +971,21 @@ bool AutoRemesher::remeshIslands()
     // repaired when asked for.
     if (nullptr != m_progressHandler)
         m_progressHandler(m_tag, 0.0f, m_repairInputFolds ? "Repairing folded input" : "Checking for folded input");
+    FoldRepair::Options foldOptions;
+    foldOptions.flattenSpikes = m_flattenSpikes;
     const FoldRepair::Stats folds = m_repairInputFolds
-        ? FoldRepair::repair(&m_vertices, m_triangles, FoldRepair::Options())
-        : FoldRepair::survey(m_vertices, m_triangles, FoldRepair::Options());
+        ? FoldRepair::repair(&m_vertices, m_triangles, foldOptions)
+        : FoldRepair::survey(m_vertices, m_triangles, foldOptions);
+    // The spikes' largest drop in quad edges: sqrt(area per target quad).
+    double spikeDropQuads = 0.0;
+    if (folds.flattenedSpikes > 0 && m_targetTriangleCount > 0) {
+        double area = 0.0;
+        for (const std::vector<size_t>& t : m_triangles)
+            area += 0.5 * Vector3::crossProduct(m_vertices[t[1]] - m_vertices[t[0]], m_vertices[t[2]] - m_vertices[t[0]]).length();
+        const double quadEdge = std::sqrt(area / (0.5 * m_targetTriangleCount));
+        if (quadEdge > 0.0)
+            spikeDropQuads = folds.maximumSpikeDrop / quadEdge;
+    }
     throwIfCancelled();
 
     // Each label names the step that is about to run, not the one that just
@@ -1630,6 +1642,8 @@ bool AutoRemesher::remeshIslands()
             run.set("input_fold_moved_vertices", (double)folds.movedVertices);
             run.set("input_fold_max_offset", folds.maximumOffset);
             run.set("input_fold_max_move", folds.maximumMove);
+            run.set("input_fold_spikes", (double)folds.flattenedSpikes);
+            run.set("input_fold_spike_drop_quads", spikeDropQuads);
             run.set("fold_repair_ms", folds.seconds * 1000.0);
         }
         {
