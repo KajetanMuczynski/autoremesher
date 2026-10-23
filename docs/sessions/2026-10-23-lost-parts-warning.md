@@ -15,7 +15,7 @@
     4 h₀ misses 24 of 52;
   - silent failures (a defect and nothing red on the panel): 26 → 4 (thin_r0.008_L0.25 at 500 and 2000,
     thin_r0.064_L1 at 500, ribbon_t0.008 at 8000: parts lost within 3 h₀);
-  - baseline fires (23 of 274 non-stress runs): thin ellipsoids at 150-500, sculpt_voxel's horn, brush_box_relief,
+  - baseline fires (23 of 230 non-stress runs): thin ellipsoids at 150-500, sculpt_voxel's horn, brush_box_relief,
     private sword 2k-5k (vines; quiet at 6k, 2.8 h₀), human_neutral's eyes, sculpt_parts' eyeballs,
     sculpt_dirty. Each is a real loss: the igl area-sample distance agrees (≥ 3 h₀) or the island collapsed;
   - cost: median 1.0 % of a run, p90 3 %, at most 4.1 % on runs ≥ 5 s (four runs in parallel); alone,
