@@ -36,7 +36,7 @@
 namespace AutoRemesher {
 
 const int InterfaceVersionMajor = 1;
-const int InterfaceVersionMinor = 6;
+const int InterfaceVersionMinor = 7;
 
 // Since 1.3.  Peak memory grows linearly with the target, by about this much
 // per quad at Quality resolution (21 KB measured on spot at 25k-100k quads;
@@ -146,6 +146,10 @@ struct RemeshMesh {
     std::vector<uint32_t> faceIndices;
 };
 
+// An input vertex farther than this many planned quad widths from the
+// output is in a lost part (QualityReport::farInputVertexCount).
+const double LostPartQuadWidths = 3.0;
+
 // Measured on the result mesh.  Field definitions are in INTERFACE.md §3.1.
 struct QualityReport {
     size_t inputVertexCount = 0;
@@ -176,6 +180,19 @@ struct QualityReport {
     size_t openedClosedIslandCount = 0;
     size_t closedIslandHoleCount = 0;
     size_t closedIslandHoleEdgeCount = 0;
+    // Since 1.7.  Parts of the input the output lost.  h0 = sqrt(input area /
+    // target quads) is the planned quad width.  The largest distance from an
+    // input vertex to the output, in h0, and the input vertices farther than
+    // LostPartQuadWidths h0 (a lost limb, vine or spike; the output of a
+    // part it kept lies within a fraction of h0).  Islands whose output has
+    // fewer than half the quads they were planned (islands without output
+    // not counted), and the faces and planned quads of the smallest of them
+    // by that ratio.
+    double farthestInputQuadWidths = 0.0;
+    size_t farInputVertexCount = 0;
+    size_t collapsedIslandCount = 0;
+    size_t smallestCollapsedIslandFaces = 0;
+    size_t smallestCollapsedIslandTargetQuads = 0;
     // Wall time of the whole call.
     double seconds = 0.0;
     // Per-step times summed over the islands, in pipeline order.

@@ -1433,6 +1433,7 @@ bool AutoRemesher::remeshIslands()
         const auto& input = islandContexes[i].inputTopology;
         RemeshedIsland island;
         island.closedInput = 0 == input.boundaryEdges && 0 == input.nonManifoldEdges;
+        island.targetQuads = islandContexes[i].targetQuadCount;
         if (!run.remeshedQuads.empty()) {
             island.vertexCount = run.remeshedVertices.size();
             island.faceCount = run.remeshedQuads.size();

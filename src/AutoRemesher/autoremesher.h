@@ -167,6 +167,9 @@ public:
         size_t vertexCount = 0;
         size_t faceCount = 0;
         bool closedInput = false;
+        // The quads the island was asked for: its share of the target by
+        // area, raised for a small island.
+        double targetQuads = 0.0;
     };
 
     const std::vector<RemeshedIsland>& remeshedIslands() const

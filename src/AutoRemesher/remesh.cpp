@@ -20,6 +20,7 @@
 #include <AutoRemesher/MeasureMesh>
 #include <AutoRemesher/Remesh>
 #include <AutoRemesher/RemeshPreview>
+#include <AutoRemesher/SurfaceProjector>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -291,6 +292,76 @@ void measureClosedIslands(const RemeshMesh& mesh,
         vertexBegin += island.vertexCount;
         faceBegin += island.faceCount;
         cornerBegin += cornerCount;
+    }
+}
+
+void measureLostParts(const std::vector<double>& positions, const std::vector<uint32_t>& triangles,
+    size_t targetQuads, const RemeshMesh& mesh,
+    const std::vector<::AutoRemesher::AutoRemesher::RemeshedIsland>& islands,
+    QualityReport* report)
+{
+    for (const auto& island : islands) {
+        if (0 == island.faceCount || island.faceCount >= 0.5 * island.targetQuads)
+            continue;
+        if (0 == report->collapsedIslandCount
+            || island.faceCount * report->smallestCollapsedIslandTargetQuads
+                < report->smallestCollapsedIslandFaces * island.targetQuads) {
+            report->smallestCollapsedIslandFaces = island.faceCount;
+            report->smallestCollapsedIslandTargetQuads = (size_t)std::lround(island.targetQuads);
+        }
+        ++report->collapsedIslandCount;
+    }
+
+    if (0 == targetQuads || mesh.faceSizes.empty())
+        return;
+    const auto point = [&](size_t vertex) {
+        return Vector3(positions[3 * vertex], positions[3 * vertex + 1], positions[3 * vertex + 2]);
+    };
+    double area = 0.0;
+    std::vector<uint32_t> inputVertices(triangles.begin(), triangles.end());
+    for (size_t i = 0; i < triangles.size(); i += 3) {
+        area += 0.5 * Vector3::crossProduct(point(triangles[i + 1]) - point(triangles[i]),
+            point(triangles[i + 2]) - point(triangles[i]))
+                          .length();
+    }
+    std::sort(inputVertices.begin(), inputVertices.end());
+    inputVertices.erase(std::unique(inputVertices.begin(), inputVertices.end()), inputVertices.end());
+    const double quadWidth = std::sqrt(area / (double)targetQuads);
+    if (!(quadWidth > 0.0))
+        return;
+
+    // The output as triangles, each face a fan from its first corner.
+    std::vector<Vector3> outputVertices;
+    outputVertices.reserve(mesh.positions.size() / 3);
+    for (size_t i = 0; i < mesh.positions.size(); i += 3)
+        outputVertices.emplace_back(mesh.positions[i], mesh.positions[i + 1], mesh.positions[i + 2]);
+    std::vector<std::vector<size_t>> outputTriangles;
+    outputTriangles.reserve(2 * mesh.faceSizes.size());
+    size_t corner = 0;
+    for (const uint32_t size : mesh.faceSizes) {
+        for (uint32_t k = 1; k + 1 < size; ++k)
+            outputTriangles.push_back({ mesh.faceIndices[corner], mesh.faceIndices[corner + k], mesh.faceIndices[corner + k + 1] });
+        corner += size;
+    }
+    const SurfaceProjector output(&outputVertices, &outputTriangles);
+
+    // The search radius bounds the work per vertex; only a vertex with
+    // nothing that close is searched again without a bound.
+    const double radius = LostPartQuadWidths * quadWidth;
+    std::vector<double> distances(inputVertices.size());
+    tbb::parallel_for(tbb::blocked_range<size_t>(0, inputVertices.size()), [&](const tbb::blocked_range<size_t>& range) {
+        for (size_t i = range.begin(); i != range.end(); ++i) {
+            const Vector3 position = point(inputVertices[i]);
+            double distance = output.distance(position, radius);
+            if (distance >= radius)
+                distance = output.distance(position, std::numeric_limits<double>::max());
+            distances[i] = distance;
+        }
+    });
+    for (const double distance : distances) {
+        report->farthestInputQuadWidths = std::max(report->farthestInputQuadWidths, distance / quadWidth);
+        if (distance > radius)
+            ++report->farInputVertexCount;
     }
 }
 
