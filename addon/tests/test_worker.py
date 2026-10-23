@@ -194,6 +194,18 @@ class ReportTest(unittest.TestCase):
         self.assertFalse(any("Folded input" in text for text, _, _ in report.warning_lines(clean)))
         self.assertFalse(report.offers_fold_repair(clean))
 
+    def test_thin_parts_hint(self):
+        thin = {"status": "ok", "parameters": {"target_quads": 2000}, "output": {"quads": 1980},
+                "diagnostics": {"thin_parts_warned": 1},
+                "warnings": ["18 % of the surface (12 spots) is thinner than one quad; expect folds or "
+                             "lost parts there. Try at least 3300 target quads, or thicken those parts"]}
+        lines = report.warning_lines(thin)
+        self.assertTrue(all(len(text) <= report.WARNING_WIDTH for text, _, _ in lines))
+        self.assertIn("Try at least 3300", " ".join(text for text, _, problem in lines if problem))
+        self.assertIn("Alt+S", " ".join(text for text, _, problem in lines if not problem))
+        clean = dict(thin, diagnostics={"thin_parts_warned": 0}, warnings=[])
+        self.assertEqual(report.warning_lines(clean), [])
+
 
 class EnvironmentTest(unittest.TestCase):
     def test_snap_library_paths_dropped(self):

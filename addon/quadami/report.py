@@ -110,6 +110,9 @@ def warning_lines(report, width=WARNING_WIDTH):
         add("Another Target Quads value may close them. To see the holes: Tab into "
             "Edit Mode, press 1 for vertex select, then Select > Select All by Trait "
             "> Non Manifold.", False)
+    if report.get("status") == "ok" and report.get("diagnostics", {}).get("thin_parts_warned"):
+        add("To thicken a part: Tab into Edit Mode, select it, press Alt+S "
+            "(Shrink/Fatten) and move the mouse outwards.", False)
     if offers_fold_repair(report):
         diagnostics = report.get("diagnostics", {})
         add("Folded input: %d faces in %d spots, where the surface folds over "

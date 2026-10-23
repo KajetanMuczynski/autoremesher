@@ -179,6 +179,7 @@ std::vector<std::pair<std::string, double>> summarizeDiagnostics(
     double flippedTriangles = 0, nonOrientablePieces = 0;
     double foldRepair = 0, foldedTriangles = 0, foldClusters = 0, foldPatches = 0, foldedAfter = 0, foldClustersAfter = 0;
     double foldMovedVertices = 0, foldMaxOffset = 0, foldMaxMove = 0, foldMs = 0;
+    double thinShare = 0, thinSpots = 0, thinGrowth = 0;
     double projected = 0, projectionKeptFolding = 0, projectionKeptOther = 0;
     double creaseSnapped = 0, relaxMoves = 0;
     // Area-weighted over islands; the rescale is the island's farthest from 1.
@@ -207,6 +208,9 @@ std::vector<std::pair<std::string, double>> summarizeDiagnostics(
             foldMaxOffset = valueOf(record, "input_fold_max_offset", 0);
             foldMaxMove = valueOf(record, "input_fold_max_move", 0);
             foldMs = valueOf(record, "fold_repair_ms", 0);
+            thinShare = valueOf(record, "thin_area_share", 0);
+            thinSpots = valueOf(record, "thin_spots", 0);
+            thinGrowth = valueOf(record, "thin_growth_p50", 0);
         } else if (record.stage == "cover_result") {
             flipped += valueOf(record, "snapped_flipped", 0);
             degenerate += valueOf(record, "snapped_degenerate", 0);
@@ -304,6 +308,9 @@ std::vector<std::pair<std::string, double>> summarizeDiagnostics(
         { "input_fold_max_offset", foldMaxOffset },
         { "input_fold_max_move", foldMaxMove },
         { "fold_repair_ms", foldMs },
+        { "thin_area_share", thinShare },
+        { "thin_spots", thinSpots },
+        { "thin_growth_p50", thinGrowth },
     };
 }
 
