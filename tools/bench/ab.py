@@ -27,6 +27,8 @@ Replicate u0 is the input as is; uk (k >= 1) moves every coordinate to float32 a
 ulp up or down (seeded by k), the precision Blender hands the add-on. Discrete outcomes (topology,
 "fixed on mesh X") flip under such noise, so `compare` calls a run fixed or broken only when every
 replicate agrees; see "Noise rule" in README.md.
+
+Runs on Linux, macOS and Windows (release-check.yml uses all three); Windows records no peak RSS.
 """
 import argparse
 import concurrent.futures as cf
@@ -35,9 +37,11 @@ import json
 import math
 import os
 import re
+import shutil
 import statistics as st
 import subprocess
 import sys
+import tarfile
 import threading
 import time
 
@@ -70,27 +74,42 @@ def source_key(ref, cmake_args=()):
     return hashlib.sha1("\n".join(trees).encode()).hexdigest()[:12] + args_tag(cmake_args)
 
 
+def built_cli(build_dir):
+    """The CLI in a build folder: single-config generators put it at the top, Visual Studio in Release/."""
+    exe = "autoremesher-cli" + (".exe" if os.name == "nt" else "")
+    for path in (os.path.join(build_dir, exe), os.path.join(build_dir, "Release", exe)):
+        if os.path.exists(path):
+            return path
+    return None
+
+
 def build(ref, work, jobs, cmake_args=()):
     """Exports REF, builds autoremesher-cli once per key and returns its path."""
     key = source_key(ref, cmake_args)
     root = os.path.join(work, "builds", key)
-    cli = os.path.join(root, "build", "autoremesher-cli")
-    if os.path.exists(cli):
+    cli = built_cli(os.path.join(root, "build"))
+    if cli:
         return key, cli
     src = os.path.join(root, "src")
     os.makedirs(src, exist_ok=True)
+    # tarfile, not tar: Windows has no tar that reads git's output reliably.
     archive = subprocess.Popen(["git", "-C", REPO, "archive", git("rev-parse", ref)], stdout=subprocess.PIPE)
-    subprocess.run(["tar", "-x", "-C", src], stdin=archive.stdout, check=True)
+    with tarfile.open(fileobj=archive.stdout, mode="r|") as tar:
+        tar.extractall(src, filter="data")
     if archive.wait() != 0:
         sys.exit(f"git archive {ref} failed")
     log = os.path.join(root, "build.log")
     print(f"building {ref} ({key}) with {jobs} jobs, log {log}", flush=True)
+    nice = ["nice", "-n", "10"] if shutil.which("nice") else []
     with open(log, "w") as fp:
         for cmd in (["cmake", "-S", src, "-B", os.path.join(root, "build"), "-DCMAKE_BUILD_TYPE=Release"] + list(cmake_args),
-                    ["nice", "-n", "10", "cmake", "--build", os.path.join(root, "build"), "--parallel", str(jobs),
-                     "--target", "autoremesher-cli"]):
+                    nice + ["cmake", "--build", os.path.join(root, "build"), "--config", "Release",
+                            "--parallel", str(jobs), "--target", "autoremesher-cli"]):
             if subprocess.call(cmd, stdout=fp, stderr=subprocess.STDOUT) != 0:
                 sys.exit(f"build of {ref} failed, see {log}")
+    cli = built_cli(os.path.join(root, "build"))
+    if not cli:
+        sys.exit(f"build of {ref} made no autoremesher-cli, see {log}")
     return key, cli
 
 
@@ -182,19 +201,29 @@ def call_measured(cmd, log, timeout):
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     reader = threading.Thread(target=copy_capped, args=(p.stdout, log), daemon=True)
     reader.start()
+    if not hasattr(os, "wait4"):  # Windows: no rusage, so no peak RSS
+        try:
+            rc = p.wait(timeout)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            p.wait()
+            rc = "timeout"
+        reader.join()
+        return rc, None
+    scale = 1 << 20 if sys.platform == "darwin" else 1 << 10  # ru_maxrss in bytes on macOS, KiB on Linux; MB out
     t0 = time.time()
     while True:
         pid, status, ru = os.wait4(p.pid, os.WNOHANG)
         if pid:
             p.returncode = os.waitstatus_to_exitcode(status)  # reaped here, so Popen must not wait again
             reader.join()
-            return p.returncode, ru.ru_maxrss / 1024
+            return p.returncode, ru.ru_maxrss / scale
         if timeout and time.time() - t0 > timeout:
             p.kill()
             _, _, ru = os.wait4(p.pid, 0)
             p.returncode = -9
             reader.join()
-            return "timeout", ru.ru_maxrss / 1024
+            return "timeout", ru.ru_maxrss / scale
         time.sleep(0.05)
 
 
