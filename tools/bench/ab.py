@@ -8,6 +8,7 @@
                   [--timeout S] [--work DIR]
     ab.py compare A B [--set corpus] [--per-run] [--work DIR]
     ab.py build REF [--cmake-arg=... ...] [--work DIR]
+    ab.py lane BASE HEAD [--sets closed,corpus,...] [--replicates 1] [--jobs 2] [--work DIR]
 
 REF is any commit-ish of this repository (master, HEAD, a SHA); commit work in progress first. A
 and B are run folders printed by `run`, or refs (then without --cli-arg). The work folder (default
@@ -27,6 +28,12 @@ Replicate u0 is the input as is; uk (k >= 1) moves every coordinate to float32 a
 ulp up or down (seeded by k), the precision Blender hands the add-on. Discrete outcomes (topology,
 "fixed on mesh X") flip under such noise, so `compare` calls a run fixed or broken only when every
 replicate agrees; see "Noise rule" in README.md.
+
+`lane` decides which test lane a change needs (README.md "Test lanes"): none if BASE and HEAD have the
+same key, light if HEAD's out.obj is byte-identical to BASE's in every run of every set (plain input and one
+float32 replicate by default), full otherwise. It runs both sides without metrics; a later `run` of the same folders adds them.
+
+Runs on Linux, macOS and Windows (release-check.yml uses all three); Windows records no peak RSS.
 """
 import argparse
 import concurrent.futures as cf
@@ -35,9 +42,11 @@ import json
 import math
 import os
 import re
+import shutil
 import statistics as st
 import subprocess
 import sys
+import tarfile
 import threading
 import time
 
@@ -70,27 +79,42 @@ def source_key(ref, cmake_args=()):
     return hashlib.sha1("\n".join(trees).encode()).hexdigest()[:12] + args_tag(cmake_args)
 
 
+def built_cli(build_dir):
+    """The CLI in a build folder: single-config generators put it at the top, Visual Studio in Release/."""
+    exe = "autoremesher-cli" + (".exe" if os.name == "nt" else "")
+    for path in (os.path.join(build_dir, exe), os.path.join(build_dir, "Release", exe)):
+        if os.path.exists(path):
+            return path
+    return None
+
+
 def build(ref, work, jobs, cmake_args=()):
     """Exports REF, builds autoremesher-cli once per key and returns its path."""
     key = source_key(ref, cmake_args)
     root = os.path.join(work, "builds", key)
-    cli = os.path.join(root, "build", "autoremesher-cli")
-    if os.path.exists(cli):
+    cli = built_cli(os.path.join(root, "build"))
+    if cli:
         return key, cli
     src = os.path.join(root, "src")
     os.makedirs(src, exist_ok=True)
+    # tarfile, not tar: Windows has no tar that reads git's output reliably.
     archive = subprocess.Popen(["git", "-C", REPO, "archive", git("rev-parse", ref)], stdout=subprocess.PIPE)
-    subprocess.run(["tar", "-x", "-C", src], stdin=archive.stdout, check=True)
+    with tarfile.open(fileobj=archive.stdout, mode="r|") as tar:
+        tar.extractall(src, filter="data")
     if archive.wait() != 0:
         sys.exit(f"git archive {ref} failed")
     log = os.path.join(root, "build.log")
     print(f"building {ref} ({key}) with {jobs} jobs, log {log}", flush=True)
+    nice = ["nice", "-n", "10"] if shutil.which("nice") else []
     with open(log, "w") as fp:
         for cmd in (["cmake", "-S", src, "-B", os.path.join(root, "build"), "-DCMAKE_BUILD_TYPE=Release"] + list(cmake_args),
-                    ["nice", "-n", "10", "cmake", "--build", os.path.join(root, "build"), "--parallel", str(jobs),
-                     "--target", "autoremesher-cli"]):
+                    nice + ["cmake", "--build", os.path.join(root, "build"), "--config", "Release",
+                            "--parallel", str(jobs), "--target", "autoremesher-cli"]):
             if subprocess.call(cmd, stdout=fp, stderr=subprocess.STDOUT) != 0:
                 sys.exit(f"build of {ref} failed, see {log}")
+    cli = built_cli(os.path.join(root, "build"))
+    if not cli:
+        sys.exit(f"build of {ref} made no autoremesher-cli, see {log}")
     return key, cli
 
 
@@ -130,7 +154,12 @@ def perturbed(src, k, work):
                 fo.write("v %.9g %.9g %.9g\n" % tuple(float(x) for x in xyz))
             else:
                 fo.write(line)
-    os.replace(tmp, dst)
+    try:
+        os.replace(tmp, dst)
+    except PermissionError:  # Windows: a parallel run wrote the same file and a CLI has it open
+        if not os.path.exists(dst):
+            raise
+        os.remove(tmp)
     return dst
 
 
@@ -182,19 +211,29 @@ def call_measured(cmd, log, timeout):
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     reader = threading.Thread(target=copy_capped, args=(p.stdout, log), daemon=True)
     reader.start()
+    if not hasattr(os, "wait4"):  # Windows: no rusage, so no peak RSS
+        try:
+            rc = p.wait(timeout)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            p.wait()
+            rc = "timeout"
+        reader.join()
+        return rc, None
+    scale = 1 << 20 if sys.platform == "darwin" else 1 << 10  # ru_maxrss in bytes on macOS, KiB on Linux; MB out
     t0 = time.time()
     while True:
         pid, status, ru = os.wait4(p.pid, os.WNOHANG)
         if pid:
             p.returncode = os.waitstatus_to_exitcode(status)  # reaped here, so Popen must not wait again
             reader.join()
-            return p.returncode, ru.ru_maxrss / 1024
+            return p.returncode, ru.ru_maxrss / scale
         if timeout and time.time() - t0 > timeout:
             p.kill()
             _, _, ru = os.wait4(p.pid, 0)
             p.returncode = -9
             reader.join()
-            return "timeout", ru.ru_maxrss / 1024
+            return "timeout", ru.ru_maxrss / scale
         time.sleep(0.05)
 
 
@@ -204,8 +243,10 @@ def run_one(cli, mesh, setname, target, res, k, out, cli_args, work, metrics, jo
     src = os.path.join(work, "meshes", mesh["file"])
     if os.path.exists(record_path):
         rec = json.load(open(record_path))
-        # A finished run is never repeated, but its metrics can be recomputed after metrics.py changed.
-        if remeasure and rec["rc"] == 0 and os.path.exists(os.path.join(d, "out.obj")):
+        # A finished run is never repeated, but its metrics can be recomputed after metrics.py changed,
+        # and are added to a run made with --no-metrics (e.g. by `lane`) once a run asks for them.
+        if (remeasure or (metrics and "metrics" not in rec)) and rec["rc"] == 0 \
+                and os.path.exists(os.path.join(d, "out.obj")):
             measure(rec, d, mesh, target, src, work)
             with open(record_path, "w") as fp:
                 json.dump(rec, fp, indent=1)
@@ -265,6 +306,13 @@ def t_topology(stages):
     return {k: run[k] for k in keys} if all(k in run for k in keys) else None
 
 
+def has_metrics(d):
+    try:
+        return "metrics" in json.load(open(os.path.join(d, "record.json")))
+    except (OSError, ValueError):
+        return False
+
+
 def run_dir(ref, cli_args, work, cmake_args=()):
     return os.path.join(work, "runs", source_key(ref, cmake_args) + args_tag(cli_args))
 
@@ -299,8 +347,7 @@ def cmd_run(a):
     with cf.ThreadPoolExecutor(max_workers=a.jobs) as pool:
         if not a.no_metrics:
             pending = {m["id"]: m for m, t, r, k in jobs
-                       if a.remeasure or not os.path.exists(os.path.join(out, a.set, m["id"], f"{r}-t{t}", f"u{k}",
-                                                                         "record.json"))}
+                       if a.remeasure or not has_metrics(os.path.join(out, a.set, m["id"], f"{r}-t{t}", f"u{k}"))}
             list(pool.map(lambda m: prepare_input(os.path.join(a.work, "meshes", m["file"]), a.work), pending.values()))
         futs = [pool.submit(run_one, cli, m, a.set, t, r, k, out, a.cli_arg, a.work, not a.no_metrics,
                             a.jobs, a.remeasure, a.timeout)
@@ -566,6 +613,74 @@ def cmd_compare(a):
                   + f" | {sum(map(bool, ta[k]))}/{len(reps)} → {sum(map(bool, tb[k]))}/{len(reps)} |")
 
 
+# ---- lane ------------------------------------------------------------------------------------
+
+def output_diff(B, H, reps=(0,)):
+    """Replicates `reps` of two load_runs() results: (identical count, differing (key, replicate),
+    failed (key, replicate, BASE rc, HEAD rc)). A replicate-run missing or failing on either side
+    counts as failed, never as identical."""
+    same, differ, failed = 0, [], []
+    for k in sorted(set(B) | set(H)):
+        for u in reps:
+            rb, rh = B.get(k, {}).get(u), H.get(k, {}).get(u)
+            if not rb or not rh or rb["rc"] != 0 or rh["rc"] != 0 or not rb.get("out_sha"):
+                failed.append((k, u, rb and rb["rc"], rh and rh["rc"]))
+            elif rb["out_sha"] == rh.get("out_sha"):
+                same += 1
+            else:
+                differ.append((k, u))
+    return same, differ, failed
+
+
+def cmd_lane(a):
+    """Which test lane HEAD needs against BASE: none, light or full (README.md "Test lanes")."""
+    kb, kh = source_key(a.base), source_key(a.head)
+    print(f"BASE {a.base} = {git('rev-parse', '--short', a.base)} key {kb}\n"
+          f"HEAD {a.head} = {git('rev-parse', '--short', a.head)} key {kh}")
+    if kb == kh:
+        print("Nothing compiled into the CLI differs (src/, include/, thirdparty/, CMakeLists.txt).\nlane: none")
+        return 0
+    corpus = json.load(open(CORPUS))
+    # A set without default targets (gallery: one target per entry, run by tools/gallery) has no plain runs.
+    sets = a.sets.split(",") if a.sets else [s for s, d in corpus["sets"].items() if d.get("targets")]
+    missing = [s for s in sets if any(not os.path.exists(os.path.join(a.work, "meshes", m["file"]))
+                                      for m in load_set(s)[1])]
+    if missing and not a.sets:
+        print(f"**Not checked** (meshes missing in {a.work}/meshes): {', '.join(missing)}")
+        sets = [s for s in sets if s not in missing]
+    elif missing:
+        sys.exit(f"missing meshes for {', '.join(missing)} (fetch_meshes.sh, make_synthetic.py, make_sculpt.py)")
+    t0 = time.time()
+    same, differ, failed = 0, [], []
+    for setname in sets:
+        for ref in (a.base, a.head):
+            ra = argparse.Namespace(ref=ref, set=setname, only=None, skip=None, targets=None, resolutions=None,
+                                    replicates=a.replicates, cli_arg=[], cmake_arg=[], jobs=a.jobs, no_metrics=True,
+                                    remeasure=False, timeout=a.timeout, work=a.work)
+            with open(os.devnull, "w") as quiet:
+                stdout, sys.stdout = sys.stdout, quiet
+                try:
+                    cmd_run(ra)
+                finally:
+                    sys.stdout = stdout
+        s, d, f = output_diff(load_runs(run_dir(a.base, [], a.work), setname),
+                              load_runs(run_dir(a.head, [], a.work), setname), range(a.replicates + 1))
+        same += s
+        differ += [(setname,) + x for x in d]
+        failed += [(setname,) + x for x in f]
+    print(f"Sets {', '.join(sets)}, replicates u0-u{a.replicates}: {same} runs byte-identical, {len(differ)} differ, "
+          f"{len(failed)} failed or missing ({time.time() - t0:.0f} s)")
+    for setname, k, u in differ[:20]:
+        print(f"- differs: {setname} {k[0]} {k[1]} {k[2]} u{u}")
+    if len(differ) > 20:
+        print(f"- ... and {len(differ) - 20} more")
+    for setname, k, u, rb, rh in failed:
+        print(f"- failed: {setname} {k[0]} {k[1]} {k[2]} u{u} (BASE rc {rb}, HEAD rc {rh})")
+    lane = "full" if differ or failed or missing else "light"
+    print(f"lane: {lane}")
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--work", default=os.environ.get("AR_WORK", os.path.expanduser("~/ar-work")))
@@ -597,7 +712,15 @@ def main():
     c.add_argument("b")
     c.add_argument("--set", default="corpus")
     c.add_argument("--per-run", action="store_true")
-    for p in (b, r, c):
+    ln = sub.add_parser("lane", help="which test lane HEAD needs against BASE: none, light or full")
+    ln.add_argument("base", help="the commit HEAD branched from or last merged (git merge-base master HEAD)")
+    ln.add_argument("head")
+    ln.add_argument("--sets", help="comma list; default every set in corpus.json whose meshes are present")
+    ln.add_argument("--replicates", type=int, default=1,
+                    help="float32 1-ulp replicates besides the plain input (default 1: Blender hands the add-on float32)")
+    ln.add_argument("--jobs", type=int, default=2)
+    ln.add_argument("--timeout", type=float, default=1200)
+    for p in (b, r, c, ln):
         p.add_argument("--work", default=argparse.SUPPRESS)
     a = ap.parse_args()
     a.work = os.path.abspath(a.work)
@@ -605,6 +728,8 @@ def main():
         print(build(a.ref, a.work, a.jobs, a.cmake_arg)[1])
     elif a.cmd == "run":
         cmd_run(a)
+    elif a.cmd == "lane":
+        sys.exit(cmd_lane(a))
     else:
         cmd_compare(a)
 

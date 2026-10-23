@@ -1,0 +1,202 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Release check (docs/TARGETS.md §2.5, docs/RELEASING.md checklist step 1), by hand before a tag:
+# Actions > release-check > Run workflow. On each platform it builds the candidate and the
+# baseline with tools/bench/ab.py, runs both over the corpus and closed sets with 1-ulp
+# replicates and checks the result with tools/bench/release_gate.py: the structural gates
+# H1-H6 and H8 on every run and replicate (for 0.x: no worse than the baseline), and the §3.2
+# ratchet against the baseline. Both sides run on the same runner, because builds on different
+# platforms give different output.
+# About an hour per platform (cloud dry run, Linux 4 cores, 2026-10-22: 54 min for both sides, 900
+# runs each); not part of "CI passed".
+#
+# On a pull request that changes this workflow or the scripts it runs, a smoke version: two
+# meshes, one replicate, the PR against its base, so ab.py's Windows and macOS paths are tested
+# before a release needs them (a manual run needs the workflow on master first).
+#
+# What it does not cover: the CLI it tests is ab.py's CMake build of the ref, not the zip's
+# (Linux ships the AlmaLinux 8 build of ci/build_linux_portable.sh, so on Linux this checks
+# the same source with another compiler setup); H7 (determinism); the sculpt and brush sets
+# and Kajetan's private sculpts (Linux, by hand); anything inside Blender.
+# A macOS job GitHub drops for want of a runner is not re-run by rerun-dropped.yml (that
+# watches "ci" only): re-run it from the run page.
+name: release-check
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/release-check.yml
+      - tools/bench/ab.py
+      - tools/bench/gates.py
+      - tools/bench/metrics.py
+      - tools/bench/release_gate.py
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit or tag to check (default the commit this workflow runs from)
+        default: ''
+      baseline:
+        description: Commit or tag of the previous release for the ratchet (empty skips the ratchet)
+        default: 0e9bec8  # master of 2026-10-22, the 0.1.0 baseline (docs/RELEASING.md)
+      replicates:
+        description: 1-ulp replicates besides the plain input
+        default: '5'
+      hard:
+        description: Structural gates on every run (the 1.0 bar); off = no gate fails on more runs than the baseline (0.x)
+        type: boolean
+        default: false
+      platforms:
+        description: Platforms to run
+        type: choice
+        default: all
+        options: [all, linux-x64, windows-x64, macos-arm64]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-check-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # The meshes once, on Linux, so every platform runs the same inputs: the downloads are
+  # checked by SHA-256, the synthetic meshes are generated with pinned packages.
+  meshes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12'
+
+      - name: Fetch and generate the meshes
+        run: |
+          python -m pip install -q numpy==2.5.4 scipy==1.18.1 manifold3d==3.5.4 scikit-image==0.26.0
+          tools/bench/fetch_meshes.sh build/meshes
+          python tools/bench/make_synthetic.py --downloads build/meshes/downloads --out build/meshes/synthetic
+
+      - name: Platforms
+        id: matrix
+        env:
+          PLATFORMS: ${{ inputs.platforms || 'all' }}
+        run: |
+          python3 - <<'EOF' >> "$GITHUB_OUTPUT"
+          import json, os
+          all_ = [
+              {"platform": "linux-x64", "os": "ubuntu-24.04", "jobs": 4, "cmake": ""},
+              {"platform": "windows-x64", "os": "windows-latest", "jobs": 4, "cmake": ""},
+              # 3 cores and 7 GB: one run fewer at a time than the others.
+              {"platform": "macos-arm64", "os": "macos-latest", "jobs": 3,
+               "cmake": "--cmake-arg=-DCMAKE_OSX_DEPLOYMENT_TARGET=11.2"},
+          ]
+          want = os.environ["PLATFORMS"]
+          print("matrix=" + json.dumps({"include": [p for p in all_ if want in ("all", p["platform"])]}))
+          EOF
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-check-meshes
+          path: build/meshes/
+          retention-days: 3
+
+  check:
+    name: check (${{ matrix.platform }})
+    needs: meshes
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.meshes.outputs.matrix) }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 240  # about 4x the measured hour, for the 3-core macOS runner
+    defaults:
+      run:
+        shell: bash
+    env:
+      REF: ${{ inputs.ref || github.sha }}
+      BASELINE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || inputs.baseline }}
+      REPLICATES: ${{ inputs.replicates || '1' }}
+      # Smoke on a PR: ab.py --only per set.
+      ONLY_CORPUS: ${{ github.event_name == 'pull_request' && '--only=spot,thin_leaf --targets=2000' || '' }}
+      ONLY_CLOSED: ${{ github.event_name == 'pull_request' && '--only=torus_0.4 --targets=500' || '' }}
+      HARD: ${{ inputs.hard && '--hard' || '' }}
+      JOBS: ${{ matrix.jobs }}
+      PYTHONUTF8: '1'  # the tables print ± and ≤; Windows' console code page has no ≤
+      CMAKE: ${{ matrix.cmake }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0  # ab.py builds REF and BASELINE from git
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12'
+
+      - name: Install the metrics' packages
+        run: python -m pip install -q numpy==2.5.4 scipy==1.18.1 libigl==2.6.3
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-check-meshes
+          path: ${{ runner.temp }}/ar-work/meshes
+
+      # Static oneTBB everywhere, as the zips ship. --timeout: a hung run is recorded as a
+      # failure (H1) instead of eating the job. The last line ab.py prints is its run folder.
+      - name: Run candidate and baseline
+        env:
+          AR_WORK: ${{ runner.temp }}/ar-work
+        run: |
+          refs=("$REF"); [ -n "$BASELINE" ] && refs+=("$BASELINE")
+          for ref in "${refs[@]}"; do
+            for set in corpus closed; do
+              only=$ONLY_CORPUS; [ "$set" = closed ] && only=$ONLY_CLOSED
+              # shellcheck disable=SC2086  # CMAKE and only are empty or whole arguments
+              python tools/bench/ab.py run "$ref" --set "$set" --replicates "$REPLICATES" --jobs "$JOBS" \
+                --timeout 1800 --cmake-arg=-DAUTOREMESHER_BUNDLED_TBB=ON $CMAKE $only | tee "run-$set.log"
+            done
+            tail -n 1 run-corpus.log | tr -d '\r' >> dirs.txt  # Windows' Python ends lines with CRLF
+          done
+          cat dirs.txt
+
+      - name: Gates and ratchet
+        env:
+          AR_WORK: ${{ runner.temp }}/ar-work
+        run: |
+          cand=$(sed -n 1p dirs.txt); base=$(sed -n 2p dirs.txt)
+          echo "# ${{ matrix.platform }}: $REF${BASELINE:+ against $BASELINE}" >> "$GITHUB_STEP_SUMMARY"
+          status=0
+          # shellcheck disable=SC2086  # HARD is empty or one argument
+          python tools/bench/release_gate.py "$cand" ${base:+--baseline "$base"} $HARD \
+            --summary "$GITHUB_STEP_SUMMARY" || status=$?
+          if [ -n "$base" ]; then
+            for set in corpus closed; do
+              { echo; echo "<details><summary>ab.py compare, set $set</summary>"; echo
+                python tools/bench/ab.py compare "$base" "$cand" --set "$set"
+                echo; echo "</details>"; } >> "$GITHUB_STEP_SUMMARY"
+            done
+          fi
+          # The small files of every run (no meshes), for ab.py compare and release_gate.py later.
+          python - <<'EOF'
+          import os, shutil
+          work = os.environ["AR_WORK"]
+          for top in ("runs", "builds"):
+              for root, dirs, files in os.walk(os.path.join(work, top)):
+                  dirs[:] = [d for d in dirs if d != "src" and d != "build"]
+                  for f in files:
+                      if f.endswith(".json") or f == "build.log":
+                          dst = os.path.join("build", "records", os.path.relpath(os.path.join(root, f), work))
+                          os.makedirs(os.path.dirname(dst), exist_ok=True)
+                          shutil.copy2(os.path.join(root, f), dst)
+          EOF
+          exit $status
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: release-check-${{ matrix.platform }}
+          path: build/records/
+          if-no-files-found: ignore

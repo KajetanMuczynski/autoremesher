@@ -87,7 +87,7 @@ def gates(rec, run_dir, fam):
          "H4 islands kept (none dropped, split or merged)": (v.get("islands_dropped") == 0 and v.get("islands_split") == 0
                                                              and v.get("islands_merged") == 0),
          "H5 no hole added or closed": v.get("holes_added") == 0 and v.get("holes_closed") == 0,
-         "H6 count within ±10 %": abs(f["quads"] / rec["target"] - 1) <= 0.10,
+         "H6 count within ±10 %": abs(f["quads"] / rec["target"] - 1) <= 0.10 + 1e-9,  # 2200/2000 - 1 > 0.1 in floats
          "H8 no 6+-gon": f["other"] == 0,
          "V1 provisional (all-quad on hard surface, else clusters ≤ 2)": v1,
          "V1 old (all-quad)": nonquads == 0,

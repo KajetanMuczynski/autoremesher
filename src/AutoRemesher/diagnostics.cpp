@@ -178,7 +178,7 @@ std::vector<std::pair<std::string, double>> summarizeDiagnostics(
     double mergedVertices = 0, droppedTriangles = 0, cleanupKeptParts = 0, zeroAreaTriangles = 0;
     double flippedTriangles = 0, nonOrientablePieces = 0;
     double foldRepair = 0, foldedTriangles = 0, foldClusters = 0, foldPatches = 0, foldedAfter = 0, foldClustersAfter = 0;
-    double foldMovedVertices = 0, foldMaxOffset = 0, foldMaxMove = 0, foldMs = 0;
+    double foldMovedVertices = 0, foldMaxOffset = 0, foldMaxMove = 0, foldSpikes = 0, foldSpikeDrop = 0, foldMs = 0;
     double thinShare = 0, thinSpots = 0, thinGrowth = 0;
     double projected = 0, projectionKeptFolding = 0, projectionKeptOther = 0;
     double creaseSnapped = 0, relaxMoves = 0;
@@ -207,6 +207,8 @@ std::vector<std::pair<std::string, double>> summarizeDiagnostics(
             foldMovedVertices = valueOf(record, "input_fold_moved_vertices", 0);
             foldMaxOffset = valueOf(record, "input_fold_max_offset", 0);
             foldMaxMove = valueOf(record, "input_fold_max_move", 0);
+            foldSpikes = valueOf(record, "input_fold_spikes", 0);
+            foldSpikeDrop = valueOf(record, "input_fold_spike_drop_quads", 0);
             foldMs = valueOf(record, "fold_repair_ms", 0);
             thinShare = valueOf(record, "thin_area_share", 0);
             thinSpots = valueOf(record, "thin_spots", 0);
@@ -307,6 +309,8 @@ std::vector<std::pair<std::string, double>> summarizeDiagnostics(
         { "input_fold_moved_vertices", foldMovedVertices },
         { "input_fold_max_offset", foldMaxOffset },
         { "input_fold_max_move", foldMaxMove },
+        { "input_fold_spikes", foldSpikes },
+        { "input_fold_spike_drop_quads", foldSpikeDrop },
         { "fold_repair_ms", foldMs },
         { "thin_area_share", thinShare },
         { "thin_spots", thinSpots },
