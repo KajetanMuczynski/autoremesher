@@ -56,11 +56,15 @@ Copy into the release PR's description and tick each line there.
 
 1. **Gates.**
    - [ ] master CI green on the commit to tag (Actions > ci, branch master).
-   - [ ] TARGETS release check ([TARGETS.md](TARGETS.md) §2.5, §5 "Releases"): the structural gates
-         H1–H8 hold on every corpus run and replicate (`tools/bench/ab.py run <ref> --replicates 5`,
-         plus `--set closed`), and the §3.2 validity numbers are no worse than the previous release's
-         (the 0.x ratchet; for the first release, no worse than master of 2026-10-22, `0e9bec8`).
-         Linux in the cloud; Windows and macOS have no corpus runner yet (gap, see below).
+   - [ ] TARGETS release check ([TARGETS.md](TARGETS.md) §2.5, §5 "Releases") on all three
+         platforms: **Actions > release-check > Run workflow**, `ref` = the commit to tag, `baseline`
+         = the previous release's tag (for 0.1.0 master of 2026-10-22, `0e9bec8`, the default). Each
+         platform builds both, runs corpus and closed sets with 5 replicates (about an hour; macOS
+         longer) and `tools/bench/release_gate.py` decides: for 0.x no structural gate (H1–H6, H8)
+         fails on more runs than in the baseline and no §3.2 validity number is worse (TARGETS §6,
+         decision 3); tick **hard** for 1.0, where the structural gates must hold on every run. The
+         job summary has the tables and `ab.py compare`; the artifact `release-check-<platform>` the
+         run records. A macOS job dropped for want of a runner: re-run it from the run page.
    - [ ] The changes this release promises are merged. For 0.1.0 (Kajetan, 2026-10-22): the
          thin-parts (vines) fix and its panel warnings.
 2. **Real-machine checks** (CI runs Blender without a window): install the master zip from CI on
@@ -84,9 +88,15 @@ Copy into the release PR's description and tick each line there.
 
 ## Gaps (not done by the workflow)
 
-- **No corpus release check in CI.** TARGETS §2.5 asks for the corpus × 6 on all three platforms
-  (about 3 CPU hours each); only Linux can run it today, by hand in the cloud. A manual workflow
-  for it is a follow-up.
+- **What the release check does not cover**: it tests `ab.py`'s CMake build of the commit, not the
+  shipped binary (the same on Windows and macOS; on Linux the zip's CLI comes from AlmaLinux 8, so
+  only the source is checked there); H7 (determinism); the sculpt and brush sets and Kajetan's
+  private sculpts (Linux, by hand in the cloud); anything inside Blender (step 2).
+- **Structural gates fail on master today** (cloud dry run 2026-10-22, Linux, master `ae27301`
+  against `0e9bec8`, byte-identical outputs): corpus 21 of 432 runs (human_neutral islands merged
+  and holes, sword at 2k quads 11-22 % under target, csg_bracket u2 one hole), closed 114 of 468
+  (thin ellipsoids at 150 quads drop the island or miss the count, tori over the count). Hence the
+  0.x ratchet; 1.0 needs them fixed (`--hard`).
 
 ## Tag ruleset for `v*`
 

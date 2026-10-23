@@ -91,6 +91,11 @@ CI (`.github/workflows/`):
 - `pages.yml` (push to master touching `docs/`, `README.md` or `tools/site/`, a release event, manual):
   builds the site from master and deploys it to GitHub Pages (needs Settings > Pages > Source: GitHub Actions).
   Only the whitelisted pages are published; never add private models or anything from `private-sculpts`.
+- `release-check.yml` (by hand only, before a release tag): the TARGETS release check on Linux,
+  Windows and macOS, each building the candidate and the previous release with `tools/bench/ab.py`
+  (corpus and closed sets, 5 replicates, about an hour per platform) and deciding with
+  `tools/bench/release_gate.py`. Not part of **CI passed**; procedure in `docs/RELEASING.md`. A PR
+  touching it, `ab.py`, `gates.py`, `metrics.py` or `release_gate.py` gets a smoke run (2 meshes).
 - `rerun-dropped.yml` (when a ci run completes): GitHub drops a macOS arm64 job that waits ~15 min
   for a runner (cancelled, no runner, no steps), which turns **CI passed** red. `ci/rerun_dropped.py`
   then re-runs the failed jobs of that same run, only if every failed job never got a runner, the
