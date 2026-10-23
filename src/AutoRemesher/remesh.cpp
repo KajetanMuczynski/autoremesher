@@ -330,12 +330,16 @@ void measureLostParts(const std::vector<double>& positions, const std::vector<ui
         return Vector3(positions[3 * vertex], positions[3 * vertex + 1], positions[3 * vertex + 2]);
     };
     double area = 0.0;
-    std::vector<uint32_t> inputVertices(triangles.begin(), triangles.end());
+    std::vector<char> used(positions.size() / 3, 0);
     for (size_t i = 0; i < triangles.size(); i += 3) {
         area += 0.5 * Vector3::crossProduct(point(triangles[i + 1]) - point(triangles[i]), point(triangles[i + 2]) - point(triangles[i])).length();
+        used[triangles[i]] = used[triangles[i + 1]] = used[triangles[i + 2]] = 1;
     }
-    std::sort(inputVertices.begin(), inputVertices.end());
-    inputVertices.erase(std::unique(inputVertices.begin(), inputVertices.end()), inputVertices.end());
+    std::vector<uint32_t> inputVertices;
+    for (size_t vertex = 0; vertex < used.size(); ++vertex) {
+        if (used[vertex])
+            inputVertices.push_back((uint32_t)vertex);
+    }
     const double quadWidth = std::sqrt(area / (double)targetQuads);
     if (!(quadWidth > 0.0))
         return;
@@ -355,17 +359,25 @@ void measureLostParts(const std::vector<double>& positions, const std::vector<ui
     }
     const SurfaceProjector output(&outputVertices, &outputTriangles);
 
-    // The search radius bounds the work per vertex; only a vertex with
-    // nothing that close is searched again without a bound.
+    // The search radius bounds the work per vertex: the distance to the
+    // output moves by at most the step between two vertices, so the previous
+    // vertex's distance plus the step bounds the next search (the input
+    // numbers neighbours close together).  Only a vertex with nothing within
+    // the radius is searched again without a bound.
     const double radius = LostPartQuadWidths * quadWidth;
     std::vector<double> distances(inputVertices.size());
     tbb::parallel_for(tbb::blocked_range<size_t>(0, inputVertices.size()), [&](const tbb::blocked_range<size_t>& range) {
+        Vector3 previous;
+        double previousDistance = std::numeric_limits<double>::max();
         for (size_t i = range.begin(); i != range.end(); ++i) {
             const Vector3 position = point(inputVertices[i]);
-            double distance = output.distance(position, radius);
+            const double bound = previousDistance + (position - previous).length();
+            double distance = output.distance(position, std::min(radius, bound * (1.0 + 1e-9) + 1e-12 * quadWidth));
             if (distance >= radius)
                 distance = output.distance(position, std::numeric_limits<double>::max());
             distances[i] = distance;
+            previous = position;
+            previousDistance = distance;
         }
     });
     for (const double distance : distances) {
