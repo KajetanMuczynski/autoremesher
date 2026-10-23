@@ -22,13 +22,16 @@ ${downloads}
 - **Windows x64:** Windows 10 or 11. The remesher is **not code-signed**. Blender unpacks it itself, so
   Windows SmartScreen should not ask; if your antivirus quarantines `autoremesher-cli.exe`, restore it
   or build from source.
-- **macOS, Apple silicon (M1 or newer), macOS 11.2+:** the remesher is **not signed or notarized by
-  Apple** and has not been tried on a real Mac yet. Installed through Blender it should run; if macOS
+- **macOS, Apple silicon (M1 or newer), macOS 11.2+: experimental, untested.** It passes the
+  automatic tests in Blender without a window, but nobody has tried it on a real Mac yet, and the
+  remesher is **not signed or notarized by Apple**. Installed through Blender it should run; if macOS
   says it "cannot be opened because the developer cannot be verified", see the user guide, §2
   (macOS). Intel Macs: build from source.
 
 Check a download with `sha256sum -c SHA256SUMS.txt` (Linux), `shasum -a 256 -c SHA256SUMS.txt`
-(macOS) or `Get-FileHash <zip>` (Windows PowerShell), against the table above.
+(macOS) or `Get-FileHash <zip>` (Windows PowerShell), against the table above. To check that a zip
+was built by this project's GitHub Actions from the commit below (with the
+[GitHub CLI](https://cli.github.com)): `gh attestation verify <zip> -R KajetanMuczynski/quadami`.
 
 **Build line.** The bottom of the Quadami panel shows `Add-on build ${build_id}`. Put that line in
 every bug report.
