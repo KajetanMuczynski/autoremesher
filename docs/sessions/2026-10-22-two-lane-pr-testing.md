@@ -17,5 +17,7 @@
 - Measured (4 vCPU, `--jobs 4`, 0e9bec8): full ×6 one side 56 min (closed 371 s, corpus 1475 s,
   brush 553 s, sculpt 841 s, suzanne 103 s); plain runs only, no metrics, one side 378 s; `lane` with
   u0 only 787 s for both sides; u1 on top 705 s (#60), so about 25 min from scratch. #60, #65, #71 light with u1 too (450/450 identical).
+- 2026-10-23: merged master (new `external` and `gallery` sets). `lane` skips sets without default
+  targets (gallery) and now covers 265 runs; external costs 262 s per side in `lane` and 15 min per side at ×6.
 - Next: Kajetan's call on a post-merge CI baseline run (drift guard; would also let threads skip
   recomputing master's side if they can fetch it).

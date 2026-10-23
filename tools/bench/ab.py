@@ -607,7 +607,8 @@ def cmd_lane(a):
         print("Nothing compiled into the CLI differs (src/, include/, thirdparty/, CMakeLists.txt).\nlane: none")
         return 0
     corpus = json.load(open(CORPUS))
-    sets = a.sets.split(",") if a.sets else list(corpus["sets"])
+    # A set without default targets (gallery: one target per entry, run by tools/gallery) has no plain runs.
+    sets = a.sets.split(",") if a.sets else [s for s, d in corpus["sets"].items() if d.get("targets")]
     missing = [s for s in sets if any(not os.path.exists(os.path.join(a.work, "meshes", m["file"]))
                                       for m in load_set(s)[1])]
     if missing and not a.sets:

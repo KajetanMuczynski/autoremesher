@@ -110,7 +110,7 @@ Running the binary with no args opens the GUI. The core needs `setTargetTriangle
 - A change that can move topology also runs `--set closed`.
 - Test lanes (Kajetan, 2026-10-22; tools/bench/README "Test lanes"): `ab.py lane <merge-base> HEAD` decides,
   never the PR's size or the author. **none** (nothing compiled changed): CI only. **light** (compiled code
-  changed, `out.obj` byte-identical on all 225 public runs, plain + one float32 replicate): paste the
+  changed, `out.obj` byte-identical on every public set with default targets, 265 runs since the `external` set, plain + one float32 replicate): paste the
   `lane` output, A/B only the new option on its meshes. **full** (anything moved): `--replicates 5` on every
   public set, both sides, as before; no replicate shortcuts (tested on #67, they miss float32-only effects).
   Input-handling changes (cleanup, orientation, fold detection) also run `lane` on the private set (`AR_CORPUS`).

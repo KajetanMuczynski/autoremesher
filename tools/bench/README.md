@@ -151,7 +151,7 @@ $P tools/bench/ab.py lane $(git merge-base origin/master HEAD) HEAD --jobs 4
 | lane | when (`lane` prints it) | what the PR needs |
 |---|---|---|
 | **none** | nothing compiled into the CLI changed (`src/`, `include/`, `thirdparty/`, `CMakeLists.txt`): docs, add-on, tools, CI. 28 of the 45 PRs #26–#73. | CI only. |
-| **light** | compiled code changed, but `out.obj` is byte-identical to the base in every run of every public set (225 runs × plain input and one float32 replicate). Opt-in code behind a flag, report-only fields, refactors that keep the bytes. #60, #65, #71 would have been light. | The `lane` output in the PR, plus an A/B of the new option (`--cli-arg=...`) on the meshes it is for, with the noise rule for any discrete claim. |
+| **light** | compiled code changed, but `out.obj` is byte-identical to the base in every run of every public set with default targets (265 runs since `external` was added, each with the plain input and one float32 replicate; `gallery` has no default targets and is skipped). Opt-in code behind a flag, report-only fields, refactors that keep the bytes. #60, #65, #71 would have been light. | The `lane` output in the PR, plus an A/B of the new option (`--cli-arg=...`) on the meshes it is for, with the noise rule for any discrete claim. |
 | **full** | anything else: some run moved, failed or is missing. | `run --replicates 5` on every public set for both sides and `compare` per set, as before; private sets (`AR_CORPUS`) when the change is aimed at sculpts. |
 
 - **Why a float32 replicate.** The plain input (u0) is double precision; Blender hands the add-on
@@ -169,8 +169,11 @@ $P tools/bench/ab.py lane $(git merge-base origin/master HEAD) HEAD --jobs 4
   Non-default options (`--sharp-edge`, `--adaptivity`) are not covered either; a change that touches
   their code adds a `lane`-style check with that `--cli-arg` via `run`/`compare`.
 - **Cost** (measured 2026-10-22, 4-vCPU cloud container, `--jobs 4`, master 0e9bec8): full lane
-  56 min per side (closed 6, corpus 25, brush 9, sculpt 14, suzanne 2 min), so about 1 h 50 min for an
-  A/B, more with private sets; `lane` on a light change about 25 min for both sides from scratch, no metrics (plain runs 787 s, the float32 replicate 705 s more; #60, #65 and #71 all came out light, 450 of 450 identical); none: 0.
+  56 min per side (closed 6, corpus 25, brush 9, sculpt 14, suzanne 2 min), plus 15 min for `external`
+  (2026-10-23, master dd03272), so about 71 min per side and 2 h 20 min for an A/B, more with private
+  sets; `lane` on a light change about 25 min for both sides from scratch without `external`, no metrics
+  (plain runs 787 s, the float32 replicate 705 s more; #60, #65 and #71 all came out light, 450 of 450
+  identical), plus 9 min with it (262 s per side); none: 0.
   Reruns of a key are free (runs are cached), and a `lane` run's folders are reused by a later full
   `run`, which adds the metrics.
 - **Drift guard.** Light PRs cannot drift the default output (they are identical by construction), but
@@ -181,7 +184,7 @@ $P tools/bench/ab.py lane $(git merge-base origin/master HEAD) HEAD --jobs 4
 
   ```bash
   NEW=$(git rev-parse origin/master); OLD=<the previous core merge on master>   # lane none merges keep the key
-  for s in closed corpus brush sculpt suzanne; do
+  for s in closed corpus brush sculpt suzanne external; do
     $P tools/bench/ab.py run $NEW --set $s --replicates 5 --jobs 4 --timeout 1200
     $P tools/bench/ab.py compare $OLD $NEW --set $s     # needs OLD's runs in this work folder too
   done
