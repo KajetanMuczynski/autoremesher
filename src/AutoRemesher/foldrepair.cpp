@@ -231,13 +231,13 @@ namespace {
         std::vector<size_t> touched;
     };
 
-    // Flags of all triangles; or, with `focus`, only of the triangles that
-    // have a centroid in `focus` within the radius or share an edge with
-    // one there, the others keeping their flag from `previous` (after a
-    // repair moved those triangles; `focus` holds their old and new
-    // centroids).
-    std::vector<char> detectFolds(const Topology& topology, const Geometry& geometry, double radius,
-        const std::vector<Vector3>* focus = nullptr, const std::vector<char>* previous = nullptr)
+    // The sign test's flags of all triangles; or, with `focus`, only of the
+    // triangles that have a centroid in `focus` within the radius or share
+    // an edge with one there, the others keeping their flag from `previous`
+    // (after a repair moved those triangles; `focus` holds their old and
+    // new centroids).
+    std::vector<char> signTest(const Topology& topology, const Geometry& geometry, double radius,
+        const std::vector<Vector3>* focus, const std::vector<char>* previous)
     {
         const size_t faceCount = topology.faces.size();
         std::vector<char> folded = previous ? *previous : std::vector<char>(faceCount, 0);
@@ -465,6 +465,35 @@ namespace {
                     heap.pop();
             }
         });
+        return folded;
+    }
+
+    std::vector<std::vector<size_t>> clustersOf(const Topology& topology, const std::vector<char>& folded);
+
+    // The sign test's flags, less the spots that do not turn over: a fold
+    // has an edge across which a flagged triangle faces away from its
+    // neighbour by more than 90 degrees.  Smooth surface that bends back
+    // within the radius (a vine or tube thinner than it, an overhang) fails
+    // the sign test too, but has no such edge, and is not a fold.
+    std::vector<char> detectFolds(const Topology& topology, const Geometry& geometry, double radius,
+        const std::vector<Vector3>* focus = nullptr, const std::vector<char>* previous = nullptr)
+    {
+        std::vector<char> folded = signTest(topology, geometry, radius, focus, previous);
+        for (const std::vector<size_t>& cluster : clustersOf(topology, folded)) {
+            bool turned = false;
+            for (size_t i = 0; i < cluster.size() && !turned; ++i) {
+                const size_t f = cluster[i];
+                if (!hasNormal(geometry.normals[f]))
+                    continue;
+                for (size_t k = topology.faceFaceStart[f]; k < topology.faceFaceStart[f + 1] && !turned; ++k) {
+                    const size_t g = topology.faceFaces[k];
+                    turned = hasNormal(geometry.normals[g]) && Vector3::dotProduct(geometry.normals[f], geometry.normals[g]) < 0.0;
+                }
+            }
+            if (!turned)
+                for (size_t f : cluster)
+                    folded[f] = 0;
+        }
         return folded;
     }
 
@@ -1152,25 +1181,25 @@ std::vector<char> FoldRepair::detect(const std::vector<Vector3>& vertices,
     return detectFolds(topology, Geometry(vertices, topology.faces), radius);
 }
 
-FoldRepair::Stats FoldRepair::survey(const std::vector<Vector3>& vertices,
-    const std::vector<std::vector<size_t>>& triangles,
-    const Options& options)
-{
-    const auto start = std::chrono::steady_clock::now();
-    Stats stats;
-    stats.radius = defaultRadius(vertices, options);
-    if (triangles.empty() || !(stats.radius > 0.0))
-        return stats;
-    const Topology topology(vertices.size(), toFaces(triangles));
-    const Geometry geometry(vertices, topology.faces);
-    const std::vector<char> folded = detectFolds(topology, geometry, stats.radius);
-    stats.foldedTriangles = stats.foldedTrianglesAfter = (size_t)std::count(folded.begin(), folded.end(), 1);
-    stats.clusters = stats.clustersAfter = clustersOf(topology, folded).size();
-    stats.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
-    return stats;
-}
-
 namespace {
+
+    FoldRepair::Stats surveyWith(const std::vector<Vector3>& vertices,
+        const std::vector<std::vector<size_t>>& triangles, double radius)
+    {
+        typedef FoldRepair::Stats Stats;
+        const auto start = std::chrono::steady_clock::now();
+        Stats stats;
+        stats.radius = radius;
+        if (triangles.empty() || !(stats.radius > 0.0))
+            return stats;
+        const Topology topology(vertices.size(), toFaces(triangles));
+        const Geometry geometry(vertices, topology.faces);
+        const std::vector<char> folded = detectFolds(topology, geometry, stats.radius);
+        stats.foldedTriangles = stats.foldedTrianglesAfter = (size_t)std::count(folded.begin(), folded.end(), 1);
+        stats.clusters = stats.clustersAfter = clustersOf(topology, folded).size();
+        stats.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+        return stats;
+    }
 
     // Whether a vertex marked in `moved` lies within reach of the cluster's
     // patches or of what they depend on: `rings` rings around it (patch,
@@ -1231,107 +1260,251 @@ namespace {
         return false;
     }
 
+    FoldRepair::Stats repairWith(std::vector<Vector3>* vertices,
+        const std::vector<std::vector<size_t>>& triangles, const FoldRepair::Options& options, double radius)
+    {
+        typedef FoldRepair::Stats Stats;
+        const auto start = std::chrono::steady_clock::now();
+        Stats stats;
+        stats.radius = radius;
+        if (triangles.empty() || !(stats.radius > 0.0))
+            return stats;
+        const Topology topology(vertices->size(), toFaces(triangles));
+        const std::vector<Vector3> original = *vertices;
+        std::vector<Vector3>& current = *vertices;
+        const Repairer repairer(topology, options, stats.radius, original);
+
+        std::vector<char> folded = detectFolds(topology, Geometry(current, topology.faces), stats.radius);
+        std::vector<std::vector<size_t>> clusters = clustersOf(topology, folded);
+        stats.foldedTriangles = (size_t)std::count(folded.begin(), folded.end(), 1);
+        stats.clusters = clusters.size();
+        tbb::enumerable_thread_specific<PatchScratch> scratch;
+        // Clusters that failed in the last pass, and the vertices it moved: a
+        // cluster that failed and has nothing moved near it would fail again.
+        std::set<std::vector<size_t>> failed;
+        std::vector<char> moved(topology.vertexCount, 0);
+        for (size_t pass = 0; pass < options.passes && !clusters.empty(); ++pass) {
+            // Every cluster against the same positions, so the result does not
+            // depend on the threads; then applied in cluster order, and a patch
+            // that overlaps one applied before waits for the next pass.
+            const Geometry geometry(current, topology.faces);
+            std::vector<PatchResult> results(clusters.size());
+            tbb::parallel_for(tbb::blocked_range<size_t>(0, clusters.size(), 1), [&](const tbb::blocked_range<size_t>& range) {
+                // Isolated: while this thread waits inside the untangler's or the
+                // detector's own parallel loops it must not pick up another
+                // cluster, which would reuse its scratch.
+                tbb::this_task_arena::isolate([&]() {
+                    PatchScratch& s = scratch.local();
+                    for (size_t k = range.begin(); k != range.end(); ++k) {
+                        if (failed.count(clusters[k])
+                            && !movedNear(topology, current, moved, clusters[k], options.maximumRings + 2, 3.0 * stats.radius))
+                            continue;
+                        results[k] = repairer.repairCluster(current, geometry, folded, clusters[k], s);
+                    }
+                });
+            });
+            std::vector<char> used(topology.vertexCount, 0);
+            std::fill(moved.begin(), moved.end(), 0);
+            failed.clear();
+            bool any = false;
+            for (size_t k = 0; k < results.size(); ++k) {
+                const PatchResult& result = results[k];
+                if (!result.ok) {
+                    failed.insert(clusters[k]);
+                    continue;
+                }
+                bool overlaps = false;
+                for (size_t v : result.touched)
+                    overlaps = overlaps || used[v];
+                if (overlaps)
+                    continue;
+                for (size_t v : result.touched)
+                    used[v] = 1;
+                for (size_t m = 0; m < result.moved.size(); ++m) {
+                    current[result.moved[m]] = result.positions[m];
+                    moved[result.moved[m]] = 1;
+                }
+                stats.maximumOffset = std::max(stats.maximumOffset, result.offset);
+                ++stats.repairedPatches;
+                any = true;
+            }
+            if (!any)
+                break;
+            // Flags change only near the moved triangles.
+            std::vector<Vector3> focus;
+            std::vector<char> movedFace(topology.faces.size(), 0);
+            for (size_t v = 0; v < topology.vertexCount; ++v) {
+                if (!moved[v])
+                    continue;
+                for (size_t k = topology.vertexFaceStart[v]; k < topology.vertexFaceStart[v + 1]; ++k)
+                    movedFace[topology.vertexFaces[k]] = 1;
+            }
+            const Geometry after(current, topology.faces);
+            for (size_t f = 0; f < topology.faces.size(); ++f)
+                if (movedFace[f]) {
+                    focus.push_back(geometry.centroids[f]);
+                    focus.push_back(after.centroids[f]);
+                }
+            folded = detectFolds(topology, after, stats.radius, &focus, &folded);
+            clusters = clustersOf(topology, folded);
+        }
+        stats.foldedTrianglesAfter = (size_t)std::count(folded.begin(), folded.end(), 1);
+        stats.clustersAfter = clusters.size();
+        for (size_t v = 0; v < current.size(); ++v) {
+            const double move = (current[v] - original[v]).length();
+            if (move > 0.0) {
+                ++stats.movedVertices;
+                stats.maximumMove = std::max(stats.maximumMove, move);
+            }
+        }
+        // Both as fractions of the radius.
+        stats.maximumOffset /= stats.radius;
+        stats.maximumMove /= stats.radius;
+        stats.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+        return stats;
+    }
+
+    // Parts that share no vertex, each its triangles in input order.
+    std::vector<std::vector<size_t>> partsOf(size_t vertexCount, const std::vector<std::vector<size_t>>& triangles)
+    {
+        std::vector<size_t> parent(vertexCount);
+        std::iota(parent.begin(), parent.end(), (size_t)0);
+        const auto root = [&](size_t v) {
+            while (parent[v] != v)
+                v = parent[v] = parent[parent[v]];
+            return v;
+        };
+        for (const std::vector<size_t>& triangle : triangles)
+            for (size_t i = 1; i < triangle.size(); ++i) {
+                const size_t a = root(triangle[0]), b = root(triangle[i]);
+                if (a != b)
+                    parent[std::max(a, b)] = std::min(a, b);
+            }
+        std::unordered_map<size_t, size_t> index;
+        std::vector<std::vector<size_t>> parts;
+        for (size_t t = 0; t < triangles.size(); ++t) {
+            auto inserted = index.insert({ root(triangles[t][0]), parts.size() });
+            if (inserted.second)
+                parts.emplace_back();
+            parts[inserted.first->second].push_back(t);
+        }
+        return parts;
+    }
+
+    // One part as a mesh of its own: its vertices in input order.
+    struct Part {
+        std::vector<size_t> vertices;
+        std::vector<Vector3> positions;
+        std::vector<std::vector<size_t>> triangles;
+    };
+
+    Part partOf(const std::vector<Vector3>& vertices, const std::vector<std::vector<size_t>>& triangles,
+        const std::vector<size_t>& part)
+    {
+        Part p;
+        for (size_t t : part)
+            for (size_t v : triangles[t])
+                p.vertices.push_back(v);
+        std::sort(p.vertices.begin(), p.vertices.end());
+        p.vertices.erase(std::unique(p.vertices.begin(), p.vertices.end()), p.vertices.end());
+        std::unordered_map<size_t, size_t> local;
+        for (size_t i = 0; i < p.vertices.size(); ++i) {
+            local[p.vertices[i]] = i;
+            p.positions.push_back(vertices[p.vertices[i]]);
+        }
+        for (size_t t : part) {
+            std::vector<size_t> triangle;
+            for (size_t v : triangles[t])
+                triangle.push_back(local[v]);
+            p.triangles.push_back(triangle);
+        }
+        return p;
+    }
+
+    void add(FoldRepair::Stats* total, const FoldRepair::Stats& part)
+    {
+        total->radius = std::max(total->radius, part.radius);
+        total->foldedTriangles += part.foldedTriangles;
+        total->clusters += part.clusters;
+        total->repairedPatches += part.repairedPatches;
+        total->foldedTrianglesAfter += part.foldedTrianglesAfter;
+        total->clustersAfter += part.clustersAfter;
+        total->movedVertices += part.movedVertices;
+        total->maximumOffset = std::max(total->maximumOffset, part.maximumOffset);
+        total->maximumMove = std::max(total->maximumMove, part.maximumMove);
+    }
+
+    // Each part with its own radius, so that joining a long blade to a vine,
+    // or a small part to a big one, does not change what is found on either.
+    // A given radius applies to all; a single part is run in place.
+    template <typename Run>
+    FoldRepair::Stats byPart(const std::vector<Vector3>& vertices, const std::vector<std::vector<size_t>>& triangles,
+        const FoldRepair::Options& options, Run run)
+    {
+        const auto start = std::chrono::steady_clock::now();
+        FoldRepair::Stats total;
+        const std::vector<std::vector<size_t>> parts = partsOf(vertices.size(), triangles);
+        if (options.radius > 0.0 || parts.size() <= 1) {
+            std::vector<Vector3> used;
+            for (const std::vector<size_t>& triangle : triangles)
+                for (size_t v : triangle)
+                    used.push_back(vertices[v]);
+            total = run(nullptr, FoldRepair::defaultRadius(used, options));
+        } else {
+            for (const std::vector<size_t>& part : parts) {
+                Part p = partOf(vertices, triangles, part);
+                add(&total, run(&p, FoldRepair::defaultRadius(p.positions, options)));
+            }
+        }
+        total.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+        return total;
+    }
+
+}
+
+FoldRepair::Stats FoldRepair::survey(const std::vector<Vector3>& vertices,
+    const std::vector<std::vector<size_t>>& triangles,
+    const Options& options)
+{
+    return byPart(vertices, triangles, options, [&](Part* part, double radius) {
+        return part ? surveyWith(part->positions, part->triangles, radius) : surveyWith(vertices, triangles, radius);
+    });
 }
 
 FoldRepair::Stats FoldRepair::repair(std::vector<Vector3>* vertices,
     const std::vector<std::vector<size_t>>& triangles,
     const Options& options)
 {
-    const auto start = std::chrono::steady_clock::now();
-    Stats stats;
-    stats.radius = defaultRadius(*vertices, options);
-    if (triangles.empty() || !(stats.radius > 0.0))
+    return byPart(*vertices, triangles, options, [&](Part* part, double radius) {
+        if (!part)
+            return repairWith(vertices, triangles, options, radius);
+        const Stats stats = repairWith(&part->positions, part->triangles, options, radius);
+        for (size_t i = 0; i < part->vertices.size(); ++i)
+            (*vertices)[part->vertices[i]] = part->positions[i];
         return stats;
-    const Topology topology(vertices->size(), toFaces(triangles));
-    const std::vector<Vector3> original = *vertices;
-    std::vector<Vector3>& current = *vertices;
-    const Repairer repairer(topology, options, stats.radius, original);
+    });
+}
 
-    std::vector<char> folded = detectFolds(topology, Geometry(current, topology.faces), stats.radius);
-    std::vector<std::vector<size_t>> clusters = clustersOf(topology, folded);
-    stats.foldedTriangles = (size_t)std::count(folded.begin(), folded.end(), 1);
-    stats.clusters = clusters.size();
-    tbb::enumerable_thread_specific<PatchScratch> scratch;
-    // Clusters that failed in the last pass, and the vertices it moved: a
-    // cluster that failed and has nothing moved near it would fail again.
-    std::set<std::vector<size_t>> failed;
-    std::vector<char> moved(topology.vertexCount, 0);
-    for (size_t pass = 0; pass < options.passes && !clusters.empty(); ++pass) {
-        // Every cluster against the same positions, so the result does not
-        // depend on the threads; then applied in cluster order, and a patch
-        // that overlaps one applied before waits for the next pass.
-        const Geometry geometry(current, topology.faces);
-        std::vector<PatchResult> results(clusters.size());
-        tbb::parallel_for(tbb::blocked_range<size_t>(0, clusters.size(), 1), [&](const tbb::blocked_range<size_t>& range) {
-            // Isolated: while this thread waits inside the untangler's or the
-            // detector's own parallel loops it must not pick up another
-            // cluster, which would reuse its scratch.
-            tbb::this_task_arena::isolate([&]() {
-                PatchScratch& s = scratch.local();
-                for (size_t k = range.begin(); k != range.end(); ++k) {
-                    if (failed.count(clusters[k])
-                        && !movedNear(topology, current, moved, clusters[k], options.maximumRings + 2, 3.0 * stats.radius))
-                        continue;
-                    results[k] = repairer.repairCluster(current, geometry, folded, clusters[k], s);
-                }
-            });
-        });
-        std::vector<char> used(topology.vertexCount, 0);
-        std::fill(moved.begin(), moved.end(), 0);
-        failed.clear();
-        bool any = false;
-        for (size_t k = 0; k < results.size(); ++k) {
-            const PatchResult& result = results[k];
-            if (!result.ok) {
-                failed.insert(clusters[k]);
-                continue;
-            }
-            bool overlaps = false;
-            for (size_t v : result.touched)
-                overlaps = overlaps || used[v];
-            if (overlaps)
-                continue;
-            for (size_t v : result.touched)
-                used[v] = 1;
-            for (size_t m = 0; m < result.moved.size(); ++m) {
-                current[result.moved[m]] = result.positions[m];
-                moved[result.moved[m]] = 1;
-            }
-            stats.maximumOffset = std::max(stats.maximumOffset, result.offset);
-            ++stats.repairedPatches;
-            any = true;
-        }
-        if (!any)
-            break;
-        // Flags change only near the moved triangles.
-        std::vector<Vector3> focus;
-        std::vector<char> movedFace(topology.faces.size(), 0);
-        for (size_t v = 0; v < topology.vertexCount; ++v) {
-            if (!moved[v])
-                continue;
-            for (size_t k = topology.vertexFaceStart[v]; k < topology.vertexFaceStart[v + 1]; ++k)
-                movedFace[topology.vertexFaces[k]] = 1;
-        }
-        const Geometry after(current, topology.faces);
-        for (size_t f = 0; f < topology.faces.size(); ++f)
-            if (movedFace[f]) {
-                focus.push_back(geometry.centroids[f]);
-                focus.push_back(after.centroids[f]);
-            }
-        folded = detectFolds(topology, after, stats.radius, &focus, &folded);
-        clusters = clustersOf(topology, folded);
+std::vector<char> FoldRepair::detect(const std::vector<Vector3>& vertices,
+    const std::vector<std::vector<size_t>>& triangles,
+    const Options& options)
+{
+    std::vector<char> flags(triangles.size(), 0);
+    const std::vector<std::vector<size_t>> parts = partsOf(vertices.size(), triangles);
+    if (options.radius > 0.0 || parts.size() <= 1) {
+        std::vector<Vector3> used;
+        for (const std::vector<size_t>& triangle : triangles)
+            for (size_t v : triangle)
+                used.push_back(vertices[v]);
+        return detect(vertices, triangles, defaultRadius(used, options));
     }
-    stats.foldedTrianglesAfter = (size_t)std::count(folded.begin(), folded.end(), 1);
-    stats.clustersAfter = clusters.size();
-    for (size_t v = 0; v < current.size(); ++v) {
-        const double move = (current[v] - original[v]).length();
-        if (move > 0.0) {
-            ++stats.movedVertices;
-            stats.maximumMove = std::max(stats.maximumMove, move);
-        }
+    for (const std::vector<size_t>& part : parts) {
+        const Part p = partOf(vertices, triangles, part);
+        const std::vector<char> partFlags = detect(p.positions, p.triangles, defaultRadius(p.positions, options));
+        for (size_t i = 0; i < part.size(); ++i)
+            flags[part[i]] = partFlags[i];
     }
-    stats.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
-    return stats;
+    return flags;
 }
 
 }

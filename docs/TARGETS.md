@@ -122,13 +122,13 @@ marked), and a release needs them on every corpus run and replicate.
 
 | ID | Gate | Today [M] | In CI |
 |---|---|---|---|
-| H1 | Completes: exit 0, status ok, non-empty output; no input refused | 54/54; Blender refuses 2 meshes | yes |
-| H2 | 2-manifold: no non-manifold edge or vertex | 54/54 edges; vertices: 0 in 150 corpus and closed runs on master `124aeb8`, but 18 of 154 sculpt-set runs (15 of them sculpt_parts, the sunk-eyeball caps) [M] | edges; vertices counted by `sculpt_report.py`, a gate once 2.18 is fixed. A non-manifold vertex is a bug wherever it occurs (ENVELOPE §2); the gate waits only so CI isn't red on a known, owned bug |
+| H1 | Completes: exit 0, status ok, non-empty output; no input refused | 54/54; Blender refuses 2 meshes. **2026-10-22** (master `c2ffd24`, 1,482 replicate-runs over corpus, closed, sculpt, brush, Suzanne and the private sets): all complete | yes |
+| H2 | 2-manifold: no non-manifold edge or vertex | 54/54 edges; vertices: 0 in 150 corpus and closed runs on master `124aeb8`, but 18 of 154 sculpt-set runs (15 of them sculpt_parts, the sunk-eyeball caps) [M]. **2026-10-22** (`c2ffd24`, libQEx default): 0 non-manifold edges and 0 non-manifold vertices in all 1,482 replicate-runs, sculpt_parts included [M] | edges; vertices counted by `sculpt_report.py`, a gate once 2.18 is fixed. A non-manifold vertex is a bug wherever it occurs (ENVELOPE §2); the gate waits only so CI isn't red on a known, owned bug |
 | H8 | No face with 6 or more sides | 0 in 304 runs (corpus, closed, sculpt set) [M] | add |
 | H3 | Consistently oriented | 54/54 | add |
-| H4 | Islands kept: one output component per input island | 54/54; QuadriFlow 50/54 | add (reported today) |
-| H5 | Boundaries kept: input boundary loops stay open; closed inputs get no hole | 54/54; csg_bracket fails at adaptivity 1 (2.13) | after 2.13 |
-| H6 | Count within ±10 % of the target, first try | 54/54; QuadriFlow 34/54 | yes at 0.6–1.5; tighten to 0.9–1.1 |
+| H4 | Islands kept: one output component per input island, none dropped (under half its area within one output edge), split or merged | 54/54; QuadriFlow 50/54. **2026-10-22**, per island (`metrics.py` `validity`): corpus 72/72, sculpt 41/42, private 22/22; **closed 72.7/78**: thin ellipsoids at 150 quads shrink to a blob (up to 86 % of the input area farther than one quad from the output) and torus_0.03 at Quality 150 came out as 3 quads in 2 of 6 replicates, while their topology reads "same as input" [M] | add (`gates.py` computes it) |
+| H5 | Boundaries kept: input boundary loops stay open; closed inputs get no hole | 54/54; csg_bracket fails at adaptivity 1 (2.13). **2026-10-22** per island: corpus 70.5/72 (human_neutral mouth 2 holes in 8 replicate-runs, csg_bracket 1), joined private sword 14/16 (a loop closed) [M] | after 2.13 |
+| H6 | Count within ±10 % of the target, first try | 54/54; QuadriFlow 34/54. **2026-10-22**: corpus 70.7/72, closed 59.8/78 (thin shapes at 150 quads) [M] | yes at 0.6–1.5; tighten to 0.9–1.1 |
 | H7 | Deterministic per build (§2.5) | Linux yes (REFERENCE P8) | later (8.6) |
 
 ### 3.2 Validity (malformations): a ratchet toward zero
@@ -145,12 +145,12 @@ five tools or settings is fold-free, among them all three human_neutral counts) 
 
 | ID | Gate | Today: runs clean (per 1k, o / h / t / s / m) [M] | Best free tool [M] | 1.0 bar [I] |
 |---|---|---|---|---|
-| V1 | **Provisional (2026-10-21).** Hard surface: all-quad. Other families: no 6+-gon, and every edge-connected cluster of non-quads (triangles, pentagons) has at most **2** faces | Hard surface all-quad 3/12; others 60/60; closed 78/78 (master `124aeb8`, corpus set 2k/10k fast and quality). Non-quads per 1k faces, max per family: o 6.8, h 20.1, t 26.2, s 5.6, m 2.1 | all runs, all three (all-quad) | every run |
-| V2 | No folded quad: every corner's scaled Jacobian > 0 (`folded_faces`) | 29/54 (0 / 0.31 / 0.72 / 0.04 / 0) | Blender 14/48 | every run on organic and scan inputs; elsewhere ≤ the best free tool per 1k |
-| V3 | No face flipped against the input (catches pleats of convex quads that V2 misses; faces where the input is thinner than a quad excluded once 1.4 can measure it) | 25/54 (0 / 0.10 / 1.09 / 0.09 / 0) | Instant Meshes 26/54 | as V2 |
-| V4 | No degenerate face (area < 10⁻⁶ h²) | 54/54 | Blender 45/48 | every run |
-| V5 | No interior vertex of valence 2 or ≥ 7 (feature corners exempt once Wave 5 marks them) | 37/54 | Blender 48/48 | every run |
-| V6 | Genus per island kept for every handle whose shortest loop is ≥ 4 quad edges; thinner handles reported | 63/72 corpus runs (2k/10k) with the right topology, 61.5/72 over the 5 replicates (55 right in all six, 6 wrong in all six); closed set 75/78 (75.5/78); greedy rounding fixed or broke none unanimously | not measured | every run (needs a loop-length measure in 1.4) |
+| V1 | **Provisional (2026-10-21).** Hard surface: all-quad. Other families: no 6+-gon, and every edge-connected cluster of non-quads (triangles, pentagons) has at most **2** faces | Hard surface all-quad 3/12; others 60/60; closed 78/78 (master `124aeb8`, corpus set 2k/10k fast and quality). Non-quads per 1k faces, max per family: o 6.8, h 20.1, t 26.2, s 5.6, m 2.1. **2026-10-22** (`c2ffd24`, libQEx default; corpus 72 runs × 6 replicates, mean over replicates): hard surface all-quad 11.7/12, others 60/60, closed 78/78; non-quads per 1k faces o 0 / h 0.06 / t 0 / s 0.003 / m 0 [M] | all runs, all three (all-quad) | every run |
+| V2 | No folded quad: every corner's scaled Jacobian > 0 (`folded_faces`) | 29/54 (0 / 0.31 / 0.72 / 0.04 / 0). **2026-10-22**: corpus 51.5/72 (o 20.0/24, h 9.8/12, t 7.5/16, s 11.2/16, m 3.0/4; per 1k 0.11 / 0.07 / 0.56 / 0.14 / 0.04), closed 54.3/78; on organic only human_neutral folds, on scans all four (demosthenes, spot_noisy, nefertiti, hammer) [M] | Blender 14/48 | every run on organic and scan inputs; elsewhere ≤ the best free tool per 1k |
+| V3 | No face flipped against the input (catches pleats of convex quads that V2 misses; faces where the input is thinner than a quad excluded once 1.4 can measure it) | 25/54 (0 / 0.10 / 1.09 / 0.09 / 0). **2026-10-22**, flips now against the input oriented like the core (`metrics.py`, 1.4): corpus 35.5/72 (o 16.2/24, h 7.2/12, t 5.8/16, s 6.2/16, m 0.2/4; per 1k 0.64 / 0.23 / 2.34 / 0.55 / 0.70), closed 44.2/78 [M] | Instant Meshes 26/54 | as V2 |
+| V4 | No degenerate face (area < 10⁻⁶ h²) | 54/54. **2026-10-22**: corpus 72/72, closed 77.7/78 [M] | Blender 45/48 | every run |
+| V5 | No interior vertex of valence 2 or ≥ 7 (feature corners exempt once Wave 5 marks them) | 37/54. **2026-10-22**: corpus 53.7/72 (36 in every replicate), closed 76.7/78 [M] | Blender 48/48 | every run |
+| V6 | Genus per island kept for every handle whose shortest loop is ≥ 4 quad edges; thinner handles reported | 63/72 corpus runs (2k/10k) with the right topology, 61.5/72 over the 5 replicates (55 right in all six, 6 wrong in all six); closed set 75/78 (75.5/78); greedy rounding fixed or broke none unanimously. **2026-10-22**: corpus 66.5/72 (64 right in all six; demosthenes loses its 4 scan handles in every run, human_neutral opens its mouth in 8 of 24), closed 77.7/78; per island (`validity.islands_same_as_input`) the same counts on corpus and closed. Handles lost or added are now counted per island, which catches a handle moved between islands; one lost and one added in the same island still passes (1.14) [M] | not measured | every run (needs a loop-length measure in 1.4) |
 
 All of V1–V5 together (headline validity number): ours 9/54, ours at adaptivity 0 9/54 (frozen run),
 Blender's QuadriFlow 11/48, Instant Meshes 8/54, QuadriFlow 4/54 [M]; those used the old all-quad V1.
@@ -160,6 +160,15 @@ pass 35/72, so V1 now costs 3 runs and folds are what holds the number down. Clo
 equal to V2–V5 alone [M]. Report the headline as "V1–V5 together" with the provisional V1, and the old
 all-quad number next to it while V1 is provisional, so the comparison with the frozen tools stays
 readable.
+
+**Re-baseline 2026-10-22** (master `c2ffd24`, libQEx default, `tools/bench/gates.py` over `ab.py`
+runs with 5 replicates) [M]: corpus 33/72 on the plain inputs (32/72 on `124aeb8`), **28.3/72 as the
+mean over the six replicates, 19 in every replicate**; closed 41/78 plain, 43.3/78 mean, 33 in every
+replicate. V1 no longer costs anything (libQEx output is all-quad outside 1 hard-surface run), so V2–V5
+alone give the same counts: folds (V2) and flips (V3) hold the number down, V3 most (corpus 35.5/72).
+The plain-input number flatters: 14 of the 33 plain passes fail in at least one replicate, so the
+ratchet uses the replicate mean. Other sets (mean over replicates): sculpt 10.5/42, brush 15.8/24,
+Suzanne 1.8/9, private realsculpt 0.2/6, realsword 0/16.
 
 **Why V1 changed (provisional, 2026-10-21).** For a sculptor the output is a base mesh to subdivide and
 sculpt on. Isolated triangles and pentagons cost nothing under Catmull-Clark (no folded child in 24
@@ -219,15 +228,19 @@ Bold today values already meet the minimum.
 
 ### 4.1 Fidelity (lead)
 
-Ratio = ours / best free tool, paired, geo-mean; lower is better.
+Ratio = ours / best free tool, paired, geo-mean; lower is better. **Today** in §4.1 and §4.2 re-measured 2026-10-22 on master
+`c2ffd24` (corpus, Quality, 2k and 10k, mean over 6 replicates; `research/rebaseline-2026-10-22/ratios.py`
+against the frozen competitor runs at the same counts); "was" = the 2026-10-19 values (2k/10k/50k). Relax
+(2.8, #62) put the vertices on the input; D2 now meets its minimum outside multi-island, D3 only on thin
+shell; hard surface misses G1 and G2, multi-island G2 [M].
 
 | Metric | Today o / h / t / s / m | Min | Stretch | Why |
 |---|---|---|---|---|
-| D1r input-to-output distance, 99th percentile | **0.59** / 0.90 / **0.30** / 0.801 / **0.74** | ≤ 0.8 | ≤ 0.5 | A lead under 20 % is inside the scan interval and one sizing change; 0.5 halves the worst deviation, which shows on thin parts |
-| D1 Hausdorff (diagnostic) | 0.54 / 0.82 / 0.75 / 1.11 / 0.61 | – | – | One maximum per run; reported because it is the standard number |
-| D2 mean distance | 1.15 / 1.15 / **0.43** / 1.10 / 1.41 | ≤ 1.0 | ≤ 0.8 | Parity first; projection (2.8) is the known missing step |
-| D3 normal deviation, mean | 1.26 / 2.23 / 1.18 / 1.22 / 1.35 | ≤ 1.0 | ≤ 0.8 | Same; hard surface also needs creases (5.1–5.3) |
-| Vertices on the input: median vertex-to-input distance, ×10⁻³ diag | 0.052 / 0.004 / 0.009 / 0.091 / 0.20 | ≤ 0.001 | ≤ 0.0001 | Instant Meshes projects to 0.0001; QuadriFlow sits at 0.0002–0.04 |
+| D1r input-to-output distance, 99th percentile | **0.55** / 0.92 / **0.30** / 0.83 / 0.84 (was 0.59 / 0.90 / 0.30 / 0.801 / 0.74) | ≤ 0.8 | ≤ 0.5 | A lead under 20 % is inside the scan interval and one sizing change; 0.5 halves the worst deviation, which shows on thin parts |
+| D1 Hausdorff (diagnostic) | 0.56 / 0.81 / 0.57 / 1.05 / 0.94 (was 0.54 / 0.82 / 0.75 / 1.11 / 0.61) | – | – | One maximum per run; reported because it is the standard number |
+| D2 mean distance | **0.84** / **0.82** / **0.36** / **0.83** / 1.11 (was 1.15 / 1.15 / 0.43 / 1.10 / 1.41) | ≤ 1.0 | ≤ 0.8 | Parity first; projection (2.8) is the known missing step |
+| D3 normal deviation, mean | 1.13 / 1.25 / **0.91** / 1.11 / 1.14 (was 1.26 / 2.23 / 1.18 / 1.22 / 1.35) | ≤ 1.0 | ≤ 0.8 | Same; hard surface also needs creases (5.1–5.3) |
+| Vertices on the input: median vertex-to-input distance, ×10⁻³ diag | **0.000005** / **0.000005** / **0.000002** / **0.000005** / **0.000006** (was 0.052 / 0.004 / 0.009 / 0.091 / 0.20) | ≤ 0.001 | ≤ 0.0001 | Instant Meshes projects to 0.0001; QuadriFlow sits at 0.0002–0.04 |
 | A1 sharp-feature coverage, hard surface, per mesh (dihedral > 40°; output edge within 0.1 h and 10°; h = local quad size, not the global mean the comparison used) | boat 0.23, wingnut 0.20, csg_bracket 0.07 | ≥ 0.6 each | ≥ 0.9 each | QuadriFlow without its feature option reaches 0.42 on csg_bracket; a hard lock (5.2–5.3) should cover every crease longer than a quad |
 
 ### 4.2 Element shape (parity with the best free tool)
@@ -236,9 +249,9 @@ Family median of the per-run value; higher SJ and lower skew are better.
 
 | Metric | Today o / h / t / s / m | Min | Stretch | Why |
 |---|---|---|---|---|
-| G1 scaled Jacobian, 1st percentile | **0.84** / 0.46 / **0.54** / **0.78** / **0.75** | 0.80 / 0.80 / 0.40 / 0.75 / 0.65 | 0.85 / 0.85 / 0.70 / 0.85 / 0.80 | Min = best free tool's family median, rounded; stretch = our own adaptivity-0 output (0.84 / 0.84 / 0.71 / 0.84 / 0.81), so this pipeline can reach it |
-| G2 angle skew, 95th percentile (°) | **19** / 34 / **23** / **24** / 32 | 24 / 19 / 26 / 25 / 31 | 18 / 16 / 20 / 19 / 26 | Same rule |
-| G4 aspect, mean | 1.66 / 1.95 / 2.03 / 1.67 / 1.50 | reported only | | Anisotropy is on by default on purpose (stretched quads along flat directions spend fewer quads per unit of error); the others are at 1.1–1.5 |
+| G1 scaled Jacobian, 1st percentile | **0.83** / 0.59 / **0.61** / **0.75** / **0.68** (was 0.84 / 0.46 / 0.54 / 0.78 / 0.75) | 0.80 / 0.80 / 0.40 / 0.75 / 0.65 | 0.85 / 0.85 / 0.70 / 0.85 / 0.80 | Min = best free tool's family median, rounded; stretch = our own adaptivity-0 output (0.84 / 0.84 / 0.71 / 0.84 / 0.81), so this pipeline can reach it |
+| G2 angle skew, 95th percentile (°) | **22** / 31 / **25** / **24** / 33 (was 19 / 34 / 23 / 24 / 32) | 24 / 19 / 26 / 25 / 31 | 18 / 16 / 20 / 19 / 26 | Same rule |
+| G4 aspect, mean | 1.59 / 1.81 / 1.85 / 1.57 / 1.47 (was 1.66 / 1.95 / 2.03 / 1.67 / 1.50) | reported only | | Anisotropy is on by default on purpose (stretched quads along flat directions spend fewer quads per unit of error); the others are at 1.1–1.5 |
 
 The sizing work's success test (4.1/4.5): the stretch row here together with D1r ≤ 0.8 in every family.
 
@@ -277,11 +290,14 @@ computed and no reference values (§7).
   the §4.1 and §4.2 minimums; otherwise start Stage B (7.2).
 - **Follow-ups this file needs** (not done here):
   - move the comparison metrics into `tools/bench` (1.4), with V3's thin-part exclusion and V6's loop
-    length, so every number is computed in the repo;
+    length, so every number is computed in the repo (2026-10-22: V3 against the oriented input, per-island
+    topology, coverage and non-manifold vertices are in `metrics.py`, every gate of §3 in `gates.py`;
+    the thin-part exclusion, V6's loop length and the pole/loop metrics are still open);
   - in `ci/output_gate.py`, gate H3, H4, H8 and a 0.9–1.1 count; its `> 2 % non-quads` limit is a
     per-run guard, not V1, and stays until V1's cluster rule is computed there;
-  - V1 cluster size and non-manifold vertices into `ab.py compare` (today only `sculpt_report.py`), and
-    a corner-Jacobian test on non-quads for V2 (1.4);
+  - ~~V1 cluster size and non-manifold vertices into `ab.py compare`, and a corner-Jacobian test on
+    non-quads for V2 (1.4)~~ done 2026-10-22: `gates.py` (cluster size, every gate), `ab.py compare`
+    rows `nm_vertices` and `folded_faces` (any face size);
   - decide whether to re-derive the §4 min values on 18 meshes (they are tool-relative and were taken
     from 16; e.g. QuadriFlow's P1 on hard surface is now 0.50, not 0.52); the "today" columns were
     re-run on master 47529e1 for all 18 meshes on 2026-10-20 (§2.2);

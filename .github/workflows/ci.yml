@@ -420,8 +420,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
-      contents: write   # create or update the draft release
-      actions: read     # this run's artifacts
+      contents: write      # create or update the draft release
+      actions: read        # this run's artifacts
+      id-token: write      # Sigstore signing certificate for the attestation
+      attestations: write  # store the attestation
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -454,6 +456,15 @@ jobs:
           python3 ci/release.py notes "$GITHUB_REF_NAME" build/release-in "$GITHUB_SHA" build/release
           cat build/release/SHA256SUMS.txt
           cat build/release/notes.md >> "$GITHUB_STEP_SUMMARY"
+
+      # Signed build provenance (SLSA, Sigstore) for each zip, stored by GitHub: anyone can
+      # check that a download was built by this workflow from this commit with
+      # `gh attestation verify <zip> -R KajetanMuczynski/quadami`. One per digest, so a re-run
+      # of the same zips adds a second, identical statement and nothing breaks.
+      - name: Attest the zips
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-checksums: build/release/SHA256SUMS.txt
 
       - name: Create or update the draft release
         env:

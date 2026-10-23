@@ -1621,8 +1621,6 @@ bool AutoRemesher::remeshIslands()
         run.set("input_flipped_triangles", (double)cleanup.flippedTriangles);
         run.set("input_non_orientable_pieces", (double)cleanup.nonOrientablePieces);
         {
-            // Distances as fractions of the detector radius.
-            const double radius = folds.radius > 0.0 ? folds.radius : 1.0;
             run.set("input_fold_repair", m_repairInputFolds ? 1.0 : 0.0);
             run.set("input_folded_triangles", (double)folds.foldedTriangles);
             run.set("input_fold_clusters", (double)folds.clusters);
@@ -1630,8 +1628,8 @@ bool AutoRemesher::remeshIslands()
             run.set("input_folded_triangles_after", (double)folds.foldedTrianglesAfter);
             run.set("input_fold_clusters_after", (double)folds.clustersAfter);
             run.set("input_fold_moved_vertices", (double)folds.movedVertices);
-            run.set("input_fold_max_offset", folds.maximumOffset / radius);
-            run.set("input_fold_max_move", folds.maximumMove / radius);
+            run.set("input_fold_max_offset", folds.maximumOffset);
+            run.set("input_fold_max_move", folds.maximumMove);
             run.set("fold_repair_ms", folds.seconds * 1000.0);
         }
         {

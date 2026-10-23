@@ -57,7 +57,7 @@ There is **no release download yet**: every zip is a test build. What exists tod
 |---|---|---|
 | **Linux** (64-bit Intel/AMD, any distribution with glibc 2.28 or newer: Ubuntu 20.04+, Debian 10+, Fedora 29+, RHEL 8+) | GitHub, see below: artifact `addon-linux-x64`. Blender from blender.org or the snap (`/snap/bin/blender`). Or build it yourself ([addon/BEGINNERS.md](../addon/BEGINNERS.md)). | Yes (Ubuntu, Blender 4.5 snap) |
 | **Windows** 10 or 11 (64-bit) | GitHub, see below: artifact `addon-windows-x64` | No, only in CI (Blender 5.2, no window) |
-| **macOS**, Apple silicon (M1 or newer), macOS 11.2 or newer | GitHub, see below: artifact `addon-macos-arm64` | No, only in CI |
+| **macOS**, Apple silicon (M1 or newer), macOS 11.2 or newer: **experimental, untested** | GitHub, see below: artifact `addon-macos-arm64` | No, only in CI |
 | macOS on Intel, Linux on ARM, Windows on ARM | Not built. Intel Macs: build it yourself ([BUILDING.md](BUILDING.md)). | No |
 
 **Zips from GitHub (Linux, Windows, macOS):**
@@ -314,8 +314,9 @@ What it does and does not do:
   left alone and counted under **Folds left**.
 - It is off unless you press the button, because it does change the remeshed shape slightly at those
   spots. On most models with folds the result is cleaner; check the spots it reports.
-- Folds wider than about 1 % of the model's size are not seen as folds (they look like a normal surface
-  turned over). Smooth those by hand.
+- Folds wider than about 1 % of the part's size are not seen as folds (they look like a normal surface
+  turned over). Smooth those by hand. Smooth bends are never counted, even tight ones (a thin vine curling
+  back on itself): only spots where the surface flips over at an edge are.
 
 ## 9. Troubleshooting
 
