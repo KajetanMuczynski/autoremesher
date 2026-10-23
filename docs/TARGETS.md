@@ -264,8 +264,8 @@ computed and no reference values (§7).
     length, so every number is computed in the repo (2026-10-22: V3 against the oriented input, per-island
     topology, coverage and non-manifold vertices are in `metrics.py`, every gate of §3 in `gates.py`;
     2026-10-23: V3's input-fold exclusion; the thin-part exclusion, V6's loop length and the pole/loop metrics are still open);
-  - in `ci/output_gate.py`, gate H3, H4 (with coverage: Kajetan 2026-10-23, a collapsed blob keeps
-    the input's genus), H8 and a 0.9–1.1 count; its `> 2 % non-quads` limit is a per-run guard and
+  - in `ci/output_gate.py`, gate H3, H4's island count, H8 and a 0.9–1.1 count (H4's coverage is in
+    since 2026-10-23: no input island more than 1 % farther than one output edge from the output); its `> 2 % non-quads` limit is a per-run guard and
     can become V1's all-quad once the CI meshes are all-quad on every platform;
   - ~~V1 cluster size and non-manifold vertices into `ab.py compare`, and a corner-Jacobian test on
     non-quads for V2 (1.4)~~ done 2026-10-22: `gates.py` (cluster size, every gate), `ab.py compare`

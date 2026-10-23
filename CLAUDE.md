@@ -78,8 +78,8 @@ CI (`.github/workflows/`):
     `ci/build_linux_portable.sh`, glibc 2.28 checked by `ci/check_linux_libs.py`), with the core tests: `ctest --no-tests=error`,
     `ci/output_gate.py` on the installed CLI (procedural sphere, torus, box, open tube, two islands, sphere centred at 1e5;
     fails on exit status, quads outside 0.6-1.5x target, >2 % non-quads, any non-manifold edge,
-    report/OBJ mismatch; folded faces and empty islands are reported in the job summary, not gated
-    yet), worker tests, zip installed into a real Blender (4.2 LTS on Linux, 5.2 on Windows and
+    an input island more than 1 % farther than one output edge from the output (TARGETS H4 coverage: dropped
+    or collapsed parts), report/OBJ mismatch; folded faces are reported in the job summary, not gated yet), worker tests, zip installed into a real Blender (4.2 LTS on Linux, 5.2 on Windows and
     macOS). All three zips (Linux glibc 2.28+, macOS 11.2+ Apple silicon) are uploaded as artifacts
     `addon-<platform>`. One macOS job per PR, since macOS runners are the scarce ones.
   - `release (draft)`: only on a `v*` tag, after **CI passed**: `ci/release.py` checks the tag
