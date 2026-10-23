@@ -30,6 +30,18 @@
 #include <locale>
 #include <numeric>
 #include <sstream>
+#if defined(__has_include)
+#if __has_include(<oneapi/tbb/blocked_range.h>)
+#include <oneapi/tbb/blocked_range.h>
+#include <oneapi/tbb/parallel_for.h>
+#else
+#include <tbb/blocked_range.h>
+#include <tbb/parallel_for.h>
+#endif
+#else
+#include <tbb/blocked_range.h>
+#include <tbb/parallel_for.h>
+#endif
 
 namespace AutoRemesher {
 
@@ -320,9 +332,7 @@ void measureLostParts(const std::vector<double>& positions, const std::vector<ui
     double area = 0.0;
     std::vector<uint32_t> inputVertices(triangles.begin(), triangles.end());
     for (size_t i = 0; i < triangles.size(); i += 3) {
-        area += 0.5 * Vector3::crossProduct(point(triangles[i + 1]) - point(triangles[i]),
-            point(triangles[i + 2]) - point(triangles[i]))
-                          .length();
+        area += 0.5 * Vector3::crossProduct(point(triangles[i + 1]) - point(triangles[i]), point(triangles[i + 2]) - point(triangles[i])).length();
     }
     std::sort(inputVertices.begin(), inputVertices.end());
     inputVertices.erase(std::unique(inputVertices.begin(), inputVertices.end()), inputVertices.end());
@@ -552,6 +562,13 @@ RemeshResult remeshWithPreview(const RemeshRequest& request,
     }
     measureMesh(mesh, &report);
     measureClosedIslands(mesh, engine.remeshedIslands(), &report);
+    {
+        const auto lostPartsStart = std::chrono::steady_clock::now();
+        measureLostParts(request.positions, request.triangles, parameters.targetQuadCount, mesh,
+            engine.remeshedIslands(), &report);
+        report.diagnostics.emplace_back("lost_parts_ms",
+            1000.0 * std::chrono::duration<double>(std::chrono::steady_clock::now() - lostPartsStart).count());
+    }
 
     if (nullptr != preview) {
         preview->decimated = engine.decimated();
@@ -576,6 +593,18 @@ RemeshResult remeshWithPreview(const RemeshRequest& request,
         report.warnings.push_back("Output has " + std::to_string(report.closedIslandHoleCount)
             + (1 == report.closedIslandHoleCount ? " hole" : " holes") + " where the input was closed ("
             + std::to_string(report.closedIslandHoleEdgeCount) + " open edges)");
+    }
+    if (report.farInputVertexCount > 0) {
+        report.warnings.push_back("Parts of the model are missing in the result (up to "
+            + std::to_string((long long)std::floor(report.farthestInputQuadWidths))
+            + " quad widths away). Thin parts need about two quads across: raise Target Quads.");
+    }
+    if (report.collapsedIslandCount > 0) {
+        report.warnings.push_back(std::to_string(report.collapsedIslandCount)
+            + (1 == report.collapsedIslandCount ? " island" : " islands")
+            + " came out with far fewer quads than planned (smallest: "
+            + std::to_string(report.smallestCollapsedIslandFaces) + " of "
+            + std::to_string(report.smallestCollapsedIslandTargetQuads) + ")");
     }
     return finish(RemeshStatus::Ok, std::string());
 }
@@ -633,6 +662,14 @@ std::string toJson(const RemeshResult& result)
         << ", \"opened\": " << jsonCount(report.openedClosedIslandCount)
         << ",\n              \"holes\": " << jsonCount(report.closedIslandHoleCount)
         << ", \"hole_edges\": " << jsonCount(report.closedIslandHoleEdgeCount)
+        << ",\n              \"collapsed\": " << jsonCount(report.collapsedIslandCount)
+        << ", \"smallest_collapsed_faces\": " << jsonCount(report.smallestCollapsedIslandFaces)
+        << ", \"smallest_collapsed_target_quads\": " << jsonCount(report.smallestCollapsedIslandTargetQuads)
+        << "},\n";
+    out << "  \"lost_parts\": {"
+        << "\"farthest_input_quad_widths\": " << jsonNumber(report.farthestInputQuadWidths)
+        << ", \"far_input_vertices\": " << jsonCount(report.farInputVertexCount)
+        << ", \"threshold_quad_widths\": " << jsonNumber(LostPartQuadWidths)
         << "},\n";
     out << "  \"time\": {\"total_seconds\": " << jsonNumber(report.seconds) << ", \"steps\": [";
     for (size_t i = 0; i < report.stepSeconds.size(); ++i) {
