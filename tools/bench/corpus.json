@@ -1,12 +1,13 @@
 {
- "_comment": "Mesh sets for run_corpus.py (set corpus) and ab.py (any set). 'file' is relative to the meshes folder: downloads/ from fetch_meshes.sh, synthetic/ from make_synthetic.py, suzanne/ from make_suzanne.py, sculpt/ from make_sculpt.py. 'set' defaults to corpus. sym = mirror plane for symmetry metrics (axis, center); 'auto' center = input bbox centre on that axis. sets: default targets and resolutions per set for ab.py. The gallery set (tools/gallery/gallery.py, docs/gallery/) holds public-license or procedural meshes only; its entries carry their own target, cli_args, up (file up axis, default Y), view (camera direction, Blender axes) and title, and the empty set default makes ab.py need --targets.",
+ "_comment": "Mesh sets for run_corpus.py (set corpus) and ab.py (any set). 'file' is relative to the meshes folder: downloads/ from fetch_meshes.sh, synthetic/ from make_synthetic.py, suzanne/ from make_suzanne.py, sculpt/ from make_sculpt.py, external/ from fetch_external.py (external.json: license, author, SHA-256). 'set' defaults to corpus. sym = mirror plane for symmetry metrics (axis, center); 'auto' center = input bbox centre on that axis. sets: default targets and resolutions per set for ab.py. The gallery set (tools/gallery/gallery.py, docs/gallery/) holds public-license or procedural meshes only; its entries carry their own target, cli_args, up (file up axis, default Y), view (camera direction, Blender axes) and title, and the empty set default makes ab.py need --targets.",
  "sets": {
   "corpus": {"targets": [2000, 10000], "resolutions": ["fast", "quality"]},
   "closed": {"targets": [150, 500, 2000], "resolutions": ["fast", "quality"]},
   "suzanne": {"targets": [2000, 5000, 10000], "resolutions": ["quality"]},
   "sculpt": {"targets": [2000, 5000, 15000], "resolutions": ["fast", "quality"]},
   "brush": {"targets": [2000, 5000], "resolutions": ["quality"]},
-  "gallery": {"targets": [], "resolutions": ["quality"]}
+  "gallery": {"targets": [], "resolutions": ["quality"]},
+  "external": {"targets": [3000, 10000], "resolutions": ["quality"]}
  },
  "meshes": [
   {"id": "spot", "file": "downloads/spot.obj", "category": "organic, clean, genus 0"},
@@ -71,6 +72,26 @@
   {"id": "brush_box_relief", "file": "brush/brush_box_relief.obj", "category": "brush: hard-surface box, pinched relief groove, crumpled edge, one-vertex spike (70 folded tris)", "set": "gallery", "target": 2000, "up": "Z", "view": [1, -1, 0.5], "title": "Sculpted box with folded input"},
   {"id": "brush_box_relief_repair", "file": "brush/brush_box_relief.obj", "category": "brush_box_relief with --fold-repair on", "set": "gallery", "target": 2000, "cli_args": ["--fold-repair=on"], "up": "Z", "view": [1, -1, 0.5], "title": "Same box, Repair Folds on"},
   {"id": "sword", "file": "downloads/sword.obj", "category": "thin shell, closed (blade), scan", "set": "gallery", "target": 1000, "view": [1, -1, 0.5], "title": "Arming sword at 1,000 quads (thin parts)"},
-  {"id": "sword_3k", "file": "downloads/sword.obj", "category": "thin shell, closed (blade), scan", "set": "gallery", "target": 3000, "view": [1, -1, 0.5], "title": "Same sword at 3,000 quads"}
+  {"id": "sword_3k", "file": "downloads/sword.obj", "category": "thin shell, closed (blade), scan", "set": "gallery", "target": 3000, "view": [1, -1, 0.5], "title": "Same sword at 3,000 quads"},
+  {"id": "ext_makehuman", "file": "external/ext_makehuman.obj", "category": "full human body, hands with fingers, ears; clean quad base mesh, closed", "set": "external"},
+  {"id": "ext_leeperrysmith", "file": "external/ext_leeperrysmith.obj", "category": "head scan with ears, open neck", "set": "external"},
+  {"id": "ext_washington", "file": "external/ext_washington.obj", "category": "marble bust scan, 150k tris", "set": "external"},
+  {"id": "ext_lincoln", "file": "external/ext_lincoln.obj", "category": "face scan, open back, 150k tris", "set": "external"},
+  {"id": "ext_scorpion", "file": "external/ext_scorpion.obj", "category": "creature: thin legs, claws, segmented tail", "set": "external"},
+  {"id": "ext_goathead", "file": "external/ext_goathead.obj", "category": "creature head: curled horns, ears", "set": "external"},
+  {"id": "ext_skull", "file": "external/ext_skull.obj", "category": "skull: thin bone bridges (cheekbones), higher genus", "set": "external"},
+  {"id": "ext_tree", "file": "external/ext_tree.obj", "category": "tree: thin branches, closed", "set": "external"},
+  {"id": "ext_violin", "file": "external/ext_violin.obj", "category": "instrument scan: hard surface, thin parts (scroll, bridge, pegs)", "set": "external"},
+  {"id": "ext_boot", "file": "external/ext_boot.obj", "category": "prop: leather boot with laces and sole (organic meets hard)", "set": "external"},
+  {"id": "ext_lionstatue", "file": "external/ext_lionstatue.obj", "category": "statue scan: mane detail, creature", "set": "external"},
+  {"id": "ext_mosquito", "file": "external/ext_mosquito.obj", "category": "insect scan: very thin legs and antennae, inside an amber shell (nested shells)", "set": "external"},
+  {"id": "ext_scatteringskull", "file": "external/ext_scatteringskull.obj", "category": "skull scan, dense", "set": "external"},
+  {"id": "ext_barramundi", "file": "external/ext_barramundi.obj", "category": "fish: thin fins", "set": "external"},
+  {"id": "ext_corset", "file": "external/ext_corset.obj", "category": "cloth scan: corset with lacing", "set": "external"},
+  {"id": "ext_plant", "file": "external/ext_plant.obj", "category": "plant: open leaf sheets (cards), many islands", "set": "external"},
+  {"id": "ext_sheencloth", "file": "external/ext_sheencloth.obj", "category": "cloth: draped fabric sheet", "set": "external"},
+  {"id": "ext_flighthelmet", "file": "external/ext_flighthelmet.obj", "category": "prop: leather helmet, goggles, straps, stand (hard surface meets organic, many parts)", "set": "external"},
+  {"id": "ext_scifihelmet", "file": "external/ext_scifihelmet.obj", "category": "hard-surface armor prop", "set": "external"},
+  {"id": "ext_watch", "file": "external/ext_watch.obj", "category": "hard surface: watch with strap, many small parts", "set": "external"}
  ]
 }

@@ -164,17 +164,30 @@ class ReportTest(unittest.TestCase):
                  "output": {"quads": 4962},
                  "diagnostics": {"input_fold_clusters": 70, "input_folded_triangles": 326}}
         warning = " ".join(text for text, _, _ in report.warning_lines(found))
-        self.assertIn("Folded input: 326 faces in 70 spots.", warning)
+        self.assertIn("Folded input: 326 faces in 70 spots,", warning)
+        self.assertNotIn("brush", warning)
         self.assertTrue(report.offers_fold_repair(found))
         self.assertIn("not changed", " ".join(report.fold_offer_lines()))
         repaired = {"status": "ok", "parameters": {"target_quads": 5000, "repair_folds": True},
                     "output": {"quads": 4962},
-                    "diagnostics": {"input_fold_clusters": 70, "input_fold_clusters_after": 9}}
+                    "diagnostics": {"input_fold_clusters": 70, "input_fold_clusters_after": 9,
+                                    "input_folded_triangles": 326, "input_folded_triangles_after": 20}}
         rows = report.summary_rows(repaired)
-        self.assertIn(("Folds repaired", "61 of 70 spots", False), rows)
-        self.assertIn(("Folds left", "9 spots", True), rows)
+        self.assertIn(("Folds repaired", "306 of 326 faces", False), rows)
+        self.assertIn(("Folds left", "20 faces in 9 spots", True), rows)
         self.assertFalse(report.offers_fold_repair(repaired))
-        self.assertIn("9 folded spots could not be repaired", report.warning_lines(repaired)[0][0])
+        self.assertIn("20 folded faces in 9 spots could not", " ".join(t for t, _, _ in report.warning_lines(repaired)))
+        # A repair that splits 3 spots into 32 smaller ones still reads sensibly.
+        split = {"status": "ok", "parameters": {"target_quads": 5000, "repair_folds": True},
+                 "output": {"quads": 4962},
+                 "diagnostics": {"input_fold_clusters": 3, "input_fold_clusters_after": 32,
+                                 "input_folded_triangles": 90, "input_folded_triangles_after": 40}}
+        self.assertIn(("Folds repaired", "50 of 90 faces", False), report.summary_rows(split))
+        done = {"status": "ok", "parameters": {"target_quads": 5000, "repair_folds": True},
+                "output": {"quads": 4962},
+                "diagnostics": {"input_fold_clusters": 3, "input_fold_clusters_after": 0,
+                                "input_folded_triangles": 90, "input_folded_triangles_after": 0}}
+        self.assertFalse(any(label == "Folds left" for label, _, _ in report.summary_rows(done)))
         clean = {"status": "ok", "parameters": {"target_quads": 5000}, "output": {"quads": 4962},
                  "diagnostics": {"input_fold_clusters": 0}}
         self.assertFalse(any(label in ("Folds repaired", "Folds left") for label, _, _ in report.summary_rows(clean)))
