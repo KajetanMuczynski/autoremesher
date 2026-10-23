@@ -26,8 +26,8 @@ directory you choose.
 | `fold_repair.py` | Offline prototype of a local repair of folded input (TODO 2.19 candidate, not in the core): per fold cluster from `input_folds`, untangles the folded faces and a few rings in a planar chart (Tutte, then pulled back as close to the original as the faces stay positive), puts moved vertices back on the original surface, keeps every face. `fold_repair.py in.obj out.obj --json report.json`; the report has folds before and after, skipped clusters and why, and the largest move. |
 | `corpus.json` | Mesh sets with their default targets and resolutions: `corpus` (the 18-mesh baseline corpus, 72 runs), `closed` (13 thin ellipsoids and tori, 78 runs; genus regressions show here first), `suzanne` (Suzanne + Subdivision 1–3, 9 runs; open, the add-on's first bug report), `sculpt` (7 sculpt stand-ins from `make_sculpt.py` at 2k/5k/15k, 42 runs), `brush` (12 brush stand-ins from `make_sculpt.py --set brush` at 2k/5k quality, 24 runs; about 1 h with `--replicates 5 --jobs 4` on 4 cores), `gallery` (the public gallery's entries, each with its own target and camera; run through `tools/gallery/gallery.py`, public-license or procedural meshes only, checked by `tests/test_gallery_set.py`). Categories and symmetry planes per mesh. |
 | `run_corpus.py` | Runs `ar_bench` (+ metrics) per mesh and target over the `corpus` set; writes `record.json` per run and `summary.json`. For time and memory; quality A/B goes through `ab.py`. |
-| `gates.py RUN --set S` | docs/TARGETS.md §3 gates (H1–H8, V1–V6, coverage) over an `ab.py` run folder, per family: runs passing as the mean over replicates and in every replicate, defects per 1k faces, fidelity medians. |
-| `metrics.py` | Output quality: face/valence statistics, corner angles, scaled Jacobian, degenerate and flipped faces (against the input oriented like the core does), non-manifold edges and vertices, topology against the input (Euler characteristic, components, boundary loops; globally and per input island: dropped, merged, holes, handles), input area lost or collapsed (thin parts), two-sided Hausdorff, geometric and topological mirror symmetry. |
+| `gates.py RUN --set S` | docs/TARGETS.md §3 gates (H1–H8, V1–V6, coverage, libQEx fallbacks) over an `ab.py` run folder, per family: runs passing as the mean over replicates and in every replicate, defects per 1k faces, fidelity medians. |
+| `metrics.py` | Output quality: face/valence statistics, corner angles, scaled Jacobian, degenerate and flipped faces (against the input oriented like the core does; those over folded input counted apart for V3), non-manifold edges and vertices, topology against the input (Euler characteristic, components, boundary loops; globally and per input island: dropped, merged, holes, handles), input area lost or collapsed (thin parts), two-sided Hausdorff, geometric and topological mirror symmetry. |
 | `summarize.py` | Markdown tables + CSV from `summary.json`. |
 | `claims.py` | Aggregates per REFERENCE claim (stage shares, M1/M2 counts, P3 correlations and scaling slopes, thread/ladder/allocator/adaptivity comparisons). |
 | `experiments.sh` | Thread sweep (P1), input-size ladder (P4/P6), allocator swap (P5), adaptivity off (M7), perf profiles. |
@@ -115,7 +115,9 @@ $P tools/bench/ab.py run HEAD --set closed   # genus check; also --set suzanne
   records, a **libQEx fallbacks** section lists the replicate-runs with a fallback, the reasons, and folds,
   non-quads and topology on exactly those runs for both sides. `--per-run` adds one row per run.
 - **Re-measuring.** After a change to `metrics.py`, `run <ref> --remeasure` recomputes `metrics.json` of the
-  finished runs without running the CLI again.
+  finished runs without running the CLI again. With `--jobs 4` on 2M-triangle inputs (nefertiti, cat)
+  metrics.py can run out of memory; such a run keeps `"metrics": null` (never the old file) and
+  `gates.py` lists it as "left out": re-measure it with `--jobs 1`.
 - **Timing.** The `time` row is the CLI's own total under `--jobs` load. Use it for effects of 20 % or
   more; for anything finer run `--jobs 1` on an idle machine, or `ar_bench` with `--repeat`.
 

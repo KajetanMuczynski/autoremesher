@@ -155,6 +155,8 @@ def measure(rec, d, mesh, target, src, work):
             xs = [float(line.split()[col]) for line in open(src) if line.startswith("v ")]
             center = (min(xs) + max(xs)) / 2
         cmd += ["--sym-axis", axis, "--sym-center", repr(float(center))]
+    if os.path.exists(mj):  # a failed --remeasure must not leave the old metrics in place
+        os.remove(mj)
     subprocess.call(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         rec["metrics"] = json.load(open(mj))
@@ -353,6 +355,8 @@ def value(r, k):
     if k == "sj_le_0": return (m.get("quads") or {}).get("sj_le_0")
     if k == "flipped_vs_input": return (m.get("flipped") or {}).get("faces_vs_input")
     if k == "flipped_vs_raw": return (m.get("flipped") or {}).get("faces_vs_raw_input")
+    if k == "flipped_off_folds": return (m.get("flipped") or {}).get("faces_off_input_folds")
+    if k == "flipped_over_folds": return (m.get("flipped") or {}).get("faces_over_input_folds")
     if k in ("folded_faces", "holes_added", "holes_closed", "handles_lost", "handles_added", "islands_dropped",
              "islands_merged", "area_uncovered", "area_wrong_side"):
         return (m.get("validity") or {}).get(k)
@@ -386,7 +390,9 @@ COUNTS = ["flips_cont", "flips_round", "flips", "degenerate", "non_quads", "sj_l
           "t_non_manifold", "t_opened", "qex_fallbacks",
           # Validity from metrics.py (2026-10-22): per input island, matched to the output's islands.
           "folded_faces", "nm_vertices", "holes_added", "holes_closed", "handles_lost", "handles_added",
-          "islands_dropped", "islands_merged", "islands_changed", "flipped_vs_raw"]
+          "islands_dropped", "islands_merged", "islands_changed", "flipped_vs_raw",
+          # V3's split (2026-10-23): flips over folded input vs the rest
+          "flipped_off_folds", "flipped_over_folds"]
 MEANS = ["area_uncovered", "area_wrong_side", "irregular_1k", "in_out_p99", "hausdorff", "in_out_mean", "normal_dev", "vertex_dist", "sj_p1",
          "skew_p95", "crease_cov", "count_err", "energy_ratio", "time", "peak_rss_mb"]
 # Rows where a higher value is the better one (for "runs B better / worse").
