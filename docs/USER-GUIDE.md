@@ -311,8 +311,9 @@ What it does and does not do:
   left alone and counted under **Folds left**.
 - It is off unless you press the button, because it does change the remeshed shape slightly at those
   spots. On most models with folds the result is cleaner; check the spots it reports.
-- Folds wider than about 1 % of the model's size are not seen as folds (they look like a normal surface
-  turned over). Smooth those by hand.
+- Folds wider than about 1 % of the part's size are not seen as folds (they look like a normal surface
+  turned over). Smooth those by hand. Smooth bends are never counted, even tight ones (a thin vine curling
+  back on itself): only spots where the surface flips over at an edge are.
 
 ## 9. Troubleshooting
 
