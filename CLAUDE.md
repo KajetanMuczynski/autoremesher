@@ -86,6 +86,11 @@ CI (`.github/workflows/`):
     against the manifest version and the zips, and makes a **draft** GitHub release with the three
     zips, `SHA256SUMS.txt` and notes from `docs/releases/`. Publishing is Kajetan's click.
     Procedure, version rule and release checklist: `docs/RELEASING.md`.
+- `release-check.yml` (by hand only, before a release tag): the TARGETS release check on Linux,
+  Windows and macOS, each building the candidate and the previous release with `tools/bench/ab.py`
+  (corpus and closed sets, 5 replicates, about an hour per platform) and deciding with
+  `tools/bench/release_gate.py`. Not part of **CI passed**; procedure in `docs/RELEASING.md`. A PR
+  touching it, `ab.py`, `gates.py`, `metrics.py` or `release_gate.py` gets a smoke run (2 meshes).
 - `rerun-dropped.yml` (when a ci run completes): GitHub drops a macOS arm64 job that waits ~15 min
   for a runner (cancelled, no runner, no steps), which turns **CI passed** red. `ci/rerun_dropped.py`
   then re-runs the failed jobs of that same run, only if every failed job never got a runner, the
