@@ -19,8 +19,9 @@
 
 // Folded input (FoldRepair).
 //
-// The detector must leave a clean sphere, a thin closed slab and a thin
-// tube alone and flag a twist past one turn and a pleat.  The repair must
+// The detector must leave a clean sphere, a thin closed slab, a thin tube
+// and a thin tube bent back on itself alone, flag a twist past one turn and
+// a pleat, and find a twist on a small part joined to a big one.  The repair must
 // untangle the twist locally with every moved vertex still on the sphere,
 // untangle the pleat without moving the sheet's open border, keep the
 // vertices of a crease next to a fold where they are, leave clean input
@@ -160,6 +161,50 @@ Mesh tube(double radius, double length, size_t segments, size_t rings)
     return mesh;
 }
 
+// An open tube along a hairpin: straight, half a turn of the given radius,
+// straight back.  Smooth everywhere (no edge turns more than 360 / segments
+// degrees), but it bends back within the detector radius.
+Mesh hairpin(double radius, double bend, size_t segments)
+{
+    std::vector<std::pair<Vector3, Vector3>> path;
+    const size_t straight = 400, around = 200;
+    for (size_t i = 0; i < straight; ++i)
+        path.push_back({ Vector3(-1.0 + (double)i / straight, 0, 0), Vector3(1, 0, 0) });
+    for (size_t i = 0; i <= around; ++i) {
+        const double a = pi * i / around;
+        path.push_back({ Vector3(bend * std::sin(a), bend - bend * std::cos(a), 0), Vector3(std::cos(a), std::sin(a), 0) });
+    }
+    for (size_t i = 1; i < straight; ++i)
+        path.push_back({ Vector3(-(double)i / straight, 2.0 * bend, 0), Vector3(-1, 0, 0) });
+    Mesh mesh;
+    for (const auto& point : path) {
+        const Vector3 u = Vector3::crossProduct(point.second, Vector3(0, 0, 1)).normalized();
+        const Vector3 w = Vector3::crossProduct(point.second, u);
+        for (size_t k = 0; k < segments; ++k) {
+            const double a = 2.0 * pi * k / segments;
+            mesh.vertices.push_back(point.first + radius * (std::cos(a) * u + std::sin(a) * w));
+        }
+    }
+    for (size_t i = 0; i + 1 < path.size(); ++i)
+        for (size_t k = 0; k < segments; ++k) {
+            const size_t a = i * segments + k, b = i * segments + (k + 1) % segments;
+            mesh.triangles.push_back({ a, b, b + segments });
+            mesh.triangles.push_back({ a, b + segments, a + segments });
+        }
+    return mesh;
+}
+
+// Both meshes as one, b moved by `offset`.
+Mesh join(const Mesh& a, const Mesh& b, const Vector3& offset)
+{
+    Mesh mesh = a;
+    for (const Vector3& v : b.vertices)
+        mesh.vertices.push_back(v + offset);
+    for (const std::vector<size_t>& t : b.triangles)
+        mesh.triangles.push_back({ t[0] + a.vertices.size(), t[1] + a.vertices.size(), t[2] + a.vertices.size() });
+    return mesh;
+}
+
 bool same(const Vector3& a, const Vector3& b)
 {
     return a.x() == b.x() && a.y() == b.y() && a.z() == b.z();
@@ -209,8 +254,7 @@ size_t count(const std::vector<char>& flags)
 
 size_t detected(const Mesh& mesh)
 {
-    return count(FoldRepair::detect(mesh.vertices, mesh.triangles,
-        FoldRepair::defaultRadius(mesh.vertices, FoldRepair::Options())));
+    return count(FoldRepair::detect(mesh.vertices, mesh.triangles, FoldRepair::Options()));
 }
 
 int failures = 0;
@@ -243,6 +287,30 @@ int main()
         // 0.01): the disc wraps all the way round.
         const Mesh thin = tube(0.001, 1.0, 12, 400);
         check(0 == detected(thin), "a thin tube is not a fold");
+    }
+    {
+        // Radius 0.3 % of the diagonal, bent back at 1 %: the sign test
+        // flags its inner side (as on a sword's vines), but nothing turns
+        // over.
+        const Mesh bent = hairpin(0.003, 0.01, 12);
+        check(0 == detected(bent), "a thin tube bent back on itself is not a fold");
+    }
+    {
+        // A twisted sphere of diameter 2 next to a box 300 across: with the
+        // radius of the whole (1 % of about 300) the disc would hold the
+        // whole sphere and sum to nothing.
+        Mesh small = icosphere(5);
+        twist(&small, 3.0, 0.15);
+        const size_t alone = detected(small);
+        const Mesh joined = join(box(20, Vector3(300.0, 300.0, 300.0)), small, Vector3(400.0, 0.0, 0.0));
+        check(alone > 0 && detected(joined) == alone, "a twist on a small part is found next to a big part");
+        Mesh repaired = joined;
+        const FoldRepair::Stats stats = FoldRepair::repair(&repaired.vertices, repaired.triangles, FoldRepair::Options());
+        bool boxKept = true;
+        for (size_t v = 0; v < joined.vertices.size() && v < repaired.vertices.size() - small.vertices.size(); ++v)
+            boxKept = boxKept && same(joined.vertices[v], repaired.vertices[v]);
+        check(stats.foldedTriangles == alone && stats.foldedTrianglesAfter * 4 < alone && boxKept,
+            "the twist on the small part is repaired, the big part stays as it was");
     }
     {
         Mesh twisted = icosphere(5);

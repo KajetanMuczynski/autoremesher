@@ -33,7 +33,9 @@ named *_rel_edge, which are relative to the output mean edge length):
               with the other winding is not counted; faces_vs_raw_input keeps
               the old count against the file's own normals
   validity    per input island (vertex-connected part), matched to output
-              islands by nearest input triangle: dropped, split, merged,
+              islands by nearest input triangle: dropped (under half its area
+              within one output edge), split, merged (covered but without an
+              output island of its own),
               Euler characteristic / boundary loops changed, holes added or
               closed, handles lost or added (genus per island; a handle moved
               between islands shows here, not in same_as_input), non-manifold
@@ -297,10 +299,6 @@ def validity(inp, V, faces, sizes, normals, E, bnd, used, vertex_comp, cf, rever
     C = coo_matrix((np.ones(len(faces)), (olab[first], tri_island[cf])), shape=(nout, nin)).tocsr()
     C.sum_duplicates()
     major = np.asarray(C.argmax(1)).ravel()
-    total = np.asarray(C.sum(1)).ravel()
-    Cc = C.tocoo()
-    big = Cc.data >= np.maximum(0.1 * total[Cc.row], 2)
-    merged = int(np.sum(np.bincount(Cc.row[big], minlength=nout) > 1))
     k = np.bincount(major, minlength=nin)
     chi_sum = np.bincount(major, weights=out_chi, minlength=nin).astype(np.int64)
     loops_sum = np.bincount(major, weights=out_loops, minlength=nin).astype(np.int64)
@@ -328,7 +326,11 @@ def validity(inp, V, faces, sizes, normals, E, bnd, used, vertex_comp, cf, rever
             dd, _ = point_to_mesh(Vin[Fin[tris]].mean(1), V, Ftri)
             w = area[tris]
             cov[i] = float(np.sum(w * (dd <= h)) / w.sum()) if w.sum() > 0 else float(np.mean(dd <= h))
-    dropped = (k == 0) | (cov < 0.5)
+    # Dropped: under half of the island's area has output within h. Merged: no output island of its
+    # own, but covered, i.e. joined to a neighbour's output island (a centroid vote alone would also
+    # flag a small island that only touches a bigger one).
+    dropped = cov < 0.5
+    merged = int(np.sum((k == 0) & ~dropped))
     manifold_in = ~inp["island_non_manifold"]
     kept = (k > 0) & manifold_in
     changed = ~((k == 1) & (chi_sum == in_chi) & (loops_sum == in_loops)) & manifold_in
@@ -339,7 +341,7 @@ def validity(inp, V, faces, sizes, normals, E, bnd, used, vertex_comp, cf, rever
            "folded_faces": folded_faces(V, faces, sizes),
            "islands_input": int(nin), "islands_input_non_manifold": int((~manifold_in).sum()),
            "islands_output": int(nout), "islands_dropped": int(dropped.sum()),
-           "islands_split": int(np.sum(k > 1)), "islands_merged": merged,
+           "islands_split": int(np.sum((k > 1) & manifold_in)), "islands_merged": merged,
            "islands_topology_changed": int(changed.sum()),
            "holes_added": int(np.sum(np.maximum(loops_sum - in_loops, 0)[kept])),
            "holes_closed": int(np.sum(np.maximum(in_loops - loops_sum, 0)[kept])),

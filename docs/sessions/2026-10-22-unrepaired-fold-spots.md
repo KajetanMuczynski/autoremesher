@@ -14,3 +14,9 @@
 - Measured: see the PR and research/fold-repair-left-2026-10-22.md (project files).
 - Next: detector needs a turned-over edge and a local radius (next PR); non-manifold edges as fixed
   boundary; spike handling waits for Kajetan's choice.
+- Second PR (detector): a spot counts only if one of its triangles faces away from an edge neighbour by more
+  than 90°, and every part that shares no vertex with the rest gets its own radius. Joined sword 33 → 7
+  spots, head 67 → 63 (the 4 smooth ones), cube unchanged; tests for a hairpin-bent thin tube and a twisted
+  sphere next to a big box (both fail on master).
+  Cost on the joined sword with repair on: one real flap fold on the vines is now repaired (as master does for
+  the vines alone), Hausdorff ×1.17; four guards that would stop it also stop good head and cube repairs.
