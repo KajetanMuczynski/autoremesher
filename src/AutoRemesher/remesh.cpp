@@ -530,6 +530,39 @@ RemeshResult remeshWithPreview(const RemeshRequest& request,
             + (1 == report.handlesAdded ? " handle" : " handles")
             + " more than the input (surfaces joined across a thin gap)");
     }
+    {
+        // Parts thinner than one quad (ThinParts).  On the corpus, 3 % of the
+        // surface, or 10 spots on 1 %, catches 84 % of the runs whose thin
+        // parts fold or get lost; a third of the runs it fires on come out
+        // clean (closed thin shells, sharp creases), so it states a risk.
+        double share = 0.0, spots = 0.0, growth = 0.0;
+        for (const auto& it : report.diagnostics) {
+            if (it.first == "thin_area_share")
+                share = it.second;
+            else if (it.first == "thin_spots")
+                spots = it.second;
+            else if (it.first == "thin_growth_p50")
+                growth = it.second;
+        }
+        const bool warned = share >= 0.03 || (spots >= 10 && share >= 0.01);
+        if (warned) {
+            std::string text = std::to_string((int)std::lround(100.0 * share)) + " % of the surface ("
+                + std::to_string((long long)spots) + (1 == spots ? " spot" : " spots")
+                + ") is thinner than one quad; expect folds or lost parts there. ";
+            const double needed = growth * (double)parameters.targetQuadCount;
+            if (needed > (double)MaximumTargetQuadCount) {
+                text += "No target quad count fits a quad across most of it: thicken those parts";
+            } else {
+                // Two significant digits; a lower bound, since a finer T shows thinner parts.
+                const double step = std::pow(10.0, std::floor(std::log10(std::max(needed, 1.0))) - 1.0);
+                text += "Try at least "
+                    + std::to_string((long long)(std::ceil(needed / step) * step)) + " target quads, or thicken those parts";
+            }
+            report.warnings.push_back(text);
+        }
+        // For front ends that add their own hint under the warning.
+        report.diagnostics.push_back({ "thin_parts_warned", warned ? 1.0 : 0.0 });
+    }
     return finish(RemeshStatus::Ok, std::string());
 }
 

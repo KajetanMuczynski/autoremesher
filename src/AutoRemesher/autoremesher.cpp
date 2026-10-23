@@ -28,6 +28,7 @@
 #include <AutoRemesher/Parameterizer>
 #include <AutoRemesher/QuadExtractor>
 #include <AutoRemesher/SurfaceProjector>
+#include <AutoRemesher/ThinParts>
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -1303,6 +1304,25 @@ bool AutoRemesher::remeshIslands()
     throwIfCancelled();
     const size_t isotropicPeakRss = peakResidentSetBytes();
 
+    // Parts thinner than one quad at the requested count, on each island's
+    // first T (a retried island's T is finer, the request is not).  Report only.
+    std::vector<ThinParts> thinParts(islandContexes.size());
+    tbb::parallel_for(tbb::blocked_range<size_t>(0, islandContexes.size()),
+        [&](const tbb::blocked_range<size_t>& range) {
+            for (size_t i = range.begin(); i != range.end(); ++i) {
+                const auto& vertices = islandRuns[i].isotropicVertices;
+                const auto& triangles = islandRuns[i].isotropicTriangles;
+                double area = 0.0;
+                for (const auto& triangle : triangles) {
+                    if (3 == triangle.size())
+                        area += 0.5 * Vector3::crossProduct(vertices[triangle[1]] - vertices[triangle[0]], vertices[triangle[2]] - vertices[triangle[0]]).length();
+                }
+                if (islandContexes[i].targetQuadCount > 0.0 && area > 0.0)
+                    thinParts[i] = measureThinParts(vertices, triangles, std::sqrt(area / islandContexes[i].targetQuadCount));
+            }
+        });
+    auto t_thinPartsEnd = std::chrono::high_resolution_clock::now();
+
     tbb::parallel_for(tbb::blocked_range<size_t>(0, islandContexes.size()),
         [&](const tbb::blocked_range<size_t>& range) {
             for (size_t i = range.begin(); i != range.end(); ++i)
@@ -1665,6 +1685,21 @@ bool AutoRemesher::remeshIslands()
             run.set("isotropic_non_manifold_edges", (double)isotropicNonManifoldEdges);
             run.set("isotropic_opened_closed_islands", (double)openedClosedIslands);
         }
+        {
+            double area = 0.0, thinArea = 0.0;
+            size_t spots = 0;
+            std::vector<std::pair<double, double>> growth;
+            for (const auto& thin : thinParts) {
+                area += thin.area;
+                thinArea += thin.thinArea;
+                spots += thin.spots;
+                growth.insert(growth.end(), thin.growth.begin(), thin.growth.end());
+            }
+            run.set("thin_area_share", area > 0.0 ? thinArea / area : 0.0);
+            run.set("thin_spots", (double)spots);
+            run.set("thin_growth_p50", medianThinGrowth(std::move(growth)));
+            run.set("thin_parts_ms", milliseconds(std::chrono::duration_cast<std::chrono::microseconds>(t_thinPartsEnd - t_isotropicEnd).count()));
+        }
         run.set("retried_islands", (double)islandsToRetry.size());
         run.set("repaired_islands", (double)islandsRepaired.load());
         m_diagnostics.push_back(std::move(run));
@@ -1708,6 +1743,8 @@ bool AutoRemesher::remeshIslands()
             record.set("retry_attempts", (double)islandRetryAttemptCounts[i]);
             record.set("output_faces", (double)islandRun.remeshedQuads.size());
             record.set("output_quads", (double)quads);
+            record.set("thin_area_share", thinParts[i].area > 0.0 ? thinParts[i].thinArea / thinParts[i].area : 0.0);
+            record.set("thin_spots", (double)thinParts[i].spots);
             m_diagnostics.push_back(std::move(record));
         }
         for (size_t i = 0; i < islandRuns.size(); ++i) {
