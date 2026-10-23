@@ -37,6 +37,14 @@ def offers_fold_repair(report):
             and not report.get("parameters", {}).get("repair_folds"))
 
 
+def spike_text(diagnostics):
+    """How many spike tips were lowered and the largest drop in quad edges."""
+    spikes = int(diagnostics.get("input_fold_spikes", 0))
+    if not spikes:
+        return "0"
+    return "%d, tip lowered by up to %.1f quads" % (spikes, float(diagnostics.get("input_fold_spike_drop_quads", 0.0)))
+
+
 def summary_rows(report):
     """(label, value, is_problem) rows for a report dict from --report-json."""
     rows = []
@@ -86,6 +94,8 @@ def summary_rows(report):
             rows.append(("Folds repaired", "%d of %d faces" % (max(faces - faces_left, 0), faces), False))
             if faces_left:
                 rows.append(("Folds left", "%d faces in %d spots" % (faces_left, left), True))
+            if report.get("parameters", {}).get("flatten_spikes"):
+                rows.append(("Spikes flattened", spike_text(diagnostics), False))
     islands = report.get("islands", {})
     empty = islands.get("without_output", 0)
     rows.append(("Empty islands", "%d of %d" % (empty, islands.get("input", 0)), empty > 0))
@@ -122,6 +132,10 @@ def warning_lines(report, width=WARNING_WIDTH):
         if faces_left:
             add("%d folded faces in %d spots could not be repaired safely and were left "
                 "as they were." % (faces_left, int(diagnostics.get("input_fold_clusters_after", 0))), False)
+        spikes = int(diagnostics.get("input_fold_spikes", 0))
+        if spikes:
+            add("Flattening spikes changed the shape: %d spike tips were lowered to their base, "
+                "the farthest by %.1f quad edges." % (spikes, float(diagnostics.get("input_fold_spike_drop_quads", 0.0))), False)
     return lines
 
 

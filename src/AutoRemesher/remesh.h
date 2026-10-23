@@ -36,7 +36,7 @@
 namespace AutoRemesher {
 
 const int InterfaceVersionMajor = 1;
-const int InterfaceVersionMinor = 6;
+const int InterfaceVersionMinor = 7;
 
 // Since 1.3.  Peak memory grows linearly with the target, by about this much
 // per quad at Quality resolution (21 KB measured on spot at 25k-100k quads;
@@ -88,6 +88,10 @@ struct RemeshParameters {
     bool repairFolds = false;
     // Since 1.6.
     Extractor extractor = Extractor::Qex;
+    // Since 1.7.  With repairFolds: where a fold cannot be untangled, also
+    // lower the tips of needle spikes near it (a shape change, so off by
+    // default; diagnostics input_fold_spikes and input_fold_spike_drop_quads).
+    bool flattenSpikes = false;
 };
 
 struct RemeshRequest {
