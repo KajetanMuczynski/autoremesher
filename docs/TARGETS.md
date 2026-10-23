@@ -111,8 +111,9 @@ sizing (more clean runs, fidelity ×2 worse) and throw away the lead.
 - **Determinism** is per build: same binary, same input, same output across repeats and thread counts.
   Linux and Windows and macOS builds differ (TODO 2.9: container iteration order), so release checks run
   on all three platforms.
-- A release check is the corpus × 6 (plain + 5 replicates) on each platform: about 3 CPU hours per
-  platform at today's speed [I]. A manual workflow before a tag, not a per-PR job.
+- A release check is the corpus × 6 (plain + 5 replicates) on each platform, corpus and closed sets:
+  the manual workflow `release-check.yml` (RELEASING.md), not a per-PR job. Both sides on Linux,
+  4 cores: 54 min [M] (2026-10-22).
 
 ## 3. Gates
 
@@ -251,8 +252,10 @@ computed and no reference values (§7).
   loses clean runs or gains defects per 1k on the corpus geo-mean beyond noise (confirm with replicates
   when a count moves less than 1.5×); no soft metric worsens beyond the §2.4 margins. Anything else needs
   a reason in the PR and Kajetan's yes.
-- **Releases**: §3.1 on every run, replicate and platform; §3.2 ratchet and, for 1.0, its bar; organic
-  min targets of §4.
+- **Releases**: on every platform, the §3.2 ratchet; §3.1 on every run and replicate for 1.0, and
+  for 0.x previews (§6, decision 3) no §3.1 gate failing on more runs than in the previous release
+  (it fails on master today: RELEASING.md, "Gaps"); for 1.0 also the §3.2 bar and the organic min
+  targets of §4. Checked by `release-check.yml` (`tools/bench/release_gate.py`).
 - **Gate 7.1** (proposal, for when 7.1 is decided): keep upgrading inside the current structure if,
   after 3.3, untangling and 4.1, the §3.2 1.0 bar holds on ≥ 95 % of corpus runs and the corpus meets
   the §4.1 and §4.2 minimums; otherwise start Stage B (7.2).

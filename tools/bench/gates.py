@@ -94,7 +94,7 @@ def gates(rec, run_dir, fam):
          "H4 islands kept (none dropped, split or merged)": (v.get("islands_dropped") == 0 and v.get("islands_split") == 0
                                                              and v.get("islands_merged") == 0),
          "H5 no hole added or closed": v.get("holes_added") == 0 and v.get("holes_closed") == 0,
-         "H6 count within ±10 %": abs(f["quads"] / rec["target"] - 1) <= 0.10,
+         "H6 count within ±10 %": abs(f["quads"] / rec["target"] - 1) <= 0.10 + 1e-9,  # 2200/2000 - 1 > 0.1 in floats
          "H8 no 6+-gon": f["other"] == 0,
          "V1 all-quad": nonquads == 0,
          "V1 retired cluster rule of 2026-10-21 (all-quad on hard surface, else clusters ≤ 2)": (
@@ -118,7 +118,7 @@ def gates(rec, run_dir, fam):
     g["V1–V5 together, flips over input folds included"] = g["V1–V5 together"] and g["V3 incl. flips over input folds"]
     d = {"faces": f["total"], "non-quads": nonquads, "folded quads": q.get("sj_le_0", 0),
          "folded faces (any size)": v.get("folded_faces", 0), "flipped vs input": fl["faces_vs_input"],
-         "flipped over input folds": fl.get("faces_over_input_folds", 0),
+         "flipped off input folds": v3, "flipped over input folds": fl.get("faces_over_input_folds", 0),
          "flipped vs raw input": fl.get("faces_vs_raw_input", 0), "valence 2 / ≥ 7": v5,
          "degenerate": m["degenerate"]["faces"], "non-manifold vertices": v.get("non_manifold_vertices", 0),
          "holes added": v.get("holes_added", 0), "handles lost": v.get("handles_lost", 0),

@@ -20,6 +20,7 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
+#include "qexextraction.h"
 #include <AutoRemesher/AutoRemesher>
 #include <AutoRemesher/FoldRepair>
 #include <AutoRemesher/IsotropicRemesher>
@@ -970,9 +971,21 @@ bool AutoRemesher::remeshIslands()
     // repaired when asked for.
     if (nullptr != m_progressHandler)
         m_progressHandler(m_tag, 0.0f, m_repairInputFolds ? "Repairing folded input" : "Checking for folded input");
+    FoldRepair::Options foldOptions;
+    foldOptions.flattenSpikes = m_flattenSpikes;
     const FoldRepair::Stats folds = m_repairInputFolds
-        ? FoldRepair::repair(&m_vertices, m_triangles, FoldRepair::Options())
-        : FoldRepair::survey(m_vertices, m_triangles, FoldRepair::Options());
+        ? FoldRepair::repair(&m_vertices, m_triangles, foldOptions)
+        : FoldRepair::survey(m_vertices, m_triangles, foldOptions);
+    // The spikes' largest drop in quad edges: sqrt(area per target quad).
+    double spikeDropQuads = 0.0;
+    if (folds.flattenedSpikes > 0 && m_targetTriangleCount > 0) {
+        double area = 0.0;
+        for (const std::vector<size_t>& t : m_triangles)
+            area += 0.5 * Vector3::crossProduct(m_vertices[t[1]] - m_vertices[t[0]], m_vertices[t[2]] - m_vertices[t[0]]).length();
+        const double quadEdge = std::sqrt(area / (0.5 * m_targetTriangleCount));
+        if (quadEdge > 0.0)
+            spikeDropQuads = folds.maximumSpikeDrop / quadEdge;
+    }
     throwIfCancelled();
 
     // Each label names the step that is about to run, not the one that just
@@ -1007,6 +1020,7 @@ bool AutoRemesher::remeshIslands()
         // Taken before resampling replaces vertices and triangles.
         QuadExtractor::Boundary inputBoundary;
         SurfaceTopology inputTopology;
+        long long inputTwiceHandles = -1;
         double voxelSize;
         double area;
         double targetQuadCount;
@@ -1038,6 +1052,9 @@ bool AutoRemesher::remeshIslands()
         }
         context.area = calculateMeshArea(context.vertices, context.triangles);
         context.inputTopology = surfaceTopology(context.triangles, context.vertices.size());
+        context.inputTwiceHandles = 0 == context.inputTopology.nonManifoldEdges
+            ? twiceHandleCount(context.vertices.size(), context.triangles)
+            : -1;
         context.inputBoundary = QuadExtractor::findBoundary(context.vertices, context.triangles);
 
         context.scaling = m_scaling;
@@ -1436,6 +1453,9 @@ bool AutoRemesher::remeshIslands()
         if (!run.remeshedQuads.empty()) {
             island.vertexCount = run.remeshedVertices.size();
             island.faceCount = run.remeshedQuads.size();
+            island.inputTwiceHandles = islandContexes[i].inputTwiceHandles;
+            if (island.inputTwiceHandles >= 0)
+                island.outputTwiceHandles = twiceHandleCount(run.remeshedVertices.size(), run.remeshedQuads);
         }
         m_remeshedIslands.push_back(island);
     }
@@ -1622,6 +1642,8 @@ bool AutoRemesher::remeshIslands()
             run.set("input_fold_moved_vertices", (double)folds.movedVertices);
             run.set("input_fold_max_offset", folds.maximumOffset);
             run.set("input_fold_max_move", folds.maximumMove);
+            run.set("input_fold_spikes", (double)folds.flattenedSpikes);
+            run.set("input_fold_spike_drop_quads", spikeDropQuads);
             run.set("fold_repair_ms", folds.seconds * 1000.0);
         }
         {

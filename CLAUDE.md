@@ -86,6 +86,11 @@ CI (`.github/workflows/`):
     against the manifest version and the zips, and makes a **draft** GitHub release with the three
     zips, `SHA256SUMS.txt` and notes from `docs/releases/`. Publishing is Kajetan's click.
     Procedure, version rule and release checklist: `docs/RELEASING.md`.
+- `release-check.yml` (by hand only, before a release tag): the TARGETS release check on Linux,
+  Windows and macOS, each building the candidate and the previous release with `tools/bench/ab.py`
+  (corpus and closed sets, 5 replicates, about an hour per platform) and deciding with
+  `tools/bench/release_gate.py`. Not part of **CI passed**; procedure in `docs/RELEASING.md`. A PR
+  touching it, `ab.py`, `gates.py`, `metrics.py` or `release_gate.py` gets a smoke run (2 meshes).
 - `rerun-dropped.yml` (when a ci run completes): GitHub drops a macOS arm64 job that waits ~15 min
   for a runner (cancelled, no runner, no steps), which turns **CI passed** red. `ci/rerun_dropped.py`
   then re-runs the failed jobs of that same run, only if every failed job never got a runner, the
@@ -108,6 +113,14 @@ Running the binary with no args opens the GUI. The core needs `setTargetTriangle
   a run that fails or recovers), repeat those runs on both sides with `--replicates 5` (1-ulp perturbed
   inputs) and claim only what every replicate agrees on. Aggregates over a whole set need no replicates.
 - A change that can move topology also runs `--set closed`.
+- Test lanes (Kajetan, 2026-10-22; tools/bench/README "Test lanes"): `ab.py lane <merge-base> HEAD` decides,
+  never the PR's size or the author. **none** (nothing compiled changed): CI only. **light** (compiled code
+  changed, `out.obj` byte-identical on every public set with default targets, 265 runs since the `external` set, plain + one float32 replicate): paste the
+  `lane` output, A/B only the new option on its meshes. **full** (anything moved): `--replicates 5` on every
+  public set, both sides, as before; no replicate shortcuts (tested on #67, they miss float32-only effects).
+  Input-handling changes (cleanup, orientation, fold detection) also run `lane` on the private set (`AR_CORPUS`).
+  Drift guard: master's ×6 side is deterministic, so compute it once per core merge and `compare` it with
+  the previous core merge (README "Test lanes").
 
 ## PRs, branches and commits (Kajetan's rules, 2026-10-15)
 - Every PR targets `master` of KajetanMuczynski/quadami. Never a feature branch, no stacked PRs
