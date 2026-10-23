@@ -113,6 +113,14 @@ Running the binary with no args opens the GUI. The core needs `setTargetTriangle
   a run that fails or recovers), repeat those runs on both sides with `--replicates 5` (1-ulp perturbed
   inputs) and claim only what every replicate agrees on. Aggregates over a whole set need no replicates.
 - A change that can move topology also runs `--set closed`.
+- Test lanes (Kajetan, 2026-10-22; tools/bench/README "Test lanes"): `ab.py lane <merge-base> HEAD` decides,
+  never the PR's size or the author. **none** (nothing compiled changed): CI only. **light** (compiled code
+  changed, `out.obj` byte-identical on every public set with default targets, 265 runs since the `external` set, plain + one float32 replicate): paste the
+  `lane` output, A/B only the new option on its meshes. **full** (anything moved): `--replicates 5` on every
+  public set, both sides, as before; no replicate shortcuts (tested on #67, they miss float32-only effects).
+  Input-handling changes (cleanup, orientation, fold detection) also run `lane` on the private set (`AR_CORPUS`).
+  Drift guard: master's ×6 side is deterministic, so compute it once per core merge and `compare` it with
+  the previous core merge (README "Test lanes").
 
 ## PRs, branches and commits (Kajetan's rules, 2026-10-15)
 - Every PR targets `master` of KajetanMuczynski/quadami. Never a feature branch, no stacked PRs

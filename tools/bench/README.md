@@ -7,7 +7,7 @@ directory you choose.
 
 | File | What it does |
 |---|---|
-| `ab.py` | **A/B harness** for quality: builds `autoremesher-cli` from a git ref, runs it over a mesh set (optionally with 1-ulp replicates), adds metrics and topology, and compares two runs as Markdown tables. See [A/B a change](#ab-a-change). |
+| `ab.py` | **A/B harness** for quality: builds `autoremesher-cli` from a git ref, runs it over a mesh set (optionally with 1-ulp replicates), adds metrics and topology, and compares two runs as Markdown tables. `lane` says how much A/B a change needs. See [A/B a change](#ab-a-change) and [Test lanes](#test-lanes). |
 | `build.sh <work>` | apt deps (skip with `SKIP_APT=1`; `JOBS=2` to keep a laptop cool), out-of-tree qmake build of the Qt app, the Qt-free `ar_bench` build of the same core, and a Python venv. Builds this checkout unless `AR_SOURCE_DIR` points elsewhere. |
 | `bench/ar_bench.cpp` | Qt-free driver for time and memory: same OBJ loader and `AutoRemesher::remesh()` call as the app's headless mode; writes JSON with wall/CPU time, peak RSS (overall and per pipeline step), the core's phase report, result counts and UV flip checks on the integer-grid map; `--stage-diagnostics` writes the core's per-stage records (solver sizes and times, rounding passes). |
 | `bench/CMakeLists.txt` | Builds `ar_bench` from a source tree (`-DAR_SOURCE_DIR`) with the `.pro` release flags (`-O3 -flto -funroll-loops -march=x86-64-v2`). |
@@ -139,6 +139,65 @@ The Qt CLI (what the Blender bridge calls) runs headless only with an offscreen 
 `QT_QPA_PLATFORM=offscreen $W/app/autoremesher --input in.obj --output out.obj --report r.txt
 --target-quads 10000`. Without it, on a machine with no display, it aborts (exit 134). `--report`
 holds only totals; the per-step phase report goes to stderr.
+
+## Test lanes
+
+How much A/B a change needs is decided by what it does to the output, not by its size or by the
+author: a one-line change in rounding can move every run (#67 moved 50 of 225), a 3,000-line opt-in
+feature can move none (#71). `ab.py lane` gives the lane:
+
+```bash
+$P tools/bench/ab.py lane $(git merge-base origin/master HEAD) HEAD --jobs 4
+```
+
+| lane | when (`lane` prints it) | what the PR needs |
+|---|---|---|
+| **none** | nothing compiled into the CLI changed (`src/`, `include/`, `thirdparty/`, `CMakeLists.txt`): docs, add-on, tools, CI. 28 of the 45 PRs #26–#73. | CI only. |
+| **light** | compiled code changed, but `out.obj` is byte-identical to the base in every run of every public set with default targets (265 runs since `external` was added, each with the plain input and one float32 replicate; `gallery` has no default targets and is skipped). Opt-in code behind a flag, report-only fields, refactors that keep the bytes. #60, #65, #71 would have been light. | The `lane` output in the PR, plus an A/B of the new option (`--cli-arg=...`) on the meshes it is for, with the noise rule for any discrete claim. |
+| **full** | anything else: some run moved, failed or is missing. | `run --replicates 5` on every public set for both sides and `compare` per set, as before; private sets (`AR_CORPUS`) when the change is aimed at sculpts. |
+
+- **Why a float32 replicate.** The plain input (u0) is double precision; Blender hands the add-on
+  float32. Replaying #67 at ×6 (2026-10-22): 28 of the 175 runs whose plain output was identical moved in
+  some float32 replicate. A check on u0 alone would pass changes the add-on sees. `--replicates N`
+  checks more.
+- **No replicate shortcut in the full lane.** "Replicates only where the plain run moved" was tested on
+  #67 against full ×6: it reached the same unanimous verdicts (none either way) but missed most of the
+  effect where the change acts through float32 noise (sculpt flips ×0.79 full vs ×0.90, p99 ×0.76 vs
+  ×0.92). Checking u0 and u1 still missed 20 runs. So the full lane keeps ×6 on every run.
+- **Base.** Compare against the merge base, or against master right after merging it, never against a
+  newer master than the branch has: other merges would show up as differences.
+- **Gap.** Light proves identical default output on the public sets only. A change in input handling
+  (cleanup, orientation, fold detection) also runs `lane` with `AR_CORPUS` on the private set, or goes full.
+  Non-default options (`--sharp-edge`, `--adaptivity`) are not covered either; a change that touches
+  their code adds a `lane`-style check with that `--cli-arg` via `run`/`compare`.
+- **Cost** (measured 2026-10-22, 4-vCPU cloud container, `--jobs 4`, master 0e9bec8): full lane
+  56 min per side (closed 6, corpus 25, brush 9, sculpt 14, suzanne 2 min), plus 15 min for `external`
+  (2026-10-23, master dd03272), so about 71 min per side and 2 h 20 min for an A/B, more with private
+  sets; `lane` on a light change about 25 min for both sides from scratch without `external`, no metrics
+  (plain runs 787 s, the float32 replicate 705 s more; #60, #65 and #71 all came out light, 450 of 450
+  identical), plus 9 min with it (262 s per side); none: 0.
+  Reruns of a key are free (runs are cached), and a `lane` run's folders are reused by a later full
+  `run`, which adds the metrics.
+- **Drift guard.** Light PRs cannot drift the default output (they are identical by construction), but
+  full PRs each within noise can add up: the 2026-10-21 net-effect run found slips no single PR showed.
+  Master's ×6 side is deterministic, so it needs computing only once per core merge (a change of
+  `source_key`), not once per PR. After a core merge, one thread runs it and compares it with the
+  previous core merge, set by set; a later full-lane A/B in the same work folder reuses it as its base:
+
+  ```bash
+  NEW=$(git rev-parse origin/master); OLD=<the previous core merge on master>   # lane none merges keep the key
+  for s in closed corpus brush sculpt suzanne external; do
+    $P tools/bench/ab.py run $NEW --set $s --replicates 5 --jobs 4 --timeout 1200
+    $P tools/bench/ab.py compare $OLD $NEW --set $s     # needs OLD's runs in this work folder too
+  done
+  ```
+
+  A row worse beyond the replicate spread is bisected by PR (`lane` on each merge in between finds the
+  ones that moved it). Not automated yet: a CI workflow doing this after each core merge is a
+  follow-up decision.
+- **Determinism.** The lane test relies on outputs being reproducible: 225 of 225 plain runs of master
+  were byte-identical between two work folders (2026-10-22), and earlier across `--jobs` and thread
+  counts (72/72). Builds with another compiler or flags are not comparable byte for byte.
 
 ## Adding your own meshes
 
