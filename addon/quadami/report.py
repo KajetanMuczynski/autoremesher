@@ -58,6 +58,12 @@ def summary_rows(report):
             holes = islands.get("holes", 0)
             rows.append(("Holes", "%d (%d open edges)" % (holes, islands.get("hole_edges", 0))
                          if holes else "0", holes > 0))
+        # Handles (tunnels) against the input, per island; reports from cores
+        # before interface 1.7 don't have them.
+        if "handles_lost" in islands:
+            lost, added = islands.get("handles_lost", 0), islands.get("handles_added", 0)
+            parts = (["%d lost" % lost] if lost else []) + (["%d added" % added] if added else [])
+            rows.append(("Handles", ", ".join(parts) if parts else "as input", bool(parts)))
         count("Non-manifold edges", output.get("non_manifold_edges", 0))
         count("Non-manifold vertices", output.get("non_manifold_vertices", 0))
         count("Winding flips", output.get("orientation_flips", 0))
