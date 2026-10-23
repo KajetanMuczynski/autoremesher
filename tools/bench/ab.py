@@ -149,7 +149,12 @@ def perturbed(src, k, work):
                 fo.write("v %.9g %.9g %.9g\n" % tuple(float(x) for x in xyz))
             else:
                 fo.write(line)
-    os.replace(tmp, dst)
+    try:
+        os.replace(tmp, dst)
+    except PermissionError:  # Windows: a parallel run wrote the same file and a CLI has it open
+        if not os.path.exists(dst):
+            raise
+        os.remove(tmp)
     return dst
 
 
